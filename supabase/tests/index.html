@@ -70,11 +70,13 @@
     Create both accounts under Authentication, then set the owner role:
     <code>update profiles set role='owner' where email='owner@antailor.test';</code>
   </p>
-  <div style="display:flex; gap:10px; margin-top:8px">
+  <div style="display:flex; gap:10px; margin-top:8px; flex-wrap:wrap">
     <button id="run">Run all tests</button>
+    <button class="ghost" id="copy">Copy results</button>
     <button class="ghost" id="clear">Clear results</button>
   </div>
   <div id="verdict" class="verdict" hidden></div>
+  <div id="summary" class="note" style="margin-top:8px"></div>
 </div>
 
 <div class="panel" style="padding:0; overflow:hidden">
@@ -227,7 +229,35 @@ el('run').addEventListener('click', async () => {
     v.className = 'verdict bad';
     v.textContent = failed.length + ' of ' + results.length + ' checks FAILED. Do not import real data.';
   }
+
+  // A single plain-text block that can be pasted into a chat, so the result
+  // can be read without transcribing a table by hand.
+  const lines = ['AN TAILOR RLS GATE', v.textContent, ''];
+  results.forEach(r => {
+    lines.push((r.pass ? 'PASS' : 'FAIL') + ' | ' + r.who + ' | ' + r.check +
+               ' | expected ' + r.expected + (r.detail ? ' | ' + r.detail : ''));
+  });
+  el('summary').textContent = lines.join('\n');
+  window.__rlsReport = lines.join('\n');
+
   el('run').disabled = false;
+});
+
+el('copy').addEventListener('click', async () => {
+  const text = window.__rlsReport || el('summary').textContent || 'No results yet.';
+  const box = el('summary');
+  try {
+    await navigator.clipboard.writeText(text);
+    box.textContent = 'Copied to clipboard. Paste it into the chat.\n\n' + text;
+  } catch (e) {
+    // Clipboard API needs a secure context; select the text so Ctrl+C works.
+    const r = document.createRange();
+    r.selectNodeContents(box);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(r);
+    box.textContent = 'Press Ctrl+C to copy, then paste into the chat.\n\n' + text;
+  }
 });
 </script>
 
