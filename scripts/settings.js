@@ -421,9 +421,12 @@ window.ANT.settings = (function () {
   // prices only.
   function insertRow(kind, values) {
     if (kind === 'dress') {
+      // .single() asks the database to hand the row back. Without it the
+      // request carries Prefer: return=minimal and answers with no body, so a
+      // write that RLS quietly discarded would look exactly like a success.
       return sb().from('dress_types')
         .insert(values)
-        .select('id')
+        .single()
         .then(function (res) {
           if (res.error && res.error.status === 409) {
             return { error: { message: 'That dress type is already listed under this category.' } };
@@ -445,7 +448,7 @@ window.ANT.settings = (function () {
 
       return sb().from('prices')
         .insert({ code: code, status: 'ACTIVE', ...values })
-        .select('id')
+        .single()
         .then(function (res) {
           if (!res.error || res.error.status !== 409) return res;
 
