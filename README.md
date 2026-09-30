@@ -11,8 +11,9 @@ Supabase + GitHub Pages + PWA replacement for the Apps Script system.
 | 2 | GitHub + Supabase accounts | done |
 | 3 | Database schema | done, 13 tables applied |
 | 4 | RLS policies + security gate | **done, 24/24 passed** |
-| 5 | Real auth in the frontend | not started - app is still preview mode |
-| 6-12 | Customers, Measurements, Orders, Payments, Billing, migration | not started |
+| 5 | Real auth in the frontend | done - Supabase sign-in, session restore, role from `profiles` |
+| 6 | Customers | done - list, search, add, edit, archive, restore, delete |
+| 7-12 | Measurements, Orders, Payments, Billing, migration | not started |
 
 ## Security
 
@@ -50,14 +51,23 @@ Double-click `serve.cmd`, then open <http://127.0.0.1:8080/>. A local HTTP
 server is required: ES modules and CORS do not work over `file://`. The
 machine has no Python and no Node, so `serve.ps1` uses .NET sockets.
 
-Until Phase 5, the app runs in preview mode. The login screen has
-**Preview as Owner** / **Preview as Staff** buttons that skip Supabase.
+The login screen posts the credentials to Supabase Auth. The role is then read
+from the `profiles` table on every sign-in, never from the browser, and a
+database trigger blocks a user from promoting themselves. A missing or
+deactivated profile signs the user out rather than guessing a role.
 
 ## Configuration
 
-Copy `config.local.example.js` to `config.local.js` and paste the project URL
-and the `anon` "public" key. `config.local.js` is gitignored, so credentials
-never enter the repository.
+The project URL and the `anon` "public" key are committed in `scripts/config.js`,
+so the deployed site works with no setup. That key is public by design: it
+travels with every browser request and anyone can read it from the network
+tab. On its own it grants nothing, because Row Level Security decides what it
+may see.
+
+To point the app at a different Supabase project, or to rotate the key, copy
+`config.local.example.js` to `config.local.js` and fill it in. That file loads
+first and overrides the committed values, and it is gitignored so local
+credentials never enter the repository.
 
 Never commit the `service_role` key. Never send the database password.
 
@@ -70,9 +80,11 @@ Never commit the `service_role` key. Never send the database password.
     assets/                 icons
     styles/tokens.css       design tokens, light + dark
     styles/app.css          layout, nav, cards, forms, tables
-    scripts/config.js       areas, roles, credentials
-    scripts/auth.js         session and access checks
-    scripts/app.js          theme, router, pages
+scripts/config.js       areas, roles, credentials
+scripts/supabase.js     Auth + PostgREST client, token refresh
+scripts/auth.js         session, role lookup, sign-in/out
+scripts/customers.js    customers list, search, add, edit, archive
+scripts/app.js          theme, router, pages
     supabase/schema.sql     13 tables, RLS switched on, explicit grants
     supabase/rls.sql        role helpers, policies, signup trigger
     supabase/tests/         browser security gate
