@@ -12,6 +12,7 @@ var SHELL = [
   './scripts/supabase.js',
   './scripts/auth.js',
   './scripts/customers.js',
+  './scripts/settings.js',
   './scripts/app.js',
   './assets/icon.svg'
 ];

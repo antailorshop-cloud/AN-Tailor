@@ -190,9 +190,14 @@
       return;
     }
 
-    if (area.id === 'customers' && window.ANT.customers) {
-      el.main.innerHTML = window.ANT.customers.mount();
-      window.ANT.customers.render();
+    var modules = {
+      customers: window.ANT.customers,
+      settings: window.ANT.settings
+    };
+
+    if (modules[area.id]) {
+      el.main.innerHTML = modules[area.id].mount();
+      modules[area.id].render();
       el.pageTitle.textContent = area.label;
       el.navTrack.scrollTop = 0;
       markActiveNav();
