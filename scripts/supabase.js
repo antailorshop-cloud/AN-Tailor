@@ -260,16 +260,21 @@ window.ANT.sb = (function () {
       parts.push('select=' + encodeURIComponent(this.columns));
       if (this.wantsCount) prefer = 'count=exact';
     } else if (this.mode === 'insert') {
-      // PostgREST returns the inserted rows when a column selection is
-      // present, and nothing when it is not.
-      if (wantsRow) parts.push('select=*');
-      else prefer = 'return=minimal';
+      // PostgREST returns the inserted rows when asked to, and nothing when
+      // not, so an insert that RLS discarded would otherwise be
+      // indistinguishable from one that succeeded.
+      parts.push('select=*');
+      prefer = wantsRow ? 'return=representation' : 'return=minimal';
     } else if (this.mode === 'update' || this.mode === 'delete') {
       // Always ask for the affected rows. A blocked write comes back as an
       // empty list, which is the only reliable way to tell "denied" from
       // "nothing matched" - RLS does not raise an error.
+      //
+      // return=representation is required. Without it PostgREST defaults to
+      // return=minimal and answers with an empty body, which is
+      // indistinguishable from a row that RLS filtered out.
       parts.push('select=*');
-      if (this.wantsCount) prefer = 'count=exact';
+      prefer = this.wantsCount ? 'return=representation,count=exact' : 'return=representation';
     }
 
     if (this.orExpr) parts.push('or=' + encodeURIComponent(this.orExpr));
