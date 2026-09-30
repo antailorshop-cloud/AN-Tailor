@@ -195,7 +195,8 @@
       settings: window.ANT.settings,
       measurements: window.ANT.measurements,
       orders: window.ANT.orders,
-      payments: window.ANT.payments
+      payments: window.ANT.payments,
+      bills: window.ANT.bills
     };
 
     if (modules[area.id]) {

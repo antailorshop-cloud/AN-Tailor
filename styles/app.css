@@ -1534,3 +1534,28 @@ button, input, select, textarea { font: inherit; color: inherit; }
   .pay-grid { grid-template-columns: minmax(0, 1fr); }
   .ord-kpi { align-items: flex-start; }
 }
+
+/* Bills ------------------------------------------------------------------ */
+
+/* An order that is already on a bill stays in the list so the customer can see
+   the whole picture, but it is dimmed and untickable rather than hidden. */
+.bill-locked-row td { opacity: 0.62; }
+.bill-locked-row:hover td { opacity: 1; }
+
+.bill-pick { width: 34px; text-align: center; }
+.bill-pick input[type="checkbox"] { width: 17px; height: 17px; cursor: pointer; }
+.bill-pick input[type="checkbox"]:disabled { cursor: not-allowed; }
+
+.ord-sub-strong {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The summary figures are worked out from the ticked orders. They are shown in
+   a box that cannot be typed into, so they read as a total rather than an
+   amount that is about to be entered somewhere. */
+.bill-ro {
+  background: var(--surface-muted);
+  color: var(--text-muted);
+  font-weight: 600;
+}
