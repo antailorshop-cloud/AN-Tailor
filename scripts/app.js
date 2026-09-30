@@ -379,6 +379,50 @@
         return null;
       });
     }
+
+    checkForUpdate();
+  }
+
+  // Ask the server whether a newer release exists.
+  //
+  // The app routes on the URL hash, so moving between areas never loads a page
+  // and never re-checks the service worker. A tab left open across a deploy
+  // therefore keeps running the code it started with, and a cached copy of a
+  // script can survive indefinitely. Fetching config.js with the cache bypassed
+  // and comparing the build stamp settles that without the user having to know
+  // that a hard refresh exists.
+  //
+  // The reload is skipped while the login form is filled in, so a half-typed
+  // password is never thrown away.
+  function checkForUpdate() {
+    if (!cfg.build) return;
+
+    window.fetch('scripts/config.js', { cache: 'no-store' })
+      .then(function (res) { return res.ok ? res.text() : ''; })
+      .then(function (text) {
+        if (!text) return;
+
+        var m = /var BUILD\s*=\s*'([^']+)'/.exec(text);
+        if (!m || m[1] === cfg.build) return;
+
+        if (isTyping()) {
+          window.ANT.toast('A new version is ready. Reload when you are ready.', 'success');
+          return;
+        }
+
+        window.location.reload();
+      })
+      .catch(function () {
+        // Offline or the check failed. The running code is still correct.
+        return null;
+      });
+  }
+
+  function isTyping() {
+    var active = document.activeElement;
+    if (!active) return false;
+    var tag = (active.tagName || '').toLowerCase();
+    return tag === 'input' || tag === 'textarea' || tag === 'select';
   }
 
   window.ANT.escapeHtml = escapeHtml;

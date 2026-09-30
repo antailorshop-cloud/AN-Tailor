@@ -1,9 +1,9 @@
-// Bump on every release that adds or changes a cached file. The old cache is
-// deleted on activate, so a bumped name is what forces phones to pick up new
-// code. Adding a file to SHELL without bumping this is the trap: the install
-// event never re-fires, so the new file is never precached and stale-while-
-// revalidate keeps serving the previous copy.
-var CACHE = 'an-tailor-v4';
+// Bump on every release that changes any cached file. The old cache is deleted
+// on activate, so a bumped name is what forces phones to pick up new code.
+// Adding a file to SHELL without bumping this is the trap: the install event
+// never re-fires for an already-installed worker, so the new file is never
+// precached and the previously cached copy keeps being served.
+var CACHE = 'an-tailor-v5';
 
 var SHELL = [
   './',

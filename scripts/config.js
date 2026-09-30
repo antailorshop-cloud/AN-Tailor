@@ -1,5 +1,13 @@
 window.ANT = window.ANT || {};
 
+// Release stamp. Change this on every deploy. app.js refetches config.js with
+// the cache bypassed and reloads the page when the stamp differs, so a new
+// release reaches a phone that is already open without the user having to
+// hard-refresh. Hash routing means clicking around the app never causes a
+// page load, so without this check a running tab can stay on old code
+// indefinitely.
+var BUILD = '2026-09-30-1';
+
 // config.local.js is loaded first and is gitignored. It exists so keys can be
 // rotated, or a second project tried, without editing tracked code. The values
 // below are the committed defaults and are what GitHub Pages deploys.
@@ -15,6 +23,7 @@ var local = window.ANT.local || {};
 window.ANT.config = {
   appName: 'AN TAILOR',
   tagline: 'Professional Tailoring Services',
+  build: BUILD,
 
   supabaseUrl: local.supabaseUrl || 'https://taidyazxtcouyihxfxfe.supabase.co',
   supabaseAnonKey: local.supabaseAnonKey || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRhaWR5YXp4dGNvdXlpaHhmeGZlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA3NjcwODYsImV4cCI6MjEwNjM0MzA4Nn0.2m0x9-JcGVo-OjYsn6rR2HQjeXwM0toNpJ3l1pgMALc',
