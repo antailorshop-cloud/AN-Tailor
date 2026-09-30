@@ -2,7 +2,9 @@
   color-scheme: light;
 
   --brand-gold: #b08d3f;
-  --brand-gold-strong: #8b7e6a;
+  /* Used for the primary button hover. This has to stay in the gold family:
+     a desaturated brown here reads as a dead grey button on hover. */
+  --brand-gold-strong: #96762f;
   --brand-gold-soft: #f5e6b8;
   --brand-gold-tint: #fdf8ed;
   --brand-navy: #0f3460;
@@ -70,6 +72,16 @@
   --font-display: Georgia, 'Times New Roman', serif;
   --font-mono: 'SF Mono', 'Cascadia Mono', Consolas, monospace;
 
+  /* Type scale. These are referenced throughout app.css. An undefined custom
+     property is not an error, it is simply dropped, so a missing one leaves
+     the declaration empty and the text renders at whatever the browser
+     defaults to. Keep this list in step with every var(--fs-*) used. */
+  --fs-xs: 11.5px;
+  --fs-sm: 13px;
+  --fs-md: 15px;
+  --fs-lg: 18px;
+  --fs-xl: 22px;
+
   --topbar-h: 56px;
   --nav-h: 46px;
   --content-max: 1180px;
@@ -79,7 +91,7 @@ html[data-theme='dark'] {
   color-scheme: dark;
 
   --brand-gold: #d9b871;
-  --brand-gold-strong: #b6a37a;
+  --brand-gold-strong: #c4a45c;
   --brand-gold-soft: #3b3320;
   --brand-gold-tint: #262215;
   --brand-navy: #7aa7dd;

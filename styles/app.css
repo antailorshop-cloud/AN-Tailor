@@ -836,7 +836,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   gap: var(--gap-sm);
   flex-wrap: wrap;
   padding-bottom: var(--gap);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--surface-line);
   margin-bottom: var(--gap);
 }
 
@@ -916,6 +916,148 @@ button, input, select, textarea { font: inherit; color: inherit; }
   }
 
   .cust-actions {
+    justify-content: flex-start;
+  }
+}
+
+/* ============================================================
+   SETTINGS
+   Dress types read as grouped cards rather than a table, because
+   they are a short list of names with nothing to compare. Prices
+   stay tabular, since amount and option are read against each
+   other in a column.
+   ============================================================ */
+
+.set-tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  margin-bottom: var(--gap);
+  background: var(--surface-muted);
+  border-radius: 10px;
+}
+
+.set-tab {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 8px 18px;
+  border-radius: 7px;
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.set-tab:hover {
+  color: var(--text-strong);
+}
+
+.set-tab.is-active {
+  background: var(--surface);
+  color: var(--text-strong);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
+}
+
+.set-groups {
+  display: grid;
+  gap: var(--gap);
+}
+
+.set-group-title {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-sm);
+  margin: 0 0 var(--gap-sm);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.set-group-title .chip {
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.set-group-empty {
+  padding: var(--gap-sm) 0;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+
+.set-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.set-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px 7px 13px;
+  background: var(--surface);
+  border: 1px solid var(--surface-line);
+  border-radius: 999px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.set-chip .btn {
+  padding: 2px 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  border-radius: 999px;
+}
+
+/* A zero price is the seeded state, not a mistake, so it is shown plainly
+   rather than styled as a warning the owner has to act on. */
+.set-price-zero {
+  color: var(--text-muted);
+}
+
+.set-price-cell {
+  white-space: nowrap;
+}
+
+.set-extra {
+  display: block;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+.set-row-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.set-row-actions .btn {
+  white-space: nowrap;
+}
+
+.set-form-grid {
+  margin-top: var(--gap-sm);
+}
+
+@media (max-width: 640px) {
+  .set-tabs {
+    display: flex;
+    width: 100%;
+  }
+
+  .set-tab {
+    flex: 1;
+    text-align: center;
+    padding: 8px 10px;
+  }
+
+  .set-row-actions {
     justify-content: flex-start;
   }
 }

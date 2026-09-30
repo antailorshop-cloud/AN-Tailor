@@ -174,7 +174,6 @@ window.ANT.settings = (function () {
 
   function dressPanel() {
     var rows = filteredDress();
-
     var head = searchBox('Search dress types');
 
     if (state.loading && !rows.length) {
@@ -194,21 +193,35 @@ window.ANT.settings = (function () {
       '</div></div>';
     }
 
-    return head + '<div class="table-wrap"><table class="ui-table">' +
-      '<thead><tr><th>Category</th><th>Dress type</th><th></th></tr></thead>' +
-      '<tbody>' + rows.map(function (r) {
-        return '<tr>' +
-          '<td><span class="chip">' + esc(r.category) + '</span></td>' +
-          '<td class="cust-name">' + esc(r.dress_type) + '</td>' +
-          '<td class="cust-actions">' +
+    // Grouped by category, because the shop thinks in "what we make for gents"
+    // rather than in one flat list of nineteen names.
+    var groups = CATEGORIES.map(function (cat) {
+      return { category: cat, items: rows.filter(function (r) { return r.category === cat; }) };
+    }).filter(function (g) { return g.items.length; });
+
+    // Anything with an unexpected category still has to be visible, or a typo
+    // in the data would silently hide a garment the shop offers.
+    var known = CATEGORIES.join('|');
+    var others = rows.filter(function (r) { return CATEGORIES.indexOf(r.category) === -1; });
+    if (others.length) groups.push({ category: 'Other', items: others });
+
+    return head + '<div class="set-groups">' + groups.map(function (g) {
+      return '<section class="ui-card">' +
+        '<h2 class="set-group-title"><span class="chip">' + esc(g.category) + '</span>' +
+          '<span>' + g.items.length + '</span>' +
+        '</h2>' +
+        '<div class="set-chip-list">' + g.items.map(function (r) {
+          return '<span class="set-chip">' + esc(r.dress_type) +
             (isOwner()
-              ? '<button class="btn btn-sm btn-secondary" data-set-edit="' + esc(r.id) + '">Edit</button>' +
-                '<button class="btn btn-sm btn-danger" data-set-del="' + esc(r.id) + '">Delete</button>'
+              ? '<button class="btn btn-quiet" data-set-edit="' + esc(r.id) + '" ' +
+                  'aria-label="Edit ' + esc(r.dress_type) + '">Edit</button>' +
+                '<button class="btn btn-quiet" data-set-del="' + esc(r.id) + '" ' +
+                  'aria-label="Delete ' + esc(r.dress_type) + '">Delete</button>'
               : '') +
-          '</td>' +
-        '</tr>';
-      }).join('') + '</tbody>' +
-    '</table></div>';
+          '</span>';
+        }).join('') + '</div>' +
+      '</section>';
+    }).join('') + '</div>';
   }
 
   function pricePanel() {
@@ -233,27 +246,48 @@ window.ANT.settings = (function () {
       '</div></div>';
     }
 
-    return head + '<div class="table-wrap"><table class="ui-table">' +
-      '<thead><tr><th>Group</th><th>Item</th><th>Option</th><th class="num">Price</th><th></th></tr></thead>' +
-      '<tbody>' + rows.map(function (r) {
-        return '<tr>' +
-          '<td><span class="chip">' + esc(r.group_name) + '</span></td>' +
-          '<td class="cust-name">' + esc(r.item) + '</td>' +
-          '<td>' + esc(r.option || '—') + '</td>' +
-          '<td class="num">' + esc(money(r.price)) +
-            (Number(r.extra_charge || 0) !== 0
-              ? ' <span class="cust-count">+ ' + esc(money(r.extra_charge)) + '</span>'
-              : '') +
-          '</td>' +
-          '<td class="cust-actions">' +
-            (isOwner()
-              ? '<button class="btn btn-sm btn-secondary" data-set-edit="' + esc(r.id) + '">Edit</button>' +
-                '<button class="btn btn-sm btn-danger" data-set-del="' + esc(r.id) + '">Delete</button>'
-              : '') +
-          '</td>' +
-        '</tr>';
-      }).join('') + '</tbody>' +
-    '</table></div>';
+    // Grouped by TAILORING / SERVICE / RESALE. A flat list of seventeen rows
+    // mixes a per-garment charge with a one-off service and a resale item,
+    // which are different kinds of thing to compare.
+    var groups = GROUPS.map(function (g) {
+      return { group: g, items: rows.filter(function (r) { return r.group_name === g; }) };
+    }).filter(function (g) { return g.items.length; });
+
+    var others = rows.filter(function (r) { return GROUPS.indexOf(r.group_name) === -1; });
+    if (others.length) groups.push({ group: 'Other', items: others });
+
+    return head + '<div class="set-groups">' + groups.map(function (g) {
+      return '<section class="ui-card">' +
+        '<h2 class="set-group-title"><span class="chip">' + esc(g.group) + '</span>' +
+          '<span>' + g.items.length + '</span>' +
+        '</h2>' +
+        '<div class="table-wrap"><table class="ui-table">' +
+          '<thead><tr><th>Code</th><th>Item</th><th>Option</th><th class="num">Price</th><th></th></tr></thead>' +
+          '<tbody>' + g.items.map(priceRow).join('') + '</tbody>' +
+        '</table></div>' +
+      '</section>';
+    }).join('') + '</div>';
+  }
+
+  function priceRow(r) {
+    var zero = Number(r.price || 0) === 0;
+    var extra = Number(r.extra_charge || 0);
+
+    return '<tr>' +
+      '<td class="cust-code">' + esc(r.code) + '</td>' +
+      '<td class="cust-name">' + esc(r.item) + '</td>' +
+      '<td>' + esc(r.option || '—') + '</td>' +
+      '<td class="num set-price-cell">' +
+        '<span' + (zero ? ' class="set-price-zero"' : '') + '>' + esc(money(r.price)) + '</span>' +
+        (extra !== 0 ? '<span class="set-extra">+ ' + esc(money(extra)) + ' extra</span>' : '') +
+      '</td>' +
+      '<td class="set-row-actions">' +
+        (isOwner()
+          ? '<button class="btn btn-sm btn-secondary" data-set-edit="' + esc(r.id) + '">Edit</button>' +
+            '<button class="btn btn-sm btn-danger" data-set-del="' + esc(r.id) + '">Delete</button>'
+          : '') +
+      '</td>' +
+    '</tr>';
   }
 
   /* Form --------------------------------------------------------------- */
