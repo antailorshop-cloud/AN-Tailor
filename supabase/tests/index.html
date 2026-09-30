@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AN TAILOR - Phase 4 security tests</title>
+<style>
+  body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f3f4f6; color: #1f2937; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: #6b7280; font-size: 13px; margin-bottom: 18px; }
+  .panel { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  label { display: block; font-size: 11px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; color: #6b7280; margin-bottom: 4px; }
+  input { width: 100%; padding: 8px 10px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 14px; box-sizing: border-box; }
+  .field { margin-bottom: 12px; }
+  button { padding: 10px 18px; border: 0; border-radius: 8px; background: #b08d3f; color: #fff; font-size: 14px; font-weight: 700; cursor: pointer; }
+  button.ghost { background: #fff; color: #1f2937; border: 1px solid #d4c9a8; }
+  button:disabled { opacity: .55; cursor: not-allowed; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; background: #fff; }
+  th { text-align: left; padding: 9px 10px; background: #0f3460; color: #f5e6b8; font-size: 11px; text-transform: uppercase; letter-spacing: .4px; }
+  td { padding: 9px 10px; border-top: 1px solid #e2e8f0; vertical-align: top; }
+  .pass { color: #15803d; font-weight: 700; }
+  .fail { color: #b91c1c; font-weight: 700; }
+  .note { color: #6b7280; font-size: 12.5px; }
+  .verdict { padding: 12px 14px; border-radius: 8px; font-weight: 700; margin-top: 14px; }
+  .verdict.ok { background: #dcfce7; color: #166534; }
+  .verdict.bad { background: #fee2e2; color: #991b1b; }
+  code { background: #f8f6f0; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<h1>Phase 4 - RLS security tests</h1>
+<p class="sub">
+  Run this against <strong>fake data only</strong>, before any real customer record is imported.
+  The SQL editor cannot test this: it runs as a superuser and bypasses RLS entirely.
+</p>
+
+<div class="panel">
+  <div class="field">
+    <label for="url">Supabase project URL</label>
+    <input id="url" placeholder="https://xxxx.supabase.co" autocomplete="off">
+  </div>
+  <div class="field">
+    <label for="key">anon public key</label>
+    <input id="key" placeholder="eyJhbGci..." autocomplete="off">
+  </div>
+  <div class="grid">
+    <div class="field">
+      <label for="ownerEmail">Owner test account</label>
+      <input id="ownerEmail" placeholder="owner@antailor.test" autocomplete="off">
+    </div>
+    <div class="field">
+      <label for="ownerPass">Owner password</label>
+      <input id="ownerPass" type="text" autocomplete="off">
+    </div>
+  </div>
+  <div class="grid">
+    <div class="field">
+      <label for="staffEmail">Staff test account</label>
+      <input id="staffEmail" placeholder="staff@antailor.test" autocomplete="off">
+    </div>
+    <div class="field">
+      <label for="staffPass">Staff password</label>
+      <input id="staffPass" type="text" autocomplete="off">
+    </div>
+  </div>
+  <p class="note">
+    The owner account must have <code>role = 'owner'</code> in the <code>profiles</code> table.
+    Create both accounts under Authentication, then set the owner role:
+    <code>update profiles set role='owner' where email='owner@antailor.test';</code>
+  </p>
+  <div style="display:flex; gap:10px; margin-top:8px">
+    <button id="run">Run all tests</button>
+    <button class="ghost" id="clear">Clear results</button>
+  </div>
+  <div id="verdict" class="verdict" hidden></div>
+</div>
+
+<div class="panel" style="padding:0; overflow:hidden">
+  <table>
+    <thead>
+      <tr><th style="width:90px">Who</th><th>Check</th><th style="width:110px">Expected</th><th style="width:90px">Result</th><th>Detail</th></tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+</div>
+
+<script type="module">
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+const el = (id) => document.getElementById(id);
+const results = [];
+
+function log(who, check, expected, pass, detail) {
+  results.push({ who, check, expected, pass, detail });
+  const tr = document.createElement('tr');
+  tr.innerHTML =
+    '<td>' + who + '</td>' +
+    '<td>' + check + '</td>' +
+    '<td>' + expected + '</td>' +
+    '<td class="' + (pass ? 'pass">PASS' : 'fail">FAIL') + '</td>' +
+    '<td class="note">' + (detail || '') + '</td>';
+  el('rows').appendChild(tr);
+}
+
+async function anonClient(url, key) {
+  return createClient(url, key, { auth: { persistSession: false } });
+}
+
+async function signedOut(url, key) {
+  const c = await anonClient(url, key);
+  const r1 = await c.from('customers').select('id');
+  log('Signed out', 'Read customers', 'blocked', r1.error ? true : (r1.data || []).length === 0,
+      r1.error ? r1.error.message : '0 rows returned');
+  const r2 = await c.from('orders').select('id');
+  log('Signed out', 'Read orders', 'blocked', r2.error ? true : (r2.data || []).length === 0,
+      r2.error ? r2.error.message : '0 rows returned');
+  const r3 = await c.from('shop_settings').select('key');
+  log('Signed out', 'Read shop settings', 'blocked', r3.error ? true : (r3.data || []).length === 0,
+      r3.error ? r3.error.message : '0 rows returned');
+}
+
+async function asUser(url, key, email, pass, role) {
+  const c = await anonClient(url, key);
+  const { error: signErr } = await c.auth.signInWithPassword({ email, password: pass });
+  if (signErr) { log(role, 'Sign in', 'success', false, signErr.message); return; }
+
+  const read = await c.from('customers').select('id');
+  log(role, 'Read customers', 'allowed', !read.error, read.error ? read.error.message : (read.data || []).length + ' rows');
+
+  const ins = await c.from('customers').insert({ code: 'TEST-' + role + '-' + Date.now(), name: 'Phase 4 Test' }).select('id');
+  const testId = ins.data && ins.data[0] ? ins.data[0].id : null;
+  log(role, 'Create a customer', 'allowed', !ins.error, ins.error ? ins.error.message : 'created ' + testId);
+
+  const settings = await c.from('shop_settings').select('key');
+  log(role, 'Read shop settings', 'allowed', !settings.error, settings.error ? settings.error.message : 'ok');
+
+  const pricesWrite = await c.from('prices').update({ price: 1 }).eq('code', '__no_such_code__');
+  log(role, 'Change a price', role === 'Owner' ? 'allowed' : 'blocked',
+      role === 'Owner' ? !pricesWrite.error : !!pricesWrite.error,
+      pricesWrite.error ? pricesWrite.error.message : 'no error');
+
+  const settingsWrite = await c.from('shop_settings').update({ value: 'x' }).eq('key', '__no_such_key__');
+  log(role, 'Change shop settings', role === 'Owner' ? 'allowed' : 'blocked',
+      role === 'Owner' ? !settingsWrite.error : !!settingsWrite.error,
+      settingsWrite.error ? settingsWrite.error.message : 'no error');
+
+  const { data: me } = await c.auth.getUser();
+  if (me && me.user) {
+    const esc = await c.from('profiles').update({ role: 'owner' }).eq('id', me.user.id).select();
+    log(role, 'Promote own account to owner', role === 'Owner' ? 'allowed' : 'blocked',
+        role === 'Owner' ? !esc.error : !!esc.error || (esc.data || []).length === 0,
+        esc.error ? esc.error.message : ((esc.data || []).length === 0 ? '0 rows changed' : 'changed'));
+  }
+
+  if (testId) {
+    const del = await c.from('customers').delete().eq('id', testId);
+    log(role, 'Delete a customer', role === 'Owner' ? 'allowed' : 'blocked',
+        role === 'Owner' ? !del.error : !!del.error,
+        del.error ? del.error.message : 'deleted');
+  }
+
+  const upd = await c.from('orders').update({ notes: 'phase 4 probe' }).eq('code', '__no_such_order__');
+  log(role, 'Edit an order', 'allowed', !upd.error, upd.error ? upd.error.message : 'no error');
+
+  if (role !== 'Owner') {
+    const access = await c.from('staff_access').select('*');
+    const others = (access.data || []).filter(r => r.user_id !== (me && me.user ? me.user.id : ''));
+    log(role, 'Read other staff access rows', 'blocked',
+        !!access.error || others.length === 0,
+        access.error ? access.error.message : others.length + ' other rows visible');
+  }
+
+  await c.auth.signOut();
+}
+
+el('clear').addEventListener('click', () => {
+  el('rows').innerHTML = '';
+  el('verdict').hidden = true;
+  results.length = 0;
+});
+
+el('run').addEventListener('click', async () => {
+  const url = el('url').value.trim();
+  const key = el('key').value.trim();
+  const ownerEmail = el('ownerEmail').value.trim();
+  const ownerPass = el('ownerPass').value;
+  const staffEmail = el('staffEmail').value.trim();
+  const staffPass = el('staffPass').value;
+
+  if (!url || !key || !ownerEmail || !staffEmail) {
+    alert('Fill in the URL, anon key and both test accounts.');
+    return;
+  }
+
+  el('rows').innerHTML = '';
+  results.length = 0;
+  el('run').disabled = true;
+
+  try {
+    await signedOut(url, key);
+    await asUser(url, key, staffEmail, staffPass, 'Staff');
+    await asUser(url, key, ownerEmail, ownerPass, 'Owner');
+  } catch (e) {
+    log('Runner', 'Completed', 'no crash', false, e && e.message ? e.message : String(e));
+  }
+
+  const failed = results.filter(r => !r.pass);
+  const v = el('verdict');
+  v.hidden = false;
+  if (failed.length === 0) {
+    v.className = 'verdict ok';
+    v.textContent = 'All ' + results.length + ' checks passed. Real data may now be imported.';
+  } else {
+    v.className = 'verdict bad';
+    v.textContent = failed.length + ' of ' + results.length + ' checks FAILED. Do not import real data.';
+  }
+  el('run').disabled = false;
+});
+</script>
+
+</body>
+</html>
