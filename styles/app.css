@@ -1255,3 +1255,172 @@ button, input, select, textarea { font: inherit; color: inherit; }
     justify-content: flex-start;
   }
 }
+
+/* Orders ------------------------------------------------------------------
+ *
+ * The item editor is a wide table, so it keeps its own column widths and
+ * scrolls sideways on a phone rather than collapsing into unreadable cards.
+ * The tailor is entering numbers under time pressure, so every numeric column
+ * is right-aligned and uses tabular figures to keep the decimal points in a
+ * straight line.
+ */
+
+.ord-note {
+  margin: calc(var(--gap-sm) * -1) 0 var(--gap-sm);
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--warn-soft);
+  color: var(--text-body);
+}
+
+.ord-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--gap);
+  margin-bottom: var(--gap);
+}
+
+.ord-sub {
+  margin-top: 2px;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+.ord-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 700;
+  color: var(--brand-navy);
+  cursor: pointer;
+  text-align: left;
+}
+
+.ord-link:hover { text-decoration: underline; }
+
+.ord-more {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+}
+
+.ord-late {
+  color: var(--danger);
+  font-weight: 700;
+}
+
+.ord-row-actions {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.ord-status-bar {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--gap);
+  flex-wrap: wrap;
+}
+
+.ord-status-bar .ui-field { min-width: 180px; }
+
+.ord-danger {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-left: auto;
+  align-items: flex-end;
+}
+
+/* Item editor */
+
+.ord-items {
+  min-width: 1080px;
+}
+
+.ord-items td { padding: 6px 6px; }
+.ord-items th { white-space: nowrap; }
+
+.ord-items .ui-input {
+  padding: 7px 9px;
+  font-size: var(--fs-sm);
+}
+
+.ord-items .ui-input[type="date"] { min-width: 140px; }
+.ord-items select.ui-input { min-width: 118px; }
+.ord-items input[data-f="variant"],
+.ord-items input[data-f="lining"] { min-width: 130px; }
+.ord-items input[data-f="qty"] { width: 68px; text-align: right; }
+.ord-items input[data-f="rate"],
+.ord-items input[data-f="extra"] { width: 96px; text-align: right; }
+.ord-items td.num strong { white-space: nowrap; }
+
+.ord-add-row {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-sm);
+  margin-top: var(--gap-sm);
+  flex-wrap: wrap;
+}
+
+/* Money summary */
+
+.ord-totals {
+  margin-top: var(--gap);
+  padding-top: var(--gap-sm);
+  border-top: 1px solid var(--surface-line);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.ord-total {
+  display: flex;
+  align-items: baseline;
+  gap: var(--gap);
+  min-width: 260px;
+  justify-content: space-between;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+
+.ord-total strong {
+  font-size: var(--fs-md);
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+.ord-total-balance {
+  padding-top: 6px;
+  border-top: 1px solid var(--surface-line);
+  font-weight: 700;
+  color: var(--text-strong);
+}
+
+.ord-total-balance strong { font-size: var(--fs-lg); }
+
+.ord-save-bar {
+  position: sticky;
+  bottom: 0;
+  background: var(--surface);
+  border-top: 1px solid var(--surface-line);
+  padding: var(--gap-sm) 0;
+}
+
+@media (max-width: 900px) {
+  .ord-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 640px) {
+  .ord-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+  .ord-status-bar { align-items: stretch; }
+  .ord-status-bar .ui-field { min-width: 0; width: 100%; }
+  .ord-danger { margin-left: 0; align-items: flex-start; }
+  .ord-total { min-width: 0; width: 100%; }
+}

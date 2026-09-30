@@ -124,6 +124,15 @@ create index if not exists orders_status_idx   on orders (status, delivery_date)
 create index if not exists orders_delivery_idx on orders (delivery_date)
   where status <> 'Cancelled' and archived_at is null;
 
+-- The legacy system kept one discount for the whole order and forced the
+-- per-line discount to zero, so the discount belongs on the parent row:
+--   balance = total - discount - advance
+-- It was missing from the original create table, which would have left the
+-- discount with nowhere to go. Added with IF NOT EXISTS so re-running this file
+-- upgrades an existing database. order_items.discount is kept for a future
+-- per-line discount and stays at 0 today.
+alter table orders add column if not exists discount numeric(12,2) not null default 0;
+
 create table if not exists order_items (
   id              uuid primary key default gen_random_uuid(),
   order_id        uuid not null references orders(id) on delete cascade,

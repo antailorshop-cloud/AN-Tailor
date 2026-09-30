@@ -193,7 +193,8 @@
     var modules = {
       customers: window.ANT.customers,
       settings: window.ANT.settings,
-      measurements: window.ANT.measurements
+      measurements: window.ANT.measurements,
+      orders: window.ANT.orders
     };
 
     if (modules[area.id]) {

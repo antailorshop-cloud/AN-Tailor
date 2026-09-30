@@ -16,6 +16,7 @@ var SHELL = [
   './scripts/auth.js',
   './scripts/customers.js',
   './scripts/measurements.js',
+  './scripts/orders.js',
   './scripts/settings.js',
   './scripts/app.js',
   './assets/icon.svg'
