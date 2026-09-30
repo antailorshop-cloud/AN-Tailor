@@ -83,8 +83,17 @@ create policy profiles_write_owner on public.profiles
 create or replace function public.block_role_escalation()
 returns trigger
 language plpgsql
+set search_path = public, pg_temp
 as $$
 begin
+  -- auth.uid() is null when the statement comes from the SQL editor,
+  -- service_role, a cron job or a migration. Those callers already hold
+  -- database-level access, so this guard must not stand in their way --
+  -- otherwise the first owner account can never be created.
+  if auth.uid() is null then
+    return new;
+  end if;
+
   if public.is_owner() then
     return new;
   end if;
