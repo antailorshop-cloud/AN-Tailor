@@ -172,58 +172,156 @@ async function signedOut(url, key) {
       r3.error ? r3.error.message : '0 rows returned');
 }
 
-async function asUser(url, key, email, pass, role) {
+const PROBE = {
+  price:    '__rls_probe_price__',
+  setting:  '__rls_probe_setting__',
+  customer: '__rls_probe_customer__',
+  order:    '__rls_probe_order__'
+};
+
+// A blocked write is NOT reported as an error.
+//
+// When an RLS USING clause evaluates to false, Postgres filters the row out
+// of the result set instead of raising. The statement "succeeds" while
+// touching nothing. So "no error" proves nothing either way, and testing for
+// it produces false failures against correctly locked tables.
+//
+// The only reliable signal is an EMPTY result set. Every write below appends
+// .select() so the affected rows come back, and every block is then re-read by
+// the owner to prove the stored value really did not change.
+function zeroRows(r) {
+  return !r.error && Array.isArray(r.data) && r.data.length === 0;
+}
+
+function oneRow(r) {
+  return !r.error && Array.isArray(r.data) && r.data.length === 1;
+}
+
+async function clearFixtures(owner) {
+  await owner.from('orders').delete().eq('code', PROBE.order);
+  await owner.from('customers').delete().eq('code', PROBE.customer);
+  await owner.from('customers').delete().like('code', 'TEST-STAFF-%');
+  await owner.from('prices').delete().eq('code', PROBE.price);
+  await owner.from('shop_settings').delete().eq('key', PROBE.setting);
+}
+
+async function makeFixtures(owner) {
+  const price = await owner.from('prices')
+    .insert({ code: PROBE.price, group_name: 'RLS Probe', item: 'Probe', option: '', price: 100, status: 'ACTIVE' })
+    .select('id').single();
+  const setting = await owner.from('shop_settings')
+    .insert({ key: PROBE.setting, value: 'original' }).select('key').single();
+  const customer = await owner.from('customers')
+    .insert({ code: PROBE.customer, name: 'RLS Probe Customer' }).select('id').single();
+  const order = await owner.from('orders')
+    .insert({ code: PROBE.order, customer_id: customer.data.id, notes: 'original' })
+    .select('id').single();
+
+  return {
+    priceId: price.data && price.data.id,
+    customerId: customer.data && customer.data.id,
+    orderId: order.data && order.data.id,
+    errors: [price.error, setting.error, customer.error, order.error].filter(Boolean)
+  };
+}
+
+async function staffPhase(staff, ids) {
+  const read = await staff.from('customers').select('id');
+  log('Staff', 'Read customers', 'allowed', !read.error,
+      read.error ? read.error.message : (read.data || []).length + ' rows');
+
+  const made = await staff.from('customers')
+    .insert({ code: 'TEST-STAFF-' + Date.now(), name: 'Phase 4 Test' })
+    .select('id').single();
+  log('Staff', 'Create a customer', 'allowed', !made.error,
+      made.error ? made.error.message : 'created ' + (made.data && made.data.id));
+
+  const settings = await staff.from('shop_settings').select('key');
+  log('Staff', 'Read shop settings', 'allowed', !settings.error,
+      settings.error ? settings.error.message : 'ok');
+
+  // Staff may edit orders, and this must genuinely land.
+  const orderEdit = await staff.from('orders')
+    .update({ notes: 'edited by staff' }).eq('id', ids.orderId).select('notes');
+  const landed = oneRow(orderEdit) && orderEdit.data[0].notes === 'edited by staff';
+  log('Staff', 'Edit an order', 'allowed and applied', landed,
+      orderEdit.error ? orderEdit.error.message
+                      : (orderEdit.data || []).length + ' row(s) returned, notes now "' +
+                        ((orderEdit.data && orderEdit.data[0]) ? orderEdit.data[0].notes : '?') + '"');
+
+  const priceWrite = await staff.from('prices').update({ price: 999 }).eq('id', ids.priceId).select('id');
+  log('Staff', 'Change a price', 'blocked (0 rows)', zeroRows(priceWrite),
+      priceWrite.error ? priceWrite.error.message : (priceWrite.data || []).length + ' rows returned');
+
+  const setWrite = await staff.from('shop_settings').update({ value: 'hacked' }).eq('key', PROBE.setting).select('key');
+  log('Staff', 'Change shop settings', 'blocked (0 rows)', zeroRows(setWrite),
+      setWrite.error ? setWrite.error.message : (setWrite.data || []).length + ' rows returned');
+
+  const del = await staff.from('customers').delete().eq('id', ids.customerId).select('id');
+  log('Staff', 'Delete a customer', 'blocked (0 rows)', zeroRows(del),
+      del.error ? del.error.message : (del.data || []).length + ' rows returned');
+
+  const me = await staff.auth.getUser();
+  const uid = me && me.user ? me.user.id : '';
+  const esc = await staff.from('profiles').update({ role: 'owner' }).eq('id', uid).select('role');
+  const stillStaff = esc.error || !oneRow(esc) || esc.data[0].role === 'staff';
+  log('Staff', 'Promote own account to owner', 'blocked', stillStaff,
+      esc.error ? esc.error.message
+                : 'role is still ' + ((esc.data && esc.data[0]) ? esc.data[0].role : '?'));
+
+  const access = await staff.from('staff_access').select('*');
+  const others = (access.data || []).filter(r => r.user_id !== uid);
+  log('Staff', 'Read other staff access rows', 'blocked', !!access.error || others.length === 0,
+      access.error ? access.error.message : others.length + ' other rows visible');
+
+  await staff.auth.signOut();
+}
+
+// Definitive proof: the owner re-reads every row the staff account tried to
+// tamper with and confirms the stored values are untouched.
+async function ownerVerifies(owner, ids) {
+  const price = await owner.from('prices').select('price').eq('id', ids.priceId).maybeSingle();
+  log('Owner', 'Price unchanged by staff', 'still 100',
+      !price.error && price.data && Number(price.data.price) === 100,
+      price.error ? price.error.message : 'price is ' + (price.data && price.data.price));
+
+  const setting = await owner.from('shop_settings').select('value').eq('key', PROBE.setting).maybeSingle();
+  log('Owner', 'Shop setting unchanged by staff', "still 'original'",
+      !setting.error && setting.data && setting.data.value === 'original',
+      setting.error ? setting.error.message : 'value is "' + (setting.data && setting.data.value) + '"');
+
+  const customer = await owner.from('customers').select('id').eq('id', ids.customerId).maybeSingle();
+  log('Owner', 'Customer survived staff delete', 'still exists',
+      !customer.error && !!customer.data,
+      customer.error ? customer.error.message : (customer.data ? 'row still present' : 'row was deleted'));
+}
+
+async function ownerPositive(owner, ids) {
+  const p = await owner.from('prices').update({ price: 250 }).eq('id', ids.priceId).select('price').single();
+  log('Owner', 'Change a price', 'allowed and applied',
+      !p.error && Number(p.data && p.data.price) === 250,
+      p.error ? p.error.message : 'price is now ' + (p.data && p.data.price));
+
+  const s = await owner.from('shop_settings').update({ value: 'set by owner' }).eq('key', PROBE.setting).select('value').single();
+  log('Owner', 'Change shop settings', 'allowed and applied',
+      !s.error && s.data && s.data.value === 'set by owner',
+      s.error ? s.error.message : 'value is now "' + (s.data && s.data.value) + '"');
+
+  const d = await owner.from('customers').delete().eq('id', ids.customerId).select('id');
+  log('Owner', 'Delete a customer', 'allowed and applied', oneRow(d),
+      d.error ? d.error.message : (d.data || []).length + ' row(s) deleted');
+}
+
+async function signIn(url, key, email, pass, who) {
   const c = await anonClient(url, key);
-  const { error: signErr } = await c.auth.signInWithPassword({ email, password: pass });
-  if (signErr) { log(role, 'Sign in', 'success', false, signErr.message); return; }
-
-  const read = await c.from('customers').select('id');
-  log(role, 'Read customers', 'allowed', !read.error, read.error ? read.error.message : (read.data || []).length + ' rows');
-
-  const ins = await c.from('customers').insert({ code: 'TEST-' + role + '-' + Date.now(), name: 'Phase 4 Test' }).select('id');
-  const testId = ins.data && ins.data[0] ? ins.data[0].id : null;
-  log(role, 'Create a customer', 'allowed', !ins.error, ins.error ? ins.error.message : 'created ' + testId);
-
-  const settings = await c.from('shop_settings').select('key');
-  log(role, 'Read shop settings', 'allowed', !settings.error, settings.error ? settings.error.message : 'ok');
-
-  const pricesWrite = await c.from('prices').update({ price: 1 }).eq('code', '__no_such_code__');
-  log(role, 'Change a price', role === 'Owner' ? 'allowed' : 'blocked',
-      role === 'Owner' ? !pricesWrite.error : !!pricesWrite.error,
-      pricesWrite.error ? pricesWrite.error.message : 'no error');
-
-  const settingsWrite = await c.from('shop_settings').update({ value: 'x' }).eq('key', '__no_such_key__');
-  log(role, 'Change shop settings', role === 'Owner' ? 'allowed' : 'blocked',
-      role === 'Owner' ? !settingsWrite.error : !!settingsWrite.error,
-      settingsWrite.error ? settingsWrite.error.message : 'no error');
-
-  const { data: me } = await c.auth.getUser();
-  if (me && me.user) {
-    const esc = await c.from('profiles').update({ role: 'owner' }).eq('id', me.user.id).select();
-    log(role, 'Promote own account to owner', role === 'Owner' ? 'allowed' : 'blocked',
-        role === 'Owner' ? !esc.error : !!esc.error || (esc.data || []).length === 0,
-        esc.error ? esc.error.message : ((esc.data || []).length === 0 ? '0 rows changed' : 'changed'));
+  const { error } = await c.auth.signInWithPassword({ email, password: pass });
+  if (error) {
+    log(who, 'Sign in', 'success', false,
+        error.message + ' -- check the email, the password, and that Email Confirmed is ticked under Authentication > Users.');
+    return null;
   }
-
-  if (testId) {
-    const del = await c.from('customers').delete().eq('id', testId);
-    log(role, 'Delete a customer', role === 'Owner' ? 'allowed' : 'blocked',
-        role === 'Owner' ? !del.error : !!del.error,
-        del.error ? del.error.message : 'deleted');
-  }
-
-  const upd = await c.from('orders').update({ notes: 'phase 4 probe' }).eq('code', '__no_such_order__');
-  log(role, 'Edit an order', 'allowed', !upd.error, upd.error ? upd.error.message : 'no error');
-
-  if (role !== 'Owner') {
-    const access = await c.from('staff_access').select('*');
-    const others = (access.data || []).filter(r => r.user_id !== (me && me.user ? me.user.id : ''));
-    log(role, 'Read other staff access rows', 'blocked',
-        !!access.error || others.length === 0,
-        access.error ? access.error.message : others.length + ' other rows visible');
-  }
-
-  await c.auth.signOut();
+  log(who, 'Sign in', 'success', true, 'ok');
+  return c;
 }
 
 el('clear').addEventListener('click', () => {
@@ -251,8 +349,33 @@ el('run').addEventListener('click', async () => {
 
   try {
     await signedOut(url, key);
-    await asUser(url, key, staffEmail, staffPass, 'Staff');
-    await asUser(url, key, ownerEmail, ownerPass, 'Owner');
+
+    // The owner signs in first so it can create real rows for the staff
+    // account to attack. Testing "blocked" needs a row that actually exists.
+    const owner = await signIn(url, key, ownerEmail, ownerPass, 'Owner');
+    if (!owner) {
+      await clearFixtures(await anonClient(url, key));
+    } else {
+      await clearFixtures(owner);
+      const ids = await makeFixtures(owner);
+
+      if (ids.errors.length || !ids.priceId || !ids.customerId || !ids.orderId) {
+        log('Owner', 'Create probe rows', 'success', false,
+            ids.errors.map(e => e.message).join('; ') || 'a fixture id came back empty');
+      } else {
+        log('Owner', 'Create probe rows', 'success', true, 'price, setting, customer and order created');
+
+        const staff = await signIn(url, key, staffEmail, staffPass, 'Staff');
+        if (staff) {
+          await staffPhase(staff, ids);
+          await ownerVerifies(owner, ids);
+          await ownerPositive(owner, ids);
+        }
+      }
+
+      await clearFixtures(owner);
+      await owner.auth.signOut();
+    }
   } catch (e) {
     log('Runner', 'Completed', 'no crash', false, e && e.message ? e.message : String(e));
   }
