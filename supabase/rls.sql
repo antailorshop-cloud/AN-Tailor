@@ -330,3 +330,64 @@ drop policy if exists bill_orders_delete_member on public.bill_orders;
 create policy bill_orders_delete_member on public.bill_orders
   for delete to authenticated
   using (public.is_member() or public.is_owner());
+
+-- ============================================================
+-- PROFILE CREATED ON SIGNUP
+--
+-- Supabase Auth writes a row to auth.users and nothing else. Without
+-- this trigger, public.profiles stays empty, is_member() returns false
+-- for everyone, and RLS quietly blocks all access while every policy
+-- still looks correct.
+--
+-- New accounts are always created as 'staff'. Promotion to owner is a
+-- deliberate manual step, never automatic.
+-- ============================================================
+
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  insert into public.profiles (id, email, display_name, role, active)
+  values (
+    new.id,
+    coalesce(new.email, ''),
+    coalesce(
+      nullif(new.raw_user_meta_data ->> 'display_name', ''),
+      split_part(coalesce(new.email, ''), '@', 1)
+    ),
+    'staff',
+    true
+  )
+  on conflict (id) do nothing;
+
+  insert into public.staff_access (user_id, area, level)
+  select new.id, area, 1
+  from unnest(array[
+    'DASHBOARD', 'CUSTOMERS', 'MEASUREMENTS',
+    'ORDERS', 'BILLS', 'PAYMENTS', 'RESALE'
+  ]) as area
+  on conflict do nothing;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute function public.handle_new_user();
+
+-- Backfill in case any account already exists.
+insert into public.profiles (id, email, display_name, role, active)
+select
+  u.id,
+  coalesce(u.email, ''),
+  split_part(coalesce(u.email, ''), '@', 1),
+  'staff',
+  true
+from auth.users u
+where not exists (select 1 from public.profiles p where p.id = u.id)
+on conflict (id) do nothing;
