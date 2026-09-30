@@ -198,6 +198,13 @@ function oneRow(r) {
   return !r.error && Array.isArray(r.data) && r.data.length === 1;
 }
 
+// "This write must not happen" is satisfied two different ways: an RLS policy
+// filters the row away and returns nothing, while a foreign key raises a 23503
+// error. Both mean blocked, so a check for "must not happen" accepts either.
+function blocked(r) {
+  return !!r.error || (Array.isArray(r.data) && r.data.length === 0);
+}
+
 async function clearFixtures(owner) {
   await owner.from('orders').delete().eq('code', PROBE.order);
   await owner.from('customers').delete().eq('code', PROBE.customer);
@@ -355,8 +362,8 @@ async function ownerPositive(owner, ids) {
   // the shop's business record, so such customers are archived instead.
   const guarded = await owner.from('customers').delete().eq('code', PROBE.customer).select('id');
   log('Owner', 'Delete a customer that has orders', 'blocked by design (archive instead)',
-      !guarded.error && zeroRows(guarded),
-      guarded.error ? 'blocked: ' + guarded.error.message : (guarded.data || []).length + ' rows returned');
+      blocked(guarded),
+      guarded.error ? 'refused: ' + guarded.error.message : (guarded.data || []).length + ' rows returned');
 }
 
 async function signIn(url, key, email, pass, who) {
