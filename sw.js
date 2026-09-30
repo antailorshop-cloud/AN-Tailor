@@ -1,6 +1,9 @@
-// Bump on every release. The old cache is deleted on activate, so a bumped
-// name is what forces phones to pick up new code.
-var CACHE = 'an-tailor-v2';
+// Bump on every release that adds or changes a cached file. The old cache is
+// deleted on activate, so a bumped name is what forces phones to pick up new
+// code. Adding a file to SHELL without bumping this is the trap: the install
+// event never re-fires, so the new file is never precached and stale-while-
+// revalidate keeps serving the previous copy.
+var CACHE = 'an-tailor-v3';
 
 var SHELL = [
   './',
@@ -60,22 +63,39 @@ self.addEventListener('fetch', function (event) {
     return;
   }
 
-  // Stale-while-revalidate. Answering from the cache keeps the app instant and
-  // working on a weak connection, while a background fetch quietly refreshes
-  // the copy for next time. Plain cache-first would pin a phone to the code it
-  // first installed, with no way to receive a fix.
-  event.respondWith(
-    caches.match(req).then(function (hit) {
-      var network = fetch(req).then(function (res) {
+  // Network-first for the app's own code. A tailor must never be handed last
+  // week's JavaScript, so code is fetched fresh and the cache is only a
+  // fallback for when the shop has no signal. Icons and fonts are safe to serve
+  // from cache immediately, because they do not change between releases.
+  var isCode = /\.(?:html|js|css|webmanifest)$/.test(url.pathname);
+
+  if (isCode) {
+    event.respondWith(
+      fetch(req).then(function (res) {
         if (res && res.status === 200 && res.type === 'basic') {
           var copy = res.clone();
           caches.open(CACHE).then(function (c) { c.put(req, copy); });
         }
         return res;
       }).catch(function () {
-        return hit;
+        return caches.match(req).then(function (hit) {
+          return hit || caches.match('./index.html');
+        });
+      })
+    );
+    return;
+  }
+
+  event.respondWith(
+    caches.match(req).then(function (hit) {
+      if (hit) return hit;
+      return fetch(req).then(function (res) {
+        if (res && res.status === 200 && res.type === 'basic') {
+          var copy = res.clone();
+          caches.open(CACHE).then(function (c) { c.put(req, copy); });
+        }
+        return res;
       });
-      return hit || network;
     })
   );
 });
