@@ -4,3 +4,4 @@ _schema/
 node_modules/
 .env
 .env.local
+config.local.js

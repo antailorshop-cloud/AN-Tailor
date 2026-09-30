@@ -1,11 +1,16 @@
 window.ANT = window.ANT || {};
 
+// config.local.js is loaded first and is gitignored, so credentials
+// never enter the repository. If the file is missing, the app falls
+// back to these placeholders and runs in preview mode.
+var local = window.ANT.local || {};
+
 window.ANT.config = {
   appName: 'AN TAILOR',
   tagline: 'Professional Tailoring Services',
 
-  supabaseUrl: '',
-  supabaseAnonKey: '',
+  supabaseUrl: local.supabaseUrl || '',
+  supabaseAnonKey: local.supabaseAnonKey || '',
 
   storageKeys: {
     theme: 'anTailorTheme',
