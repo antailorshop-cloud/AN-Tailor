@@ -1265,6 +1265,25 @@ button, input, select, textarea { font: inherit; color: inherit; }
  * straight line.
  */
 
+.stale-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  gap: var(--gap-sm);
+  padding: 10px var(--gap);
+  background: var(--warn-soft);
+  border-top: 1px solid var(--warn);
+  color: var(--text-strong);
+  font-size: var(--fs-sm);
+  box-shadow: var(--shadow-md);
+}
+
+.stale-bar span { flex: 1; }
+
 .ord-err {
   border-color: var(--danger);
   background: var(--danger-soft);

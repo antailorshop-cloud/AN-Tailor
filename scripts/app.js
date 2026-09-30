@@ -382,6 +382,64 @@
     }
 
     checkForUpdate();
+    warnIfStale();
+  }
+
+  // Tell the user when the app is running from the offline cache.
+  //
+  // The service worker serves cached code when the network fails, which is the
+  // right thing to do for a shop with patchy signal. But a cached copy can be a
+  // release or two old, and an old release misbehaves in ways that look like
+  // bugs in the app rather than an out-of-date download. Saying so turns a
+  // mystery into a two-second fix.
+  function warnIfStale() {
+    if (!('serviceWorker' in navigator)) return;
+
+    navigator.serviceWorker.addEventListener('message', function (event) {
+      if (!event.data) return;
+
+      if (event.data.type === 'stale') {
+        showStaleBanner();
+        return;
+      }
+
+      // A new service worker took over, meaning the cached files have just been
+      // replaced. Reload so the open tab picks them up, unless the tailor is
+      // part way through typing.
+      if (event.data.type === 'updated') {
+        var bar = byId('staleBar');
+        if (bar) bar.remove();
+        if (!isTyping()) window.location.reload();
+        else window.ANT.toast('A new version is ready. Reload when you are ready.', 'success');
+      }
+    });
+
+    if (!navigator.onLine) showStaleBanner();
+  }
+
+  function showStaleBanner() {
+    if (byId('staleBar')) return;
+
+    var bar = document.createElement('div');
+    bar.id = 'staleBar';
+    bar.className = 'stale-bar';
+    bar.setAttribute('role', 'status');
+
+    var text = document.createElement('span');
+    text.textContent = navigator.onLine
+      ? 'This is an older copy of the app. Reconnecting to the internet and reloading will update it.'
+      : 'You are offline, so this is an older copy. Some things may not save.';
+
+    var reload = document.createElement('button');
+    reload.className = 'btn btn-sm btn-secondary';
+    reload.textContent = 'Reload';
+    reload.addEventListener('click', function () {
+      window.location.reload();
+    });
+
+    bar.appendChild(text);
+    bar.appendChild(reload);
+    document.body.appendChild(bar);
   }
 
   // Ask the server whether a newer release exists.

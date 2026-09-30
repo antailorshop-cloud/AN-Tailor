@@ -1,9 +1,12 @@
 // Bump on every release that changes any cached file. The old cache is deleted
 // on activate, so a bumped name is what forces phones to pick up new code.
-// Adding a file to SHELL without bumping this is the trap: the install event
-// never re-fires for an already-installed worker, so the new file is never
-// precached and the previously cached copy keeps being served.
-var CACHE = 'an-tailor-v5';
+//
+// This has to happen on EVERY release, not just when a file is added. A fixed
+// file that is not re-precached stays broken for anyone on a weak connection:
+// network-first falls back to the cache, and the cache still holds the old
+// copy. That is how a "Save order" fix reached the server and never reached
+// the shop phone.
+var CACHE = 'an-tailor-v6';
 
 var SHELL = [
   './',
@@ -40,6 +43,15 @@ self.addEventListener('activate', function (event) {
       }));
     }).then(function () {
       return self.clients.claim();
+    }).then(function () {
+      // A new worker has taken over, so the open tabs are now on fresh files.
+      // Without this they keep running whatever was in memory and only find
+      // out on the next full reload.
+      return self.clients.matchAll({ type: 'window' }).then(function (list) {
+        list.forEach(function (client) {
+          client.postMessage({ type: 'updated', cache: CACHE });
+        });
+      });
     })
   );
 });
@@ -59,7 +71,10 @@ self.addEventListener('fetch', function (event) {
         caches.open(CACHE).then(function (c) { c.put(req, copy); });
         return res;
       }).catch(function () {
-        return caches.match('./index.html');
+        return caches.match('./index.html').then(function (hit) {
+          announceStale();
+          return markStale(hit);
+        });
       })
     );
     return;
@@ -71,6 +86,31 @@ self.addEventListener('fetch', function (event) {
   // from cache immediately, because they do not change between releases.
   var isCode = /\.(?:html|js|css|webmanifest)$/.test(url.pathname);
 
+  // A cached copy is marked so the page can tell the user. Serving stale code
+  // quietly is worse than being offline: the tailor sees a button that does
+  // nothing and has no way to know why.
+  function markStale(res) {
+    if (!res) return res;
+    var headers = new Headers(res.headers);
+    headers.set('X-From-Cache', '1');
+    return new Response(res.body, {
+      status: res.status,
+      statusText: res.statusText,
+      headers: headers
+    });
+  }
+
+  // Any open tab is running a mix of fresh and cached files. Say so, so it can
+  // show the banner instead of failing mysteriously.
+  function announceStale() {
+    return self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+      .then(function (list) {
+        list.forEach(function (client) {
+          client.postMessage({ type: 'stale', cache: CACHE });
+        });
+      });
+  }
+
   if (isCode) {
     event.respondWith(
       fetch(req).then(function (res) {
@@ -81,7 +121,9 @@ self.addEventListener('fetch', function (event) {
         return res;
       }).catch(function () {
         return caches.match(req).then(function (hit) {
-          return hit || caches.match('./index.html');
+          var stale = markStale(hit || caches.match('./index.html'));
+          announceStale();
+          return stale;
         });
       })
     );
