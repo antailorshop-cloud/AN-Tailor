@@ -104,9 +104,11 @@ window.ANT.customers = (function () {
     return q.range(state.page * PAGE_SIZE, state.page * PAGE_SIZE + PAGE_SIZE - 1);
   }
 
-  function load() {
+  function load(showLoading) {
     state.loading = true;
-    paint();
+    // Searching re-renders the whole view, which would tear the input out from
+    // under the caret, so the interim loading paint is skipped there.
+    if (showLoading !== false) paint();
 
     return buildQuery().then(function (res) {
       state.loading = false;
@@ -408,9 +410,8 @@ window.ANT.customers = (function () {
         state.page = 0;
         if (searchTimer) window.clearTimeout(searchTimer);
         searchTimer = window.setTimeout(function () {
-          // Repaint would steal the caret, so only the table is redrawn.
           var value = e.target.value;
-          load().then(function () {
+          load(false).then(function () {
             var again = byId('custSearch');
             if (again) {
               again.value = value;
