@@ -215,8 +215,13 @@ window.ANT.sb = (function () {
     return this;
   };
 
+  // The value must be wrapped in parentheses. Without them PostgREST parses
+  // "orname.ilike.x" as a column literally called "orname" and answers
+  // "column customers.orname does not exist", which looks nothing like a
+  // missing bracket. Wrapping here so no call site can get it wrong.
   Query.prototype.or = function (expr) {
-    this.orExpr = expr;
+    var e = String(expr);
+    this.orExpr = (e.charAt(0) === '(') ? e : '(' + e + ')';
     return this;
   };
 

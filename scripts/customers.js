@@ -144,16 +144,17 @@ window.ANT.customers = (function () {
     var to = state.page * PAGE_SIZE + state.rows.length;
 
     var label;
+    var suffix = state.search ? ' for "' + state.search + '"' : '';
+
     if (state.loading) {
       label = 'Loading...';
-    } else if (state.search) {
-      label = total === 0
-        ? 'No match for "' + state.search + '"'
-        : 'Showing ' + from + '-' + to + ' of ' + total + ' for "' + state.search + '"';
     } else if (total === 0) {
-      label = 'No customers yet';
+      label = state.search ? 'No match' + suffix : 'No customers yet';
+    } else if (state.rows.length === 0) {
+      // total is known but nothing came back, so the page is out of range.
+      label = 'Nothing on this page';
     } else {
-      label = 'Showing ' + from + '-' + to + ' of ' + total;
+      label = 'Showing ' + from + '-' + to + ' of ' + total + suffix;
     }
 
     return '<div class="cust-toolbar">' +
