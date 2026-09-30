@@ -146,11 +146,16 @@ window.ANT.sb = (function () {
     this.wantOne = false;
     this.wantMaybeOne = false;
     this.wantsCount = false;
+    // Set by select() when it is called after insert/update, so the caller can
+    // ask for the written rows back. It has to be a flag rather than a look at
+    // this.columns, because columns defaults to '*' for a plain select.
+    this.picksColumns = false;
   }
 
   Query.prototype.select = function (columns, opts) {
     this.columns = columns || '*';
     this.wantsCount = !!(opts && opts.count);
+    this.picksColumns = true;
     return this;
   };
 
@@ -262,9 +267,13 @@ window.ANT.sb = (function () {
     } else if (this.mode === 'insert') {
       // PostgREST returns the inserted rows when asked to, and nothing when
       // not, so an insert that RLS discarded would otherwise be
-      // indistinguishable from one that succeeded.
+      // indistinguishable from one that succeeded. return=minimal still answers
+      // 201 when every row was filtered out, which is the trap.
       parts.push('select=*');
-      prefer = wantsRow ? 'return=representation' : 'return=minimal';
+      // A caller that named columns after inserting wants the rows back. This
+      // is how a multi-row insert is checked: single() cannot be used on one,
+      // because PostgREST refuses to return an object for several rows.
+      prefer = (wantsRow || this.picksColumns) ? 'return=representation' : 'return=minimal';
     } else if (this.mode === 'update' || this.mode === 'delete') {
       // Always ask for the affected rows. A blocked write comes back as an
       // empty list, which is the only reliable way to tell "denied" from

@@ -1265,6 +1265,11 @@ button, input, select, textarea { font: inherit; color: inherit; }
  * straight line.
  */
 
+.ord-err {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
 .ord-note {
   margin: calc(var(--gap-sm) * -1) 0 var(--gap-sm);
   padding: 8px 10px;

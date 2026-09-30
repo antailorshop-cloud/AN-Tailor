@@ -62,10 +62,12 @@ window.ANT.orders = (function () {
     dressTypes: [],
     prices: [],
     measurements: [],
-    saving: false
+    saving: false,
+    saveError: ''
   };
 
   var custTimer = null;
+  var saveTimer = null;
 
   function me() {
     return window.ANT.auth.current() || {};
@@ -320,7 +322,7 @@ window.ANT.orders = (function () {
   function listPage() {
     return pageHead() + toolbar() +
       (state.searchNote ? '<p class="ui-hint ord-note">' + esc(state.searchNote) + '</p>' : '') +
-      (state.error ? errorCard() : '') + tableCard() + pager();
+      (state.error ? errorCard('Could not load orders', state.error, '') : '') + tableCard() + pager();
   }
 
   function pageHead() {
@@ -368,11 +370,12 @@ window.ANT.orders = (function () {
     '</div>';
   }
 
-  function errorCard() {
-    return '<div class="ui-card"><div class="empty">' +
-      '<div class="empty-title">Could not load orders</div>' +
-      '<p class="empty-text">' + esc(state.error) + '</p>' +
-    '</div></div>';
+  function errorCard(title, detail, hint) {
+    return '<div class="ui-card ord-err">' +
+      '<h2 class="ui-card-title">' + esc(title) + '</h2>' +
+      '<p class="ui-card-sub">' + esc(detail) + '</p>' +
+      (hint ? '<p class="ui-hint">' + esc(hint) + '</p>' : '') +
+    '</div>';
   }
 
   function tableCard() {
@@ -465,6 +468,10 @@ window.ANT.orders = (function () {
         '<button class="btn btn-secondary" id="ordBack">Back to list</button>' +
       '</div>' +
     '</div>' +
+    (state.saveError
+      ? errorCard('The order was not saved', state.saveError,
+          'Everything you typed is still on screen. Fix the problem above and press Save order again.')
+      : '') +
     (editing ? statusBar(order) : '') +
     customerCard(editing) +
     itemsCard() +
@@ -735,6 +742,14 @@ window.ANT.orders = (function () {
     var dateEl = byId('ordDate');
     var discountEl = byId('ordDiscount');
 
+    // A new order must be attached to a customer before anything else is
+    // touched. Without this the save reached the point of reading
+    // state.formCustomer.id with nothing selected and threw, which left the
+    // button stuck on "Saving...".
+    if (!order && !state.formCustomer) {
+      return 'Choose a customer for this order.';
+    }
+
     var orderDate = dateEl ? dateEl.value.trim() : '';
     if (!orderDate) return 'Choose the order date.';
 
@@ -819,6 +834,8 @@ window.ANT.orders = (function () {
   }
 
   function save() {
+    if (state.saving) return;
+
     readItems();
     var problem = validate();
     if (problem) return toast(problem, 'error');
@@ -829,7 +846,19 @@ window.ANT.orders = (function () {
     var orderId = editing ? state.form.id : null;
 
     state.saving = true;
+    state.saveError = '';
     paint();
+
+    // Watchdog. A request that never settles -- a dropped connection mid-save,
+    // or a promise that rejects before the catch is attached -- must not leave
+    // the button disabled for the rest of the shift.
+    clearTimeout(saveTimer);
+    saveTimer = window.setTimeout(function () {
+      if (!state.saving) return;
+      state.saving = false;
+      paint();
+      toast('The save did not finish. Check the connection and try again.', 'error');
+    }, 25000);
 
     var head = {
       order_date: f.order_date,
@@ -853,34 +882,47 @@ window.ANT.orders = (function () {
 
     var work;
 
-    if (editing) {
-      // The parent measurement_id mirrors the first item, matching the legacy
-      // sheet where the parent row held the first item's measurement.
-      head.measurement_id = state.formItems[0] && state.formItems[0].measurement_id
-        ? state.formItems[0].measurement_id
-        : null;
+    // Anything thrown from here on is a coding fault rather than a rejected
+    // request, so it would escape the promise chain below. The button is
+    // already disabled at this point, which is exactly how it got stuck before.
+    try {
+      if (editing) {
+        // The parent measurement_id mirrors the first item, matching the legacy
+        // sheet where the parent row held the first item's measurement.
+        head.measurement_id = state.formItems[0] && state.formItems[0].measurement_id
+          ? state.formItems[0].measurement_id
+          : null;
 
-      work = sb().from('orders')
-        .update(head)
-        .eq('id', orderId)
-        .select('id,code')
-        .then(guardEmpty('That order could not be changed.'))
-        .then(function () {
-          return syncItems(orderId);
-        });
-    } else {
-      work = nextCode().then(function (code) {
-        if (!code) return { error: { message: 'Could not work out a new order number. Try again.' } };
-        head.code = code;
-        return sb().from('orders')
-          .insert(head)
-          .single()
+        work = sb().from('orders')
+          .update(head)
+          .eq('id', orderId)
+          .select('id,code')
+          .then(guardEmpty('That order could not be changed.'))
+          // Stop here if the update was refused. Carrying on would rewrite the
+          // item lines of an order that was never actually changed.
           .then(function (res) {
-            if (res.error || !res.data) return res;
-            orderId = res.data.id;
-            return replaceItems(orderId);
+            if (res && res.error) return res;
+            return syncItems(orderId);
           });
-      });
+      } else {
+        work = nextCode().then(function (code) {
+          if (!code) return { error: { message: 'Could not work out a new order number. Try again.' } };
+          head.code = code;
+          return sb().from('orders')
+            .insert(head)
+            .single()
+            .then(function (res) {
+              if (res.error || !res.data) {
+                return { error: res.error || { message: 'The order could not be saved.' } };
+              }
+              orderId = res.data.id;
+              return replaceItems(orderId);
+            });
+        });
+      }
+    } catch (e) {
+      failSave(e, orderId);
+      return;
     }
 
     work
@@ -893,6 +935,7 @@ window.ANT.orders = (function () {
         return null;
       })
       .then(function () {
+        clearTimeout(saveTimer);
         state.saving = false;
         state.view = 'list';
         state.form = null;
@@ -902,13 +945,21 @@ window.ANT.orders = (function () {
         return loadOrders();
       })
       .catch(function (err) {
-        state.saving = false;
-        var msg = (err && err.message) || 'The order could not be saved.';
-        // The order row is in place even if the items failed, so say so rather
-        // than letting the tailor enter the whole order again.
-        toast(orderId ? 'Order ' + orderId.slice(0, 8) + ' saved but the items failed: ' + msg : msg, 'error');
-        paint();
+        failSave(err, orderId);
       });
+  }
+
+  // Single place that clears the saving flag, so no failure path can leave the
+  // button stuck.
+  function failSave(err, orderId) {
+    clearTimeout(saveTimer);
+    state.saving = false;
+    var msg = (err && err.message) || 'The order could not be saved.';
+    // The order row is in place even if the items failed, so say so rather
+    // than letting the tailor enter the whole order again.
+    toast(orderId ? 'Order saved but the items failed: ' + msg : msg, 'error');
+    state.saveError = msg;
+    paint();
   }
 
   function guardEmpty(message) {
@@ -937,75 +988,133 @@ window.ANT.orders = (function () {
       });
   }
 
-  // New order: every row is an insert, so it is one request.
+  // New order: every row is an insert, so it is one request. The count is
+  // checked because PostgREST answers a multi-row insert with 201 even when RLS
+  // dropped every row, and an order silently missing its items is worse than an
+  // error the tailor can see.
   function replaceItems(orderId) {
     var rows = state.formItems.map(function (it, i) {
       return itemPayload(it, orderId, i + 1);
     });
-    return sb().from('order_items').insert(rows);
+
+    return sb().from('order_items')
+      .insert(rows)
+      .select('id')
+      .then(function (res) {
+        if (res.error) {
+          return { error: { message: 'The order was created but its items were not saved: ' +
+            (res.error.message || 'the item rows were rejected.') } };
+        }
+        var written = (res.data || []).length;
+        if (written !== rows.length) {
+          return { error: { message: 'Only ' + written + ' of ' + rows.length +
+            ' items were saved. Open the order and add the rest.' } };
+        }
+        return null;
+      });
   }
 
   // Editing an order has to cope with the fact that staff may not hard-delete a
   // line. Lines that disappeared are archived when the user is staff and truly
   // removed when the user is the owner, so the audit trail rule stays intact.
+  //
+  // The steps run one after another rather than all at once. Sending them
+  // together would let a failed insert land after a successful delete and leave
+  // the order half written.
   function syncItems(orderId) {
     var existing = state.items[orderId] || [];
     var keep = state.formItems.filter(function (i) { return i.id; });
     var keepIds = keep.map(function (i) { return i.id; });
     var removed = existing.filter(function (e) { return keepIds.indexOf(e.id) === -1; });
+    var now = new Date().toISOString();
 
+    // A step is { want: rows, query }. "want" is how many rows the server must
+    // report back, so a write silently dropped by RLS is caught rather than
+    // treated as a success.
     var steps = [];
 
     removed.forEach(function (e) {
-      steps.push(
-        isOwner()
-          ? sb().from('order_items').delete().eq('id', e.id)
+      steps.push({
+        want: 1,
+        query: isOwner()
+          ? sb().from('order_items').delete().eq('id', e.id).select('id')
           : sb().from('order_items')
-              .update({ archived_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+              .update({ archived_at: now, updated_at: now })
               .eq('id', e.id)
-      );
+              .select('id')
+      });
     });
 
     state.formItems.forEach(function (it, i) {
       var payload = itemPayload(it, orderId, i + 1);
       if (it.id) {
         delete payload.order_id;
-        steps.push(sb().from('order_items').update(payload).eq('id', it.id));
+        steps.push({ want: 1, query: sb().from('order_items').update(payload).eq('id', it.id).select('id') });
       } else {
-        steps.push(sb().from('order_items').insert(payload));
+        steps.push({ want: 1, query: sb().from('order_items').insert(payload).select('id') });
       }
     });
 
-    return steps.reduce(function (chain, p) {
+    if (!steps.length) return Promise.resolve(null);
+
+    return steps.reduce(function (chain, step) {
       return chain.then(function (acc) {
-        return p.then(function (res) {
-          return (acc && acc.error) ? acc : res;
+        if (acc && acc.error) return acc;
+        return step.query.then(function (res) {
+          if (res.error) {
+            return { error: { message: res.error.message || 'An item could not be saved.' } };
+          }
+          var written = (res.data || []).length;
+          if (written !== step.want) {
+            return { error: { message: 'An item was not saved. It may have been rejected. Open the order and check the items.' } };
+          }
+          return null;
         });
       });
     }, Promise.resolve(null));
   }
 
-  function recordAdvancePayment(orderId, t, f) {
-    return sb().from('payments')
-      .insert({
-        order_id: orderId,
-        customer_id: state.formCustomer.id,
-        amount: t.advance,
-        method: f.method,
-        previous_balance: round2(t.total - t.discount),
-        new_balance: t.balance,
-        notes: 'Advance at order (' + orderId.slice(0, 8) + ')',
-        paid_on: f.order_date
-      })
-      .then(function (res) {
-        return nextPaymentCode().then(function (code) {
-          if (res.error || !res.data) {
-            return { error: { message: 'The order was saved but the advance could not be recorded as a payment.' } };
+  // payments.code is NOT NULL with no default, so the number has to exist
+  // before the insert. Generating it afterwards could never work.
+  // .single() is required as well: without it the client asks PostgREST for
+  // return=minimal and gets no row back, so a successful insert would be
+  // indistinguishable from a rejected one.
+  function recordAdvancePayment(orderId, t, f, attempt) {
+    if (!orderId) {
+      return { error: { message: 'The order was not saved, so the advance was not recorded.' } };
+    }
+
+    return nextPaymentCode().then(function (code) {
+      return sb().from('payments')
+        .insert({
+          code: code,
+          order_id: orderId,
+          customer_id: state.formCustomer.id,
+          amount: t.advance,
+          method: f.method,
+          previous_balance: round2(t.total - t.discount),
+          new_balance: t.balance,
+          notes: 'Advance at order (' + orderId.slice(0, 8) + ')',
+          paid_on: f.order_date
+        })
+        .single()
+        .then(function (res) {
+          if (res.error) {
+            // Two tails can pick the same number. Take the next one and retry
+            // rather than losing the money record.
+            if (res.error.status === 409 && (attempt || 0) < 3) {
+              return recordAdvancePayment(orderId, t, f, (attempt || 0) + 1);
+            }
+            return {
+              error: {
+                message: 'The order was saved but the advance could not be recorded as a payment: ' +
+                  (res.error.message || 'the payment row was rejected.')
+              }
+            };
           }
-          return sb().from('payments').update({ code: code }).eq('id', res.data.id);
+          return null;
         });
-      })
-      .then(function () { return null; });
+    });
   }
 
   function nextPaymentCode() {
