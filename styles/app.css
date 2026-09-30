@@ -1475,3 +1475,62 @@ button, input, select, textarea { font: inherit; color: inherit; }
   .ord-danger { margin-left: 0; align-items: flex-start; }
   .ord-total { min-width: 0; width: 100%; }
 }
+
+/* Payments ------------------------------------------------------------- */
+
+/* The outstanding figure is the one number the owner opens this page for, so
+   it sits in the page head where it is visible without scrolling. */
+.ord-kpi {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  padding: var(--gap-xs) var(--gap-sm);
+  border: 1px solid var(--surface-line);
+  border-radius: var(--r-sm);
+  background: var(--surface-alt);
+}
+
+.ord-kpi span {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ord-kpi strong {
+  font-size: var(--fs-lg);
+  color: var(--text-strong);
+}
+
+/* A two column form on a wide screen, one column on a phone. The two readonly
+   money cells are the point of the form, so they are laid out first. */
+.pay-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--gap-sm) var(--gap);
+}
+
+.ui-field-wide { grid-column: 1 / -1; margin-top: var(--gap-sm); }
+
+.pay-hint {
+  margin-top: var(--gap-sm);
+  padding: var(--gap-xs) var(--gap-sm);
+  border-left: 3px solid var(--surface-line);
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+
+/* The notes column is free text, so it is allowed to wrap and stay narrow
+   rather than forcing the table to scroll. */
+.ord-note {
+  max-width: 22ch;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  white-space: normal;
+}
+
+@media (max-width: 640px) {
+  .pay-grid { grid-template-columns: minmax(0, 1fr); }
+  .ord-kpi { align-items: flex-start; }
+}

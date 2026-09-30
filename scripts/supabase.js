@@ -210,6 +210,13 @@ window.ANT.sb = (function () {
     return this;
   };
 
+  // Strict bounds. Payments needs the orders that still owe, which is a balance
+  // above zero and not "zero or more", so the exclusive form has to exist.
+  Query.prototype.gt = function (column, value) {
+    this.filters.push(column + '=gt.' + encodeValue(value));
+    return this;
+  };
+
   Query.prototype.gte = function (column, value) {
     this.filters.push(column + '=gte.' + encodeValue(value));
     return this;

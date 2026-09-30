@@ -194,7 +194,8 @@
       customers: window.ANT.customers,
       settings: window.ANT.settings,
       measurements: window.ANT.measurements,
-      orders: window.ANT.orders
+      orders: window.ANT.orders,
+      payments: window.ANT.payments
     };
 
     if (modules[area.id]) {
