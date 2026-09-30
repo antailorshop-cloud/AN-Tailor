@@ -8,9 +8,19 @@
 --     orders, items, payments and bills.
 --   * Master data and configuration belong to the owner: prices, dress types,
 --     shop settings, staff accounts and access levels.
---   * Nothing is hard-deleted. Staff archive; only the owner deletes.
+--   * Hard delete is reserved for the owner, and the foreign keys narrow it
+--     further: orders.customer_id is ON DELETE RESTRICT, so a customer who has
+--     ever placed an order can never be removed -- by anyone, owner included.
+--     Those customers are archived. That is intentional, because the order
+--     history is the shop's business record.
 --   * A signed-out visitor reads nothing. No table has a policy for `anon`,
 --     so with RLS enabled every table denies by default.
+--
+-- Note on reading policy lists: a blocked write does NOT raise an error.
+-- Postgres filters the row out of the result set instead, so the statement
+-- succeeds while affecting nothing. A policy that looks correct in
+-- pg_policies can still be miswritten, and only a behavioural test proves
+-- it. See supabase/tests/index.html.
 --
 -- Run schema.sql first.
 

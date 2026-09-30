@@ -173,10 +173,11 @@ async function signedOut(url, key) {
 }
 
 const PROBE = {
-  price:    '__rls_probe_price__',
-  setting:  '__rls_probe_setting__',
-  customer: '__rls_probe_customer__',
-  order:    '__rls_probe_order__'
+  price:         '__rls_probe_price__',
+  setting:       '__rls_probe_setting__',
+  customer:      '__rls_probe_customer__',
+  customerLoose: '__rls_probe_customer_loose__',
+  order:         '__rls_probe_order__'
 };
 
 // A blocked write is NOT reported as an error.
@@ -200,13 +201,14 @@ function oneRow(r) {
 async function clearFixtures(owner) {
   await owner.from('orders').delete().eq('code', PROBE.order);
   await owner.from('customers').delete().eq('code', PROBE.customer);
+  await owner.from('customers').delete().eq('code', PROBE.customerLoose);
   await owner.from('customers').delete().like('code', 'TEST-STAFF-%');
   await owner.from('prices').delete().eq('code', PROBE.price);
   await owner.from('shop_settings').delete().eq('key', PROBE.setting);
 }
 
 async function makeFixtures(owner) {
-  const out = { priceId: null, customerId: null, orderId: null, errors: [] };
+  const out = { priceId: null, customerId: null, customerLooseId: null, orderId: null, errors: [] };
 
   const price = await owner.from('prices')
     .insert({ code: PROBE.price, group_name: 'RLS Probe', item: 'Probe', option: '', price: 100, status: 'ACTIVE' })
@@ -219,6 +221,8 @@ async function makeFixtures(owner) {
     .insert({ key: PROBE.setting, value: 'original' }).select('key').single();
   if (setting.error) out.errors.push('shop_settings insert: ' + setting.error.message);
 
+  // A customer that already has an order. orders.customer_id is ON DELETE
+  // RESTRICT, so this row must never be removable, not even by the owner.
   const customer = await owner.from('customers')
     .insert({ code: PROBE.customer, name: 'RLS Probe Customer' })
     .select('id').single();
@@ -233,6 +237,13 @@ async function makeFixtures(owner) {
     else if (!order.data) out.errors.push('orders insert: returned no row');
     else out.orderId = order.data.id;
   }
+
+  // A customer with no history, so owner-only hard delete can be proven.
+  const loose = await owner.from('customers')
+    .insert({ code: PROBE.customerLoose, name: 'RLS Probe Loose Customer' })
+    .select('id').single();
+  if (loose.error) out.errors.push('loose customer insert: ' + loose.error.message);
+  else if (loose.data) out.customerLooseId = loose.data.id;
 
   return out;
 }
@@ -276,17 +287,24 @@ async function staffPhase(staff, ids) {
       del.error ? del.error.message : (del.data || []).length + ' rows returned');
 
   const me = await staff.auth.getUser();
-  const uid = me && me.user ? me.user.id : '';
-  const esc = await staff.from('profiles').update({ role: 'owner' }).eq('id', uid).select('role');
+  const uid = me && me.data && me.data.user ? me.data.user.id : '';
+  const esc = uid
+    ? await staff.from('profiles').update({ role: 'owner' }).eq('id', uid).select('role')
+    : { error: { message: 'could not read the signed-in user id' }, data: null };
   const stillStaff = esc.error || !oneRow(esc) || esc.data[0].role === 'staff';
   log('Staff', 'Promote own account to owner', 'blocked', stillStaff,
       esc.error ? esc.error.message
                 : 'role is still ' + ((esc.data && esc.data[0]) ? esc.data[0].role : '?'));
 
+  if (!uid) {
+    log('Staff', 'Read own user id', 'success', false, 'getUser() returned no user, so the two checks below are invalid');
+  }
+
   const access = await staff.from('staff_access').select('*');
   const others = (access.data || []).filter(r => r.user_id !== uid);
-  log('Staff', 'Read other staff access rows', 'blocked', !!access.error || others.length === 0,
-      access.error ? access.error.message : others.length + ' other rows visible');
+  log('Staff', 'Read other staff access rows', 'blocked', !!access.error || (!!uid && others.length === 0),
+      access.error ? access.error.message : others.length + ' other rows visible, own rows ' +
+        ((access.data || []).length - others.length));
 
   await staff.auth.signOut();
 }
@@ -325,9 +343,20 @@ async function ownerPositive(owner, ids) {
       !s.error && s.data && s.data.value === 'set by owner',
       s.error ? s.error.message : 'value is now "' + (s.data && s.data.value) + '"');
 
-  const d = await owner.from('customers').delete().eq('code', PROBE.customer).select('id');
-  log('Owner', 'Delete a customer', 'allowed and applied', oneRow(d),
-      d.error ? d.error.message : (d.data || []).length + ' row(s) deleted');
+  // Deleting a customer who has never had an order is permitted for the owner.
+  if (ids.customerLooseId) {
+    const d = await owner.from('customers').delete().eq('id', ids.customerLooseId).select('id');
+    log('Owner', 'Delete a customer with no orders', 'allowed and applied', oneRow(d),
+        d.error ? d.error.message : (d.data || []).length + ' row(s) deleted');
+  }
+
+  // A customer with an order must NOT be removable, even by the owner.
+  // orders.customer_id is ON DELETE RESTRICT on purpose: the order history is
+  // the shop's business record, so such customers are archived instead.
+  const guarded = await owner.from('customers').delete().eq('code', PROBE.customer).select('id');
+  log('Owner', 'Delete a customer that has orders', 'blocked by design (archive instead)',
+      !guarded.error && zeroRows(guarded),
+      guarded.error ? 'blocked: ' + guarded.error.message : (guarded.data || []).length + ' rows returned');
 }
 
 async function signIn(url, key, email, pass, who) {
