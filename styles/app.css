@@ -1383,6 +1383,33 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .ord-items input[data-f="extra"] { width: 96px; text-align: right; }
 .ord-items td.num strong { white-space: nowrap; }
 
+/* A field the chosen service does not use. It keeps its column so the table
+   stays readable, and the dash says "not needed" rather than leaving a blank
+   box that looks like something was forgotten. */
+.ord-items .ord-na,
+.ord-items td.ord-na {
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* A value shown instead of a box when there is only one sensible answer,
+   such as the dress implied by a measurement. */
+.ord-items .ord-fixed {
+  color: var(--text-body);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
+
+.ord-items input[readonly] { background: var(--surface-muted); color: var(--text-muted); }
+
+/* The service column decides how wide the row is allowed to get, so give the
+   garment and resale name the room and keep the numbers narrow. */
+.ord-items select[data-f="service"] { min-width: 132px; }
+.ord-items select[data-f="dress_type"] { min-width: 128px; }
+.ord-items select[data-f="resale_item"] { min-width: 168px; }
+.ord-items select[data-f="variant"],
+.ord-items select[data-f="lining"] { min-width: 116px; }
+
 .ord-add-row {
   display: flex;
   align-items: center;

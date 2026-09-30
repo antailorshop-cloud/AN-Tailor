@@ -53,7 +53,7 @@
     </div>
     <div class="field">
       <label for="ownerPass">Owner password</label>
-      <input id="ownerPass" type="text" autocomplete="off">
+      <input id="ownerPass" type="password" autocomplete="off">
     </div>
   </div>
   <div class="grid">
@@ -63,7 +63,7 @@
     </div>
     <div class="field">
       <label for="staffPass">Staff password</label>
-      <input id="staffPass" type="text" autocomplete="off">
+      <input id="staffPass" type="password" autocomplete="off">
     </div>
   </div>
   <p class="note">
@@ -71,10 +71,16 @@
     Create both accounts under Authentication, then set the owner role:
     <code>update profiles set role='owner' where email='owner@antailor.test';</code>
   </p>
+  <p class="note">
+    Passwords are deliberately not remembered. They are typed every run and are never written
+    to localStorage, so nothing secret is left sitting in the browser on a shared shop machine.
+    The two account emails are remembered because they are not secret.
+  </p>
   <div style="display:flex; gap:10px; margin-top:8px; flex-wrap:wrap">
     <button id="run">Run all tests</button>
     <button class="ghost" id="copy">Copy results</button>
     <button class="ghost" id="clear">Clear results</button>
+    <button class="ghost" id="forget">Forget saved emails</button>
   </div>
   <div id="verdict" class="verdict" hidden></div>
   <div id="summary" class="note" style="margin-top:8px"></div>
@@ -92,12 +98,13 @@
 <script src="../../config.local.js"></script>
 <script>
   // Connection details come from the gitignored config.local.js so the URL
-  // and anon key never have to be typed or shared. The four fields are also
-  // mirrored into localStorage so re-running the suite does not mean
-  // re-typing the two test passwords.
+  // and anon key never have to be typed or shared. Only the two account
+  // emails are mirrored into localStorage, and never the passwords: a test
+  // password left sitting in the browser of a shared shop machine is a real
+  // risk, and re-typing it costs a few seconds once per run.
   (function () {
     var local = (window.ANT && window.ANT.local) || {};
-    var ids = ['url', 'key', 'ownerEmail', 'ownerPass', 'staffEmail', 'staffPass'];
+    var savedIds = ['ownerEmail', 'staffEmail'];
     var store = 'anTailorRlsTest';
 
     function saved() {
@@ -111,17 +118,31 @@
     if (url) document.getElementById('url').value = url;
     if (key) document.getElementById('key').value = key;
 
+    // Anything a previous version of this page persisted is dropped, so an old
+    // blob holding passwords cannot survive the upgrade.
     var prior = saved();
-    ['ownerEmail', 'ownerPass', 'staffEmail', 'staffPass'].forEach(function (id) {
+    var leaked = false;
+    ['ownerPass', 'staffPass'].forEach(function (k) { if (prior[k]) leaked = true; });
+    if (leaked) {
+      try { localStorage.removeItem(store); } catch (e) {}
+      prior = {};
+    }
+
+    savedIds.forEach(function (id) {
       if (prior[id]) document.getElementById(id).value = prior[id];
     });
 
-    ids.forEach(function (id) {
+    savedIds.forEach(function (id) {
       document.getElementById(id).addEventListener('input', function () {
         var out = {};
-        ids.forEach(function (k) { out[k] = document.getElementById(k).value; });
+        savedIds.forEach(function (k) { out[k] = document.getElementById(k).value; });
         try { localStorage.setItem(store, JSON.stringify(out)); } catch (e) {}
       });
+    });
+
+    document.getElementById('forget').addEventListener('click', function () {
+      try { localStorage.removeItem(store); } catch (e) {}
+      savedIds.forEach(function (k) { document.getElementById(k).value = ''; });
     });
 
     var badge = document.getElementById('configStatus');

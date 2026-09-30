@@ -156,6 +156,19 @@ create table if not exists order_items (
 
 create index if not exists order_items_order_idx on order_items (order_id, line_no);
 
+-- A resale line sells an item that is already made and already in stock, so it
+-- has no garment to cut and no measurement to copy. The stock row is recorded
+-- here so the order and the stock ledger can be reconciled, and so the sell
+-- price shown on the order is the price that was actually charged. The legacy
+-- system had no column for this and kept the item name in the variant column,
+-- which is still written as well so an export of old data lines up.
+-- Added with IF NOT EXISTS so re-running this file upgrades an existing
+-- database: create table if not exists is a no-op once the table is there, so
+-- a column added after the table was first created would otherwise be missing
+-- and every Resale order would fail to save.
+alter table order_items
+  add column if not exists resale_item_id uuid references resale_stock(id) on delete set null;
+
 -- Staff are not allowed to hard-delete an order item, so they need a way to
 -- withdraw a wrongly entered one without destroying the audit trail. Added
 -- with IF NOT EXISTS so re-running this file upgrades an existing database.

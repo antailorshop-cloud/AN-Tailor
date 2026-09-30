@@ -37,7 +37,34 @@ window.ANT.orders = (function () {
 
   var STATUSES = ['Pending', 'In Progress', 'Ready', 'Delivered', 'Cancelled'];
   var PRIORITIES = ['Normal', 'Urgent'];
-  var SERVICES = ['Tailoring', 'Resale'];
+
+  // Service, variant and lining lists are taken verbatim from the legacy
+  // Orders.html so the shop sees the same words it always has. A renamed option
+  // is a different thing in the shop's head, so these are not invented here.
+  var SERVICES = [
+    'Tailoring',
+    'Aari Work',
+    'Ironing',
+    'Saree Pre-Pleating',
+    'Alteration',
+    'Embroidery',
+    'Resale'
+  ];
+
+  var VARIANT_OPTIONS = ['', 'Blouse', 'Salwar / Churidar', 'Chudi', 'Kurthi'];
+  var LINING_OPTIONS = ['', 'Without Lining', 'With Lining'];
+
+  // The legacy system only keeps variant and lining for a Tailoring order, and
+  // only shows a measurement when a measurement can actually apply. These two
+  // predicates drive which columns a row shows, so the rule lives in one place
+  // instead of being repeated in every branch.
+  function isTailoring(service) {
+    return service === 'Tailoring';
+  }
+
+  function isResale(service) {
+    return service === 'Resale';
+  }
   var PAGE_SIZE = 25;
   var MAX_ITEMS = 50;
 
@@ -61,6 +88,7 @@ window.ANT.orders = (function () {
     customerQuery: '',
     dressTypes: [],
     prices: [],
+    resale: [],
     measurements: [],
     saving: false,
     saveError: ''
@@ -185,12 +213,63 @@ window.ANT.orders = (function () {
   function loadPrices() {
     if (state.prices.length) return Promise.resolve();
     return sb().from('prices')
-      .select('item,option,amount,group_name')
-      .eq('status', 'Active')
+      .select('item,option,price,group_name')
+      .eq('status', 'ACTIVE')
       .then(function (res) {
-        if (res.error) return;
+        // A failure here used to be swallowed, which left the rate box offering
+        // no suggestions and nothing on screen to say why. A broken column name
+        // or a renamed status is a code or schema mismatch, not something the
+        // tailor can fix, so it is surfaced rather than hidden.
+        if (res.error) {
+          console.warn('Orders: the price list could not be loaded, so the rate box has no suggestions.', res.error);
+          toast('Price list unavailable. Type the agreed rate.', 'error');
+          return;
+        }
         state.prices = res.data || [];
       });
+  }
+
+  // Resale items come from stock, and only what is actually left is offered,
+  // which is what the legacy getResaleSellPriceMap did: bought minus sold.
+  // Without this a tailor could sell the same saree twice.
+  function loadResale() {
+    return sb().from('resale_stock')
+      .select('id,code,item,quantity,sell_price')
+      .then(function (res) {
+        // A Resale order with no stock list would silently offer an empty
+        // dropdown, so the failure is said out loud.
+        if (res.error) {
+          console.warn('Orders: resale stock could not be loaded, so a Resale order has no item to pick.', res.error);
+          toast('Resale stock unavailable.', 'error');
+          return;
+        }
+        state.resale = res.data || [];
+      });
+  }
+
+  function resaleById(id) {
+    if (!id) return null;
+    return state.resale.filter(function (r) { return r.id === id; })[0] || null;
+  }
+
+  function availableResale() {
+    // quantity is what is still in hand. Rows are summed per item name because
+    // the same garment can be bought in more than one line.
+    var byItem = {};
+    state.resale.forEach(function (r) {
+      var name = r.item || '';
+      if (!name) return;
+      if (!byItem[name]) byItem[name] = { item: name, qty: 0, sell_price: num(r.sell_price) };
+      byItem[name].qty += num(r.quantity);
+      byItem[name].sell_price = num(r.sell_price);
+    });
+    return Object.keys(byItem)
+      .map(function (k) { return byItem[k]; })
+      // Nothing left means nothing to sell, so it is not offered. This is the
+      // legacy rule: getResaleSellPriceMap only carried bought minus sold.
+      // Without it a tailor can sell the same saree twice.
+      .filter(function (r) { return r.qty > 0; })
+      .sort(function (a, b) { return a.item < b.item ? -1 : 1; });
   }
 
   function loadMeasurements(customerId) {
@@ -214,51 +293,69 @@ window.ANT.orders = (function () {
     paint();
 
     var from = state.page * PAGE_SIZE;
-    var q = sb().from('orders').select('*, customer:customers(id,code,name,mobile)', { count: true });
 
-    if (state.status) q = q.eq('status', state.status);
+    function baseQuery() {
+      var q = sb().from('orders').select('*, customer:customers(id,code,name,mobile)', { count: true });
+      if (state.status) q = q.eq('status', state.status);
+      return q.order('order_date', false)
+        .order('created_at', false)
+        .range(from, from + PAGE_SIZE - 1);
+    }
 
-    if (state.search) q = q.or(searchFilter(state.search));
+    if (!state.search) return baseQuery().then(finishOrders);
 
-    q = q.order('order_date', false)
-      .order('created_at', false)
-      .range(from, from + PAGE_SIZE - 1);
-
-    return q.then(function (res) {
-      // The customer name lives in another table, so the search needs a join.
-      // If this PostgREST build refuses the embedded filter, fall back to
-      // matching the order's own columns rather than leaving the page broken.
-      if (res.error && state.search) return loadOrdersWithoutJoin(from);
-      return finishOrders(res);
+    // A customer's name lives in another table, and this PostgREST version
+    // rejects a filter on an embedded table inside or() - it answers 400
+    // "failed to parse logic tree", which the browser only shows in the
+    // console. So the matching customer ids are looked up first and the order
+    // filter then uses the plain customer_id column, which it does support.
+    return matchingCustomerIds(state.search).then(function (ids) {
+      state.searchNote = ids.length
+        ? ''
+        : 'No customer matches that name, so only order numbers and notes were searched.';
+      return baseQuery().or(searchFilter(state.search, ids)).then(finishOrders);
     });
   }
 
-  // Wrapped in one or=(...) group by the client's own parentheses handling, so
-  // the join cannot leak out and turn into a filter on the customers table.
-  function searchFilter(term) {
+  // The ids of customers whose name, mobile or code contains the term. Capped so
+  // a one-letter search cannot build a filter with thousands of uuids in it.
+  function matchingCustomerIds(term) {
     var clean = '*' + String(term).replace(/[*%,()]/g, ' ') + '*';
-    return 'code.ilike.' + clean +
-      ',notes.ilike.' + clean +
-      ',customer:customers!inner(name.ilike.' + clean + ',mobile.ilike.' + clean + ')';
+    return sb().from('customers')
+      .select('id')
+      .or('name.ilike.' + clean + ',mobile.ilike.' + clean + ',code.ilike.' + clean)
+      .limit(200)
+      .then(function (res) {
+        if (res.error) {
+          // Without these ids a search can still match order numbers and notes,
+          // so this is a degraded search rather than a broken page.
+          console.warn('Orders: customer search failed, so names are not matched.', res.error);
+          return [];
+        }
+        return (res.data || []).map(function (c) { return c.id; });
+      });
   }
 
-  function loadOrdersWithoutJoin(from) {
-    var q = sb().from('orders').select('*', { count: true });
-    if (state.status) q = q.eq('status', state.status);
+  // Wrapped in one or=(...) group by the client's own parentheses handling.
+  // Every part uses the short col.op.value form, because inside a logic tree
+  // PostgREST does not accept the col=op.value form used by top level filters.
+  function searchFilter(term, customerIds) {
+    var clean = '*' + String(term).replace(/[*%,()]/g, ' ') + '*';
+    var parts = [
+      'code.ilike.' + clean,
+      'notes.ilike.' + clean
+    ];
 
-    var clean = '*' + state.search.replace(/[*%,()]/g, ' ') + '*';
-    q = q.or('code.ilike.' + clean + ',notes.ilike.' + clean)
-      .order('order_date', false)
-      .order('created_at', false)
-      .range(from, from + PAGE_SIZE - 1);
+    if (customerIds && customerIds.length) {
+      parts.push('customer_id.in.(' + customerIds.join(',') + ')');
+    } else {
+      // No customer matched, so the only way an order can still qualify is by
+      // its own number or notes. customer_id is.null keeps that possible for an
+      // order with no customer attached.
+      parts.push('customer_id.is.null');
+    }
 
-    return q.then(function (res) {
-      if (res.error) return finishOrders(res);
-      if (state.search) {
-        state.searchNote = 'Searching order numbers only. Customer name search is unavailable on this connection.';
-      }
-      return finishOrders(res);
-    });
+    return parts.join(',');
   }
 
   function finishOrders(res) {
@@ -559,7 +656,7 @@ window.ANT.orders = (function () {
         : '') +
       (anyDress ? '<div class="table-wrap"><table class="ui-table ord-items">' +
         '<thead><tr>' +
-          '<th>Dress</th><th>Service</th><th>Variant</th><th>Lining</th>' +
+          '<th>Service</th><th>Dress</th><th>Variant</th><th>Lining</th><th>Resale item</th>' +
           '<th class="num">Qty</th><th class="num">Rate</th><th class="num">Extra</th>' +
           '<th class="num">Total</th><th>Delivery</th><th>Measurements</th><th></th>' +
         '</tr></thead>' +
@@ -577,38 +674,114 @@ window.ANT.orders = (function () {
     '</div>';
   }
 
+  // The columns a row shows depend on the service, matching the legacy editor:
+  //   Tailoring  -> dress, variant, lining, measurement
+  //   Resale     -> stock item only, with the rate taken from its sell price
+  //   anything else (Aari Work, Ironing, Saree Pre-Pleating, Alteration,
+  //   Embroidery) -> dress and delivery date, with no variant, lining or
+  //   measurement, because none of them describe a garment being cut
   function itemRow(it, i, groups) {
-    var dressOpts = ['<option value="">Choose a dress</option>'];
-    ['Gents', 'Ladies', 'Other'].forEach(function (cat) {
-      if (!groups[cat].length) return;
-      dressOpts.push('<optgroup label="' + esc(cat) + '">');
-      groups[cat].forEach(function (name) {
-        dressOpts.push('<option value="' + esc(name) + '"' + (name === it.dress_type ? ' selected' : '') + '>' + esc(name) + '</option>');
-      });
-      dressOpts.push('</optgroup>');
-    });
+    var service = it.service || 'Tailoring';
+    var tailoring = isTailoring(service);
+    var resale = isResale(service);
 
-    var mOpts = ['<option value="">None</option>'];
-    state.measurements.forEach(function (m) {
-      var label = m.code + ' · ' + m.dress_type + ' · ' + dateLabel(m.created_at);
-      mOpts.push('<option value="' + esc(m.id) + '"' + (m.id === it.measurement_id ? ' selected' : '') + '>' + esc(label) + '</option>');
-    });
+    var dressCell;
+    if (resale) {
+      dressCell = '<td class="ord-na">—</td>';
+    } else {
+      var dressOpts = ['<option value="">Choose a dress</option>'];
+      ['Gents', 'Ladies', 'Other'].forEach(function (cat) {
+        if (!groups[cat].length) return;
+        dressOpts.push('<optgroup label="' + esc(cat) + '">');
+        groups[cat].forEach(function (name) {
+          dressOpts.push('<option value="' + esc(name) + '"' + (name === it.dress_type ? ' selected' : '') + '>' + esc(name) + '</option>');
+        });
+        dressOpts.push('</optgroup>');
+      });
+
+      // A chosen measurement already names the garment, so the box is shown
+      // filled in rather than asking the tailor to repeat themselves.
+      dressCell = '<td>' + (it.measurement_id
+        ? '<span class="ord-fixed">' + esc(it.dress_type || 'From measurement') + '</span>'
+        : '<select class="ui-input" data-ord-item="' + i + '" data-f="dress_type">' + dressOpts.join('') + '</select>') +
+        '</td>';
+    }
+
+    var variantCell = '<td class="ord-na">—</td>';
+    if (tailoring) {
+      variantCell = '<td><select class="ui-input" data-ord-item="' + i + '" data-f="variant">' +
+        VARIANT_OPTIONS.map(function (v) {
+          return '<option value="' + esc(v) + '"' + (v === (it.variant || '') ? ' selected' : '') + '>' +
+            (v === '' ? 'None' : esc(v)) + '</option>';
+        }).join('') +
+        '</select></td>';
+    }
+
+    var liningCell = '<td class="ord-na">—</td>';
+    if (tailoring) {
+      liningCell = '<td><select class="ui-input" data-ord-item="' + i + '" data-f="lining">' +
+        LINING_OPTIONS.map(function (l) {
+          return '<option value="' + esc(l) + '"' + (l === (it.lining || '') ? ' selected' : '') + '>' +
+            (l === '' ? 'None' : esc(l)) + '</option>';
+        }).join('') +
+        '</select></td>';
+    }
+
+    var resaleCell = '<td class="ord-na">—</td>';
+    if (resale) {
+      var stock = availableResale();
+      var rOpts = ['<option value="">Choose a stock item</option>'];
+      stock.forEach(function (r) {
+        rOpts.push('<option value="' + esc(r.item) + '"' + (r.item === it.resale_item ? ' selected' : '') + '>' +
+          esc(r.item) + ' — ' + money(r.sell_price) + ' (' + r.qty + ' left)</option>');
+      });
+
+      // An order already on screen may name a garment that has since sold out.
+      // It has to stay in the list, or the select would show the blank first
+      // option and saving would fail on an order the tailor is only trying to
+      // correct. Offered, but marked so it is obvious nothing is left.
+      var chosen = it.resale_item;
+      if (chosen && !stock.some(function (r) { return r.item === chosen; })) {
+        var sold = state.resale.filter(function (r) { return r.item === chosen; })[0];
+        rOpts.push('<option value="' + esc(chosen) + '" selected>' +
+          esc(chosen) + ' — ' + money(sold ? sold.sell_price : 0) + ' (none left)</option>');
+        stock = stock.concat([{ item: chosen, qty: 0, sell_price: sold ? num(sold.sell_price) : 0 }]);
+      }
+
+      resaleCell = '<td>' + (stock.length
+        ? '<select class="ui-input" data-ord-item="' + i + '" data-f="resale_item">' + rOpts.join('') + '</select>'
+        : '<span class="ord-fixed">No stock yet</span>') + '</td>';
+    }
+
+    var mCell = '<td class="ord-na">—</td>';
+    if (tailoring) {
+      var mOpts = ['<option value="">None</option>'];
+      state.measurements.forEach(function (m) {
+        var label = m.code + ' · ' + m.dress_type + ' · ' + dateLabel(m.created_at);
+        mOpts.push('<option value="' + esc(m.id) + '"' + (m.id === it.measurement_id ? ' selected' : '') + '>' + esc(label) + '</option>');
+      });
+      mCell = '<td>' + (state.measurements.length
+        ? '<select class="ui-input" data-ord-item="' + i + '" data-f="measurement_id">' + mOpts.join('') + '</select>'
+        : '<span class="ord-fixed">No measurements</span>') + '</td>';
+    }
 
     return '<tr>' +
-      '<td><select class="ui-input" data-ord-item="' + i + '" data-f="dress_type">' + dressOpts.join('') + '</select></td>' +
       '<td><select class="ui-input" data-ord-item="' + i + '" data-f="service">' +
           SERVICES.map(function (s) {
-            return '<option value="' + esc(s) + '"' + (s === it.service ? ' selected' : '') + '>' + esc(s) + '</option>';
+            return '<option value="' + esc(s) + '"' + (s === service ? ' selected' : '') + '>' + esc(s) + '</option>';
           }).join('') +
         '</select></td>' +
-      '<td><input class="ui-input" data-ord-item="' + i + '" data-f="variant" value="' + esc(it.variant || '') + '" placeholder="e.g. Full sleeve"></td>' +
-      '<td><input class="ui-input" data-ord-item="' + i + '" data-f="lining" value="' + esc(it.lining || '') + '" placeholder="e.g. Cotton"></td>' +
+      dressCell + variantCell + liningCell + resaleCell +
       '<td class="num"><input class="ui-input" data-ord-item="' + i + '" data-f="qty" inputmode="decimal" value="' + esc(it.qty) + '"></td>' +
-      '<td class="num"><input class="ui-input" data-ord-item="' + i + '" data-f="rate" inputmode="decimal" list="ordPriceList" value="' + esc(it.rate) + '"></td>' +
+      // A resale rate comes from the stock item, so it is locked rather than
+      // editable, or the sell price would be quietly overwritten.
+      '<td class="num">' + (resale
+        ? '<input class="ui-input" data-ord-item="' + i + '" data-f="rate" inputmode="decimal" value="' + esc(it.rate) + '" readonly title="Rate comes from the stock item">'
+        : '<input class="ui-input" data-ord-item="' + i + '" data-f="rate" inputmode="decimal" list="ordPriceList" value="' + esc(it.rate) + '">') + '</td>' +
       '<td class="num"><input class="ui-input" data-ord-item="' + i + '" data-f="extra" inputmode="decimal" value="' + esc(it.extra) + '"></td>' +
-      '<td class="num"><strong>' + money(lineTotal(it)) + '</strong></td>' +
+      '<td class="num ord-line-total"><strong>' + money(lineTotal(it)) + '</strong></td>' +
       '<td><input class="ui-input" data-ord-item="' + i + '" data-f="delivery_date" type="date" value="' + esc(it.delivery_date || '') + '"></td>' +
-      '<td><select class="ui-input" data-ord-item="' + i + '" data-f="measurement_id">' + mOpts.join('') + '</select></td>' +
+      mCell +
       '<td><button class="btn btn-sm btn-danger" data-ord-rm="' + i + '" title="Remove item">&times;</button></td>' +
     '</tr>';
   }
@@ -617,8 +790,12 @@ window.ANT.orders = (function () {
     if (!state.prices.length) return '';
     return '<datalist id="ordPriceList">' +
       state.prices.map(function (p) {
-        var label = p.item + (p.option ? ' - ' + p.option : '') + ' (' + money(p.amount) + ')';
-        return '<option value="' + money(p.amount) + '">' + esc(label) + '</option>';
+        // The value is the bare number and the formatted money goes in the
+        // label, so picking a suggestion types 450 into the rate box rather
+        // than a rupee sign that the numeric cleaner would have to strip.
+        var amount = num(p.price);
+        var label = p.item + (p.option ? ' - ' + p.option : '') + ' — ' + money(amount);
+        return '<option value="' + amount + '">' + esc(label) + '</option>';
       }).join('') +
     '</datalist>';
   }
@@ -694,12 +871,70 @@ window.ANT.orders = (function () {
       service: 'Tailoring',
       variant: '',
       lining: '',
+      resale_item: '',
       qty: 1,
       rate: 0,
       extra: 0,
       delivery_date: '',
       measurement_id: ''
     };
+  }
+
+  // Changing the service rebuilds the row, so anything the new service cannot
+  // use is cleared. The legacy system also resets the rate and extra charge
+  // here, because a price agreed for a different service is meaningless: a rate
+  // typed for a Shirt must not silently carry over to Ironing.
+  function applyServiceToItem(item, service) {
+    item.service = service;
+    item.rate = 0;
+    item.extra = 0;
+
+    if (!isTailoring(service)) {
+      item.variant = '';
+      item.lining = '';
+    }
+
+    if (isResale(service)) {
+      // A resale order is a stock item, not a garment being cut, so the
+      // measurement that says "cut from this" does not apply.
+      item.measurement_id = '';
+      item.dress_type = '';
+      item.category = '';
+      item.variant = '';
+      item.lining = '';
+    }
+
+    if (!isResale(service)) {
+      item.resale_item = '';
+    }
+
+    if (isResale(service) && item.resale_item) {
+      var found = resaleById(item.resale_item);
+      if (found) item.rate = num(found.sell_price);
+    }
+
+    return item;
+  }
+
+  // Selecting a measurement tells the tailor what is being cut, so the garment
+  // follows from it rather than being asked for twice. This is the legacy
+  // applyMeasurementToItem behaviour.
+  function applyMeasurementToItem(item, measurementId) {
+    item.measurement_id = measurementId || '';
+
+    if (!measurementId) {
+      // No measurement chosen: let the tailor pick the garment by hand.
+      return item;
+    }
+
+    var m = state.measurements.filter(function (x) { return x.id === measurementId; })[0];
+    if (m) {
+      item.dress_type = m.dress_type;
+      var groups = groupedDressTypes();
+      item.category = groups.Gents.indexOf(m.dress_type) !== -1 ? 'Gents'
+        : (groups.Ladies.indexOf(m.dress_type) !== -1 ? 'Ladies' : 'Other');
+    }
+    return item;
   }
 
   // Keeps qty, rate and extra to one decimal place and one leading minus, and
@@ -761,12 +996,20 @@ window.ANT.orders = (function () {
     for (var i = 0; i < items.length; i++) {
       var it = items[i];
       var n = i + 1;
-      if (!it.dress_type) return 'Choose a dress type for item ' + n + '.';
       if (!it.service) return 'Choose a service for item ' + n + '.';
       if (num(it.qty) <= 0) return 'Quantity must be more than zero for item ' + n + '.';
       if (num(it.rate) < 0) return 'Rate cannot be negative for item ' + n + '.';
       if (num(it.extra) < 0) return 'Extra charge cannot be negative for item ' + n + '.';
       if (!it.delivery_date) return 'Give a delivery date for item ' + n + '.';
+
+      if (isResale(it.service)) {
+        if (!it.resale_item) return 'Choose the stock item being sold on item ' + n + '.';
+      } else if (!it.dress_type) {
+        // The dress box is on screen for everything except a resale, so it is
+        // required for everything except a resale. Variant and lining stay
+        // optional: they are Tailoring extras, not part of every job.
+        return 'Choose a dress for item ' + n + '.';
+      }
     }
 
     var t = totalsOf(items, numField(discountEl ? discountEl.value : 0), order ? order.advance : 0);
@@ -806,6 +1049,12 @@ window.ANT.orders = (function () {
     };
   }
 
+  function resaleIdByName(name) {
+    if (!name) return null;
+    var hit = state.resale.filter(function (r) { return r.item === name; })[0];
+    return hit ? hit.id : null;
+  }
+
   function itemPayload(it, orderId, lineNo) {
     var dress = it.dress_type;
     var groups = groupedDressTypes();
@@ -813,21 +1062,31 @@ window.ANT.orders = (function () {
     if (groups.Ladies.indexOf(dress) !== -1) category = 'Ladies';
     else if (groups.Gents.indexOf(dress) === -1) category = dress ? 'Other' : '';
 
+    // The legacy sheet kept the resale item's name in the variant column,
+    // because there was no separate field. The new schema has a real
+    // resale_item_id foreign key, so the name is resolved to a row here and the
+    // name is still written to variant so an export of old data lines up.
+    var resaleId = null;
+    if (isResale(it.service)) {
+      resaleId = resaleIdByName(it.resale_item);
+    }
+
     var row = {
       order_id: orderId,
       line_no: lineNo,
       category: category,
       dress_type: dress,
       service: it.service,
-      variant: it.variant || '',
-      lining: it.lining || '',
+      variant: isResale(it.service) ? (it.resale_item || '') : (it.variant || ''),
+      lining: isTailoring(it.service) ? (it.lining || '') : '',
+      resale_item_id: resaleId,
       quantity: num(it.qty),
       rate: num(it.rate),
       discount: 0,
       extra_charge: num(it.extra),
       line_total: lineTotal(it),
       delivery_date: it.delivery_date,
-      measurement_id: it.measurement_id || null,
+      measurement_id: isTailoring(it.service) && it.measurement_id ? it.measurement_id : null,
       updated_at: new Date().toISOString()
     };
     return row;
@@ -1178,8 +1437,9 @@ window.ANT.orders = (function () {
                 category: it.category,
                 dress_type: it.dress_type,
                 service: it.service || 'Tailoring',
-                variant: it.variant,
-                lining: it.lining,
+                variant: it.variant || '',
+                lining: it.lining || '',
+                resale_item: it.resale_item_id || it.variant || '',
                 qty: it.quantity,
                 rate: it.rate,
                 extra: it.extra_charge,
@@ -1193,6 +1453,7 @@ window.ANT.orders = (function () {
             state.view = 'edit';
             return loadReference()
               .then(loadPrices)
+              .then(loadResale)
               .then(function () { return loadMeasurements(order.customer_id); })
               .then(paint);
           });
@@ -1206,8 +1467,9 @@ window.ANT.orders = (function () {
     state.customerQuery = '';
     state.customers = [];
     state.measurements = [];
+    state.resale = [];
     state.view = 'edit';
-    loadReference().then(loadPrices).then(paint);
+    loadReference().then(loadPrices).then(loadResale).then(paint);
   }
 
   function searchCustomers(term) {
@@ -1388,9 +1650,40 @@ window.ANT.orders = (function () {
     // read into the model on input and only the total cells are rewritten.
     Array.prototype.forEach.call(document.querySelectorAll('[data-ord-item]'), function (el) {
       el.addEventListener('change', function () {
+        var i = parseInt(el.getAttribute('data-ord-item'), 10);
+        var f = el.getAttribute('data-f');
+        if (isNaN(i) || !state.formItems[i]) return;
+
+        if (f === 'service') {
+          // Switching service changes which columns exist, so the row has to be
+          // rebuilt. The rate is reset the way the legacy editor did, because
+          // a price agreed for one service means nothing for another.
+          readItems();
+          applyServiceToItem(state.formItems[i], el.value);
+          paint();
+          return;
+        }
+
+        if (f === 'measurement_id') {
+          readItems();
+          applyMeasurementToItem(state.formItems[i], el.value);
+          paint();
+          return;
+        }
+
+        if (f === 'resale_item') {
+          readItems();
+          state.formItems[i].resale_item = el.value;
+          var stock = availableResale().filter(function (r) { return r.item === el.value; })[0];
+          if (stock) state.formItems[i].rate = num(stock.sell_price);
+          paint();
+          return;
+        }
+
         readItems();
         refreshTotals();
       });
+
       el.addEventListener('input', function (e) {
         var f = el.getAttribute('data-f');
         if (f === 'qty' || f === 'rate' || f === 'extra') {
@@ -1443,7 +1736,10 @@ window.ANT.orders = (function () {
     var rows = document.querySelectorAll('.ord-items tbody tr');
     var row = rows[i];
     if (!row) return;
-    var cell = row.children[7];
+    // Columns: Service, Dress, Variant, Lining, Resale item, Qty, Rate, Extra,
+    // Total. index() is used rather than a fixed number so a future column
+    // change cannot silently write the total into the wrong cell.
+    var cell = row.querySelector('td.ord-line-total');
     if (cell) cell.innerHTML = '<strong>' + money(lineTotal(state.formItems[i])) + '</strong>';
   }
 
@@ -1499,8 +1795,9 @@ window.ANT.orders = (function () {
       state.measurements = [];
       state.dressTypes = [];
       state.prices = [];
+      state.resale = [];
       paint();
-      loadReference().then(loadPrices).then(function () {
+      loadReference().then(loadPrices).then(loadResale).then(function () {
         return loadOrders();
       });
     }
