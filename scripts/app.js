@@ -195,6 +195,7 @@
       settings: window.ANT.settings,
       measurements: window.ANT.measurements,
       orders: window.ANT.orders,
+      resale: window.ANT.resale,
       payments: window.ANT.payments,
       bills: window.ANT.bills
     };

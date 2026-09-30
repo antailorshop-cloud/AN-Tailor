@@ -229,21 +229,42 @@ window.ANT.orders = (function () {
       });
   }
 
-  // Resale items come from stock, and only what is actually left is offered,
-  // which is what the legacy getResaleSellPriceMap did: bought minus sold.
-  // Without this a tailor could sell the same saree twice.
+  // Resale items come from stock, and only what is actually left is offered:
+  // bought minus sold. The arithmetic is owned by the resale module rather than
+  // repeated here, because the stock page shows the same figure and two
+  // definitions of "available" would eventually disagree on whether a garment
+  // can be sold twice.
   function loadResale() {
-    return sb().from('resale_stock')
-      .select('id,code,item,quantity,sell_price')
-      .then(function (res) {
-        // A Resale order with no stock list would silently offer an empty
-        // dropdown, so the failure is said out loud.
-        if (res.error) {
-          console.warn('Orders: resale stock could not be loaded, so a Resale order has no item to pick.', res.error);
-          toast('Resale stock unavailable.', 'error');
-          return;
-        }
-        state.resale = res.data || [];
+    if (!window.ANT.resale || !window.ANT.resale.load) {
+      console.warn('Orders: scripts/resale.js did not load, so a Resale order has no item to pick.');
+      toast('Resale stock unavailable.', 'error');
+      return Promise.resolve();
+    }
+
+    return window.ANT.resale.load()
+      .then(function (view) {
+        // One row per item name, with the id stored on the order line. An item
+        // bought in twice has two ids and the first is kept, which is all the
+        // line needs, because availability is worked out by name.
+        state.resale = (view || []).map(function (r) {
+          return {
+            id: r.ids && r.ids.length ? r.ids[0] : null,
+            item: r.item,
+            sell_price: r.sell_price,
+            bought: r.bought,
+            sold: r.sold,
+            available: r.available
+          };
+        });
+      })
+      .catch(function (e) {
+        // If sold cannot be read, availability cannot be trusted. The list is
+        // left empty rather than offering the whole ledger, because offering
+        // stock that is already gone is the one mistake worth refusing to guess
+        // about.
+        console.warn('Orders: resale stock could not be loaded, so a Resale order has no item to pick.', e);
+        toast('Resale stock unavailable.', 'error');
+        state.resale = [];
       });
   }
 
@@ -253,22 +274,16 @@ window.ANT.orders = (function () {
   }
 
   function availableResale() {
-    // quantity is what is still in hand. Rows are summed per item name because
-    // the same garment can be bought in more than one line.
-    var byItem = {};
-    state.resale.forEach(function (r) {
-      var name = r.item || '';
-      if (!name) return;
-      if (!byItem[name]) byItem[name] = { item: name, qty: 0, sell_price: num(r.sell_price) };
-      byItem[name].qty += num(r.quantity);
-      byItem[name].sell_price = num(r.sell_price);
-    });
-    return Object.keys(byItem)
-      .map(function (k) { return byItem[k]; })
+    // Rows are already grouped by item name by the resale module, because the
+    // same garment can be bought in more than one restock.
+    return state.resale
       // Nothing left means nothing to sell, so it is not offered. This is the
-      // legacy rule: getResaleSellPriceMap only carried bought minus sold.
-      // Without it a tailor can sell the same saree twice.
-      .filter(function (r) { return r.qty > 0; })
+      // legacy rule: getResaleSellPriceMap only carried bought minus sold, and
+      // without it a tailor can sell the same saree twice.
+      .filter(function (r) { return num(r.available) > 0; })
+      .map(function (r) {
+        return { item: r.item, qty: num(r.available), sell_price: num(r.sell_price) };
+      })
       .sort(function (a, b) { return a.item < b.item ? -1 : 1; });
   }
 
@@ -1439,7 +1454,12 @@ window.ANT.orders = (function () {
                 service: it.service || 'Tailoring',
                 variant: it.variant || '',
                 lining: it.lining || '',
-                resale_item: it.resale_item_id || it.variant || '',
+                // A resale line keeps the item name in variant and the stock
+                // row's key in resale_item_id. The box offers names, so the name
+                // is what has to be put back, or the line would come up with
+                // nothing selected and saving it again would write the key into
+                // the name column.
+                resale_item: it.variant || it.resale_item_id || '',
                 qty: it.quantity,
                 rate: it.rate,
                 extra: it.extra_charge,

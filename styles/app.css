@@ -1559,3 +1559,35 @@ button, input, select, textarea { font: inherit; color: inherit; }
   color: var(--text-muted);
   font-weight: 600;
 }
+
+/* Resale ---------------------------------------------------------------- */
+
+/* The four stock counts are the only place colour is used to mean something
+   specific rather than just to look tidy: green is stock that can be sold, amber
+   is running out, grey is nothing left. The count is always written out beside
+   it, so the page still reads correctly without colour. */
+.stat-ok { border-color: var(--success); }
+.stat-ok .stat-value { color: var(--success); }
+.stat-warn { border-color: var(--warn); }
+.stat-warn .stat-value { color: var(--warn); }
+.stat-bad { border-color: var(--danger); }
+.stat-bad .stat-value { color: var(--danger); }
+
+/* Out of stock or nearly so is the one thing on this page that needs a
+   decision, so it is stated in a sentence near the top instead of leaving the
+   user to compare two numbers on every row. */
+.resale-alert {
+  margin-bottom: var(--gap);
+  padding: var(--gap-sm) var(--gap);
+  border: 1px solid var(--warn);
+  border-radius: var(--radius-md);
+  background: var(--warn-soft);
+  color: var(--text-strong);
+  font-size: var(--fs-sm);
+}
+
+/* An item that is on the price list but has never been bought has no purchase
+   behind it, so its row is dimmed to say the zero is real and not a missing
+   figure. */
+.resale-price-only td { opacity: 0.7; }
+.resale-price-only:hover td { opacity: 1; }
