@@ -819,3 +819,103 @@ button, input, select, textarea { font: inherit; color: inherit; }
   .profile-name { display: none; }
   .nav-item { padding: 12px 10px 10px; font-size: 12.5px; }
 }
+
+/* ============================================================
+   CUSTOMERS
+   ============================================================ */
+
+.page-head-actions {
+  display: flex;
+  gap: var(--gap-sm);
+  flex-wrap: wrap;
+}
+
+.cust-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-sm);
+  flex-wrap: wrap;
+  padding-bottom: var(--gap);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--gap);
+}
+
+.cust-search {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.cust-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.cust-count {
+  margin-left: auto;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.cust-code {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.cust-name {
+  font-weight: 600;
+}
+
+.cust-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.cust-actions .btn {
+  white-space: nowrap;
+}
+
+.cust-archived td:not(.cust-actions) {
+  opacity: 0.6;
+}
+
+.cust-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--gap);
+  padding-top: var(--gap);
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+
+.cust-form {
+  margin-bottom: var(--gap);
+}
+
+.cust-form-actions {
+  display: flex;
+  gap: var(--gap-sm);
+  flex-wrap: wrap;
+  margin-top: var(--gap);
+}
+
+@media (max-width: 640px) {
+  .cust-count {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .cust-actions {
+    justify-content: flex-start;
+  }
+}

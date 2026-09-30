@@ -137,7 +137,7 @@ window.ANT.sb = (function () {
     this.columns = '*';
     this.body = null;
     this.filters = [];
-    this.orderBy = null;
+    this.orderList = [];
     this.limitTo = null;
     this.offsetTo = null;
     this.orExpr = null;
@@ -190,6 +190,16 @@ window.ANT.sb = (function () {
     return this;
   };
 
+  Query.prototype.not = function (column, value) {
+    this.filters.push(column + '=not.is.' + encodeValue(value));
+    return this;
+  };
+
+  Query.prototype.in = function (column, values) {
+    this.filters.push(column + '=in.(' + values.map(encodeValue).join(',') + ')');
+    return this;
+  };
+
   Query.prototype.ilike = function (column, pattern) {
     this.filters.push(column + '=ilike.' + encodeValue(pattern));
     return this;
@@ -211,7 +221,7 @@ window.ANT.sb = (function () {
   };
 
   Query.prototype.order = function (column, ascending) {
-    this.orderBy = column + '.' + (ascending === false ? 'desc' : 'asc');
+    this.orderList.push(column + '.' + (ascending === false ? 'desc' : 'asc'));
     return this;
   };
 
@@ -263,7 +273,7 @@ window.ANT.sb = (function () {
       parts.push(f);
     });
 
-    if (this.orderBy) parts.push('order=' + encodeURIComponent(this.orderBy));
+    if (this.orderList.length) parts.push('order=' + encodeURIComponent(this.orderList.join(',')));
     if (this.limitTo != null) parts.push('limit=' + this.limitTo);
     if (this.offsetTo != null) parts.push('offset=' + this.offsetTo);
 

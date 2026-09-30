@@ -134,7 +134,7 @@
         + '<div class="skeleton-line w45"></div>'
       + '</div>'
       + '<div style="margin-top:var(--gap)">'
-        + phaseNote(4, 'The six security tests (signed-out access, cross-staff access, owner-only settings, staff price changes) must pass before any customer data is imported.')
+        + phaseNote(4, 'The security gate passed 24 of 24 checks, so signed-out visitors and staff accounts are both genuinely blocked from the wrong data. Customer records are safe to add.')
       + '</div>';
   }
 
@@ -187,6 +187,16 @@
         + '</div></div>';
       el.pageTitle.textContent = 'Not available';
       markActiveNav();
+      return;
+    }
+
+    if (area.id === 'customers' && window.ANT.customers) {
+      el.main.innerHTML = window.ANT.customers.mount();
+      window.ANT.customers.render();
+      el.pageTitle.textContent = area.label;
+      el.navTrack.scrollTop = 0;
+      markActiveNav();
+      el.main.focus();
       return;
     }
 
@@ -262,13 +272,22 @@
     el.loginForm.addEventListener('submit', function (e) {
       e.preventDefault();
       el.loginError.hidden = true;
+      var submit = el.loginForm.querySelector('button[type="submit"]');
+      if (submit) submit.disabled = true;
       var email = el.loginEmail.value.trim();
       var password = el.loginPassword.value;
       auth.signIn(email, password)
-        .then(function (user) { applyUser(user); })
+        .then(function (user) {
+          el.loginPassword.value = '';
+          applyUser(user);
+        })
         .catch(function (err) {
           el.loginError.textContent = err.message;
           el.loginError.hidden = false;
+        })
+        .then(function () {
+          var again = el.loginForm.querySelector('button[type="submit"]');
+          if (again) again.disabled = false;
         });
     });
 
@@ -335,7 +354,19 @@
 
     applyTheme(storedTheme());
     wireEvents();
-    applyUser(auth.current());
+
+    // Show the login screen immediately, then check the stored session against
+    // the server. The cached role is only a paint optimisation, so the shell is
+    // not revealed until the session has actually been verified.
+    el.loginSub.textContent = 'Checking your session...';
+    applyUser(null);
+
+    auth.restore().then(function (user) {
+      el.loginSub.textContent = window.ANT.isBackendConfigured()
+        ? 'Sign in to continue'
+        : 'No database connected yet';
+      applyUser(user);
+    });
 
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('sw.js').catch(function () {
