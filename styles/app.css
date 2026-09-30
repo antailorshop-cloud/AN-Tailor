@@ -921,6 +921,189 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 
 /* ============================================================
+   MEASUREMENTS
+   A measurement is a grid of labelled numbers, so it is laid
+   out as one so a tailor can read across a row and compare
+   two records without hunting down columns.
+   ============================================================ */
+
+.msr-results {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: var(--gap-sm);
+  border: 1px solid var(--surface-line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.msr-result {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--gap-sm);
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  background: var(--surface);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.msr-result:hover { background: var(--surface-sunken); }
+
+.msr-result-name {
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.msr-result-meta {
+  font-size: var(--fs-sm);
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.msr-cust {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap-sm);
+  flex-wrap: wrap;
+  padding: var(--gap-sm) var(--gap);
+  margin-bottom: var(--gap);
+  background: var(--surface);
+  border: 1px solid var(--surface-line);
+  border-left: 3px solid var(--brand-gold);
+  border-radius: 8px;
+}
+
+.msr-cust-name {
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  color: var(--text-strong);
+}
+
+.msr-cust-meta {
+  font-size: var(--fs-sm);
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+.msr-new {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--gap);
+}
+
+.msr-block {
+  padding: var(--gap-sm) 0;
+  border-top: 1px solid var(--surface-line);
+}
+
+.msr-block:first-of-type { border-top: 0; }
+
+.msr-block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap-sm);
+  flex-wrap: wrap;
+  margin-bottom: var(--gap-sm);
+}
+
+.msr-block-dress {
+  font-weight: 700;
+  color: var(--text-strong);
+}
+
+.msr-block-code {
+  margin-left: 8px;
+  font-size: var(--fs-sm);
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+.msr-block-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.msr-block-date {
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.msr-block-actions .btn { white-space: nowrap; }
+
+.msr-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 2px;
+  background: var(--surface-line);
+  border: 1px solid var(--surface-line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.msr-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 8px 10px;
+  background: var(--surface);
+}
+
+.msr-cell-label {
+  font-size: var(--fs-xs);
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+}
+
+.msr-cell-value {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-strong);
+}
+
+.msr-block-empty,
+.msr-notes {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+
+.msr-notes {
+  margin-top: var(--gap-sm);
+  padding-top: var(--gap-sm);
+  border-top: 1px dashed var(--surface-line);
+  color: var(--text-body);
+}
+
+.msr-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--gap-sm);
+  margin-top: var(--gap-sm);
+}
+
+@media (max-width: 640px) {
+  .msr-grid,
+  .msr-form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .msr-new { justify-content: stretch; }
+  .msr-new .btn { width: 100%; }
+  .msr-block-actions { width: 100%; justify-content: flex-start; }
+}
+
+/* ============================================================
    SETTINGS
    Dress types read as grouped cards rather than a table, because
    they are a short list of names with nothing to compare. Prices

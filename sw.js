@@ -3,7 +3,7 @@
 // code. Adding a file to SHELL without bumping this is the trap: the install
 // event never re-fires, so the new file is never precached and stale-while-
 // revalidate keeps serving the previous copy.
-var CACHE = 'an-tailor-v3';
+var CACHE = 'an-tailor-v4';
 
 var SHELL = [
   './',
@@ -15,6 +15,7 @@ var SHELL = [
   './scripts/supabase.js',
   './scripts/auth.js',
   './scripts/customers.js',
+  './scripts/measurements.js',
   './scripts/settings.js',
   './scripts/app.js',
   './assets/icon.svg'
