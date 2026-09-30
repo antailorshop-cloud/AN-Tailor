@@ -376,9 +376,7 @@ window.ANT.settings = (function () {
     var label = kind === 'dress' ? 'Dress type' : 'Price';
 
     // Prices and dress types both carry a unique constraint on their business
-    // key, so the code is generated from the visible row count. A collision
-    // returns 409 and is retried once, which is enough for two people saving
-    // at the same moment.
+    // key, so a duplicate is refused. See insertRow for how each key differs.
     var work;
 
     if (editing) {
@@ -388,7 +386,7 @@ window.ANT.settings = (function () {
         .select('id')
         .then(guardEmpty);
     } else {
-      work = withCode(table, kind, values);
+      work = insertRow(kind, values);
     }
 
     work.then(function (res) {
@@ -412,30 +410,53 @@ window.ANT.settings = (function () {
     return res;
   }
 
-  function withCode(table, kind, values) {
-    return nextCode(table).then(function (code) {
+  // The two tables are shaped differently, which is easy to get wrong.
+  //
+  //   dress_types  natural key (category, dress_type). No code, no status.
+  //   prices       natural key (group_name, item, option), plus a P-nnn code
+  //                and a status column.
+  //
+  // Asking dress_types for a code is not an empty result, it is a 400: the
+  // column is not there to be read. That is why the code is generated for
+  // prices only.
+  function insertRow(kind, values) {
+    if (kind === 'dress') {
+      return sb().from('dress_types')
+        .insert(values)
+        .select('id')
+        .then(function (res) {
+          if (res.error && res.error.status === 409) {
+            return { error: { message: 'That dress type is already listed under this category.' } };
+          }
+          return res;
+        });
+    }
+    return insertPrice(values, 0);
+  }
+
+  // Two people saving at the same moment can both read the same highest code,
+  // so the first one to commit wins and the loser retries with the next. Three
+  // attempts is far more than two tailors need at one counter.
+  function insertPrice(values, attempt) {
+    return nextPriceCode().then(function (code) {
       if (code === null) {
-        return { error: { message: 'Could not work out a new code. Try again.' } };
+        return { error: { message: 'Could not work out a new price code. Try again.' } };
       }
-      return sb().from(table)
+
+      return sb().from('prices')
         .insert({ code: code, status: 'ACTIVE', ...values })
         .select('id')
         .then(function (res) {
-          if (res.error && res.error.status === 409) return null;
-          return res;
+          if (!res.error || res.error.status !== 409) return res;
+
+          if (attempt < 2) return insertPrice(values, attempt + 1);
+          return { error: { message: 'That item and option already exist.' } };
         });
-    }).then(function (res) {
-      if (res === null) {
-        return { error: { message: 'That entry already exists. Codes and duplicate items are both refused.' } };
-      }
-      return res;
     });
   }
 
-  // Dress types are keyed P-001 upward to match the legacy sheet, so both
-  // systems label the same thing the same way.
-  function nextCode(table) {
-    return sb().from(table)
+  function nextPriceCode() {
+    return sb().from('prices')
       .select('code')
       .order('code', false)
       .limit(1)
