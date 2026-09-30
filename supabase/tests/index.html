@@ -86,6 +86,17 @@
   </table>
 </div>
 
+<script src="../../config.local.js"></script>
+<script>
+  // Prefill the connection fields from the gitignored local config so the
+  // URL and anon key never have to be typed or shared.
+  (function () {
+    var local = (window.ANT && window.ANT.local) || {};
+    if (local.supabaseUrl) document.getElementById('url').value = local.supabaseUrl;
+    if (local.supabaseAnonKey) document.getElementById('key').value = local.supabaseAnonKey;
+  })();
+</script>
+
 <script type="module">
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
