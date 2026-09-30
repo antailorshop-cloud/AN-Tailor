@@ -237,3 +237,29 @@ alter table bills          enable row level security;
 alter table bill_orders    enable row level security;
 alter table prices         enable row level security;
 alter table dress_types    enable row level security;
+
+-- ============================================================
+-- GRANTS
+--
+-- "Automatically expose new tables" was turned OFF when the
+-- project was created, so privileges are granted here on
+-- purpose instead of by default.
+--
+-- Division of labour: a GRANT says an authenticated user may
+-- attempt an operation. The RLS policies in rls.sql decide who
+-- actually succeeds. Nothing is granted to `anon`, so a signed
+-- out visitor has no path to any table at all.
+-- ============================================================
+
+grant usage on schema public to authenticated;
+
+grant select, insert, update, delete on all tables in schema public to authenticated;
+
+revoke all on all tables in schema public from anon;
+
+alter default privileges in schema public
+  grant select, insert, update, delete on tables to authenticated;
+
+-- Helper functions are executable only by signed-in users.
+grant execute on function public.is_owner()  to authenticated;
+grant execute on function public.is_member() to authenticated;
