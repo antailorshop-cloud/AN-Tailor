@@ -8,37 +8,77 @@ Supabase + GitHub Pages + PWA replacement for the Apps Script system.
 | --- | --- | --- |
 | 0 | Git, schema extraction | done |
 | 1 | Frontend shell | done |
-| 2 | GitHub + Supabase accounts | waiting on credentials |
-| 3 | Database schema | `supabase/schema.sql` written, not yet applied |
-| 4 | RLS policies + six security tests | blocked until 2 |
-| 5 | Auth | not started |
-| 6-12 | Customers, Measurements, Orders, Payments, Billing, PWA, migration | not started |
+| 2 | GitHub + Supabase accounts | done |
+| 3 | Database schema | done, 13 tables applied |
+| 4 | RLS policies + security gate | **done, 24/24 passed** |
+| 5 | Real auth in the frontend | not started - app is still preview mode |
+| 6-12 | Customers, Measurements, Orders, Payments, Billing, migration | not started |
+
+## Security
+
+The gate lives in `supabase/tests/index.html` and is run from a browser,
+because the Supabase SQL editor runs as a superuser and bypasses RLS entirely.
+All 24 checks pass against the live project.
+
+What is proven, not assumed:
+
+- A signed-out visitor cannot read any table.
+- Staff can run the day-to-day but cannot change prices, shop settings, or
+  delete a customer.
+- Staff cannot promote themselves to owner, and cannot read other staff
+  accounts.
+- The owner re-reads every row staff attacked and confirms the stored values
+  are untouched.
+
+A blocked write does **not** raise an error. Postgres filters the row out of
+the result set, so the statement succeeds while affecting nothing. A policy can
+therefore look correct in `pg_policies` and still be miswritten - only the
+behavioural test proves it. Re-run the gate after any change to `rls.sql`.
+
+## Data rules
+
+- Staff never hard-delete. `order_items.archived_at` lets a wrongly entered
+  item be withdrawn while the audit trail survives.
+- `orders.customer_id` is `ON DELETE RESTRICT`, so a customer who has ever
+  placed an order can never be removed, by anyone. Those customers are
+  archived. The order history is the business record.
+- Only the owner performs a real `DELETE`.
 
 ## Run locally
 
-Open `index.html`, then use **Preview as Owner** or **Preview as Staff**.
-Preview mode exists only while `scripts/config.js` has no Supabase keys.
+Double-click `serve.cmd`, then open <http://127.0.0.1:8080/>. A local HTTP
+server is required: ES modules and CORS do not work over `file://`. The
+machine has no Python and no Node, so `serve.ps1` uses .NET sockets.
+
+Until Phase 5, the app runs in preview mode. The login screen has
+**Preview as Owner** / **Preview as Staff** buttons that skip Supabase.
+
+## Configuration
+
+Copy `config.local.example.js` to `config.local.js` and paste the project URL
+and the `anon` "public" key. `config.local.js` is gitignored, so credentials
+never enter the repository.
+
+Never commit the `service_role` key. Never send the database password.
 
 ## Structure
 
     index.html              shell, login screen
     manifest.webmanifest    PWA install + Android home screen
     sw.js                   offline cache
+    serve.ps1 / serve.cmd   zero-install local server
     assets/                 icons
     styles/tokens.css       design tokens, light + dark
     styles/app.css          layout, nav, cards, forms, tables
-    scripts/config.js       Supabase keys, areas, roles
+    scripts/config.js       areas, roles, credentials
     scripts/auth.js         session and access checks
     scripts/app.js          theme, router, pages
-    supabase/schema.sql     database schema, RLS switched on
+    supabase/schema.sql     13 tables, RLS switched on, explicit grants
+    supabase/rls.sql        role helpers, policies, signup trigger
+    supabase/tests/         browser security gate
 
 ## Roles
 
 `owner` sees every area. `staff` sees everything except Settings. The block is
-enforced in the database, not only in the menu.
-
-## Rules
-
-- Customer data never goes in this repository. Code only.
-- Never commit the `service_role` key. The `anon` key is public by design.
-- Do not connect the frontend to real data until the Phase 4 tests pass.
+enforced in the database, not only in the menu. The frontend hides what the
+role cannot do; the database is what actually refuses.
