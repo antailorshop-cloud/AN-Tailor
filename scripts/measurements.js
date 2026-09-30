@@ -297,8 +297,12 @@ window.ANT.measurements = (function () {
         var fid = 'msrF' + f.replace(/[^a-z0-9]/gi, '');
         return '<div class="ui-field">' +
           '<label class="ui-label" for="' + esc(fid) + '">' + esc(f) + '</label>' +
+          // inputmode="numeric" puts a digits-only keypad on a phone, and
+          // wire() keeps the stored value numeric. One decimal point is
+          // allowed because a tailor does record 40.5.
           '<input class="ui-input" id="' + esc(fid) + '" data-msr-field="' + esc(f) + '" ' +
-            'type="text" value="' + esc(v === undefined || v === null ? '' : v) + '" autocomplete="off">' +
+            'type="text" inputmode="numeric" ' +
+            'value="' + esc(v === undefined || v === null ? '' : v) + '" autocomplete="off">' +
         '</div>';
       }).join('') + '</div>';
     }
@@ -458,6 +462,20 @@ window.ANT.measurements = (function () {
       });
   }
 
+  // Digits and at most one decimal point, nothing else. A second dot truncates
+  // the rest of the box rather than being joined up, because joining "12.3.4"
+  // into "12.34" would quietly change the number the tailor typed. A lone "."
+  // is discarded because it is not a measurement.
+  function cleanNumber(str) {
+    var s = String(str || '').replace(/[^0-9.]/g, '');
+    var firstDot = s.indexOf('.');
+    if (firstDot !== -1) {
+      s = s.slice(0, firstDot + 1) + s.slice(firstDot + 1).replace(/\..*$/, '');
+    }
+    if (s === '.') s = '';
+    return s;
+  }
+
   /* Events ------------------------------------------------------------- */
 
   function wire() {
@@ -543,6 +561,21 @@ window.ANT.measurements = (function () {
       });
     }
 
+    // Measurement boxes accept digits and at most one decimal point. Enforcing
+    // it here rather than with an inline oninput attribute keeps the rule in
+    // one place and does not depend on script load order.
+    Array.prototype.forEach.call(document.querySelectorAll('[data-msr-field]'), function (input) {
+      input.addEventListener('input', function () {
+        var cleaned = cleanNumber(input.value);
+        if (cleaned === input.value) return;
+        var atEnd = input.selectionStart === input.value.length;
+        input.value = cleaned;
+        if (atEnd) {
+          try { input.setSelectionRange(cleaned.length, cleaned.length); } catch (err) {}
+        }
+      });
+    });
+
     Array.prototype.forEach.call(document.querySelectorAll('[data-msr-copy]'), function (btn) {
       btn.addEventListener('click', function () {
         var row = findRow(btn.getAttribute('data-msr-copy'));
@@ -575,6 +608,8 @@ window.ANT.measurements = (function () {
     mount: function () {
       return '<div id="measurementsView"></div>';
     },
+
+    cleanNumber: cleanNumber,
 
     render: function () {
       state.search = '';
