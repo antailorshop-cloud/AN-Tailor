@@ -472,7 +472,8 @@ window.ANT.settings = (function () {
   }
 
   function remove(kind, id) {
-    if (!window.confirm('Delete this ' + (kind === 'dress' ? 'dress type' : 'price') + '?')) return;
+    var what = kind === 'dress' ? 'dress type' : 'price';
+    if (!window.confirm('Delete this ' + what + '? This cannot be undone.')) return;
 
     var table = kind === 'dress' ? 'dress_types' : 'prices';
 
@@ -482,10 +483,12 @@ window.ANT.settings = (function () {
       .select('id')
       .then(function (res) {
         if (res.error) return toast(res.error.message, 'error');
+        // RLS reports a refused delete as an empty list, not an error, so an
+        // empty result means the row was filtered out rather than removed.
         if (!res.data || res.data.length === 0) {
-          return toast('Only the Owner can delete this.', 'error');
+          return toast('Could not delete that ' + what + '. Only the Owner can, and it must already exist.', 'error');
         }
-        toast('Deleted', 'success');
+        toast(what.charAt(0).toUpperCase() + what.slice(1) + ' deleted', 'success');
         load();
       });
   }
