@@ -260,6 +260,6 @@ revoke all on all tables in schema public from anon;
 alter default privileges in schema public
   grant select, insert, update, delete on tables to authenticated;
 
--- Helper functions are executable only by signed-in users.
-grant execute on function public.is_owner()  to authenticated;
-grant execute on function public.is_member() to authenticated;
+-- is_owner() and is_member() are created in rls.sql, which grants
+-- execute on them. They are deliberately not referenced here, because
+-- this file has to run before rls.sql exists.
