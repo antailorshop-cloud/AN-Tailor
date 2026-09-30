@@ -215,7 +215,7 @@ async function clearFixtures(owner) {
 }
 
 async function makeFixtures(owner) {
-  const out = { priceId: null, customerId: null, customerLooseId: null, orderId: null, errors: [] };
+  const out = { priceId: null, customerId: null, customerLooseId: null, orderId: null, itemId: null, errors: [] };
 
   const price = await owner.from('prices')
     .insert({ code: PROBE.price, group_name: 'RLS Probe', item: 'Probe', option: '', price: 100, status: 'ACTIVE' })
@@ -237,6 +237,13 @@ async function makeFixtures(owner) {
   else if (!customer.data) out.errors.push('customers insert: returned no row');
   else {
     out.customerId = customer.data.id;
+
+    const item = await owner.from('order_items')
+      .insert({ order_id: customer.data.id, category: 'Shirt', dress_type: 'Probe', quantity: 1, rate: 100 })
+      .select('id').single();
+    if (item.error) out.errors.push('order_items insert: ' + item.error.message);
+    else if (item.data) out.itemId = item.data.id;
+
     const order = await owner.from('orders')
       .insert({ code: PROBE.order, customer_id: customer.data.id, notes: 'original' })
       .select('id').single();
@@ -292,6 +299,20 @@ async function staffPhase(staff, ids) {
   const del = await staff.from('customers').delete().eq('code', PROBE.customer).select('id');
   log('Staff', 'Delete a customer', 'blocked (0 rows)', zeroRows(del),
       del.error ? del.error.message : (del.data || []).length + ' rows returned');
+
+  // Staff must not hard-delete an order item, but must be able to archive it.
+  if (ids.itemId) {
+    const itemDel = await staff.from('order_items').delete().eq('id', ids.itemId).select('id');
+    log('Staff', 'Hard-delete an order item', 'blocked (0 rows)', blocked(itemDel),
+        itemDel.error ? itemDel.error.message : (itemDel.data || []).length + ' rows returned');
+
+    const itemArc = await staff.from('order_items')
+      .update({ archived_at: new Date().toISOString() }).eq('id', ids.itemId).select('archived_at');
+    log('Staff', 'Archive an order item instead', 'allowed and applied',
+        oneRow(itemArc) && !!itemArc.data[0].archived_at,
+        itemArc.error ? itemArc.error.message
+                      : (itemArc.data && itemArc.data[0] ? 'archived_at set' : '0 rows returned'));
+  }
 
   const me = await staff.auth.getUser();
   const uid = me && me.data && me.data.user ? me.data.user.id : '';

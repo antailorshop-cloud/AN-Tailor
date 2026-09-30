@@ -147,6 +147,14 @@ create table if not exists order_items (
 
 create index if not exists order_items_order_idx on order_items (order_id, line_no);
 
+-- Staff are not allowed to hard-delete an order item, so they need a way to
+-- withdraw a wrongly entered one without destroying the audit trail. Added
+-- with IF NOT EXISTS so re-running this file upgrades an existing database.
+alter table order_items add column if not exists archived_at timestamptz;
+
+create index if not exists order_items_live_idx on order_items (order_id, line_no)
+  where archived_at is null;
+
 create table if not exists payments (
   id               uuid primary key default gen_random_uuid(),
   code             text not null unique,

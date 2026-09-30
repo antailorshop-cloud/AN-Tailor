@@ -8,6 +8,9 @@
 --     orders, items, payments and bills.
 --   * Master data and configuration belong to the owner: prices, dress types,
 --     shop settings, staff accounts and access levels.
+--   * Staff never hard-delete. order_items carries an archived_at flag, so a
+--     wrongly entered item is withdrawn by archiving it and the audit trail
+--     survives. Only the owner performs a real DELETE.
 --   * Hard delete is reserved for the owner, and the foreign keys narrow it
 --     further: orders.customer_id is ON DELETE RESTRICT, so a customer who has
 --     ever placed an order can never be removed -- by anyone, owner included.
@@ -289,9 +292,10 @@ create policy order_items_update_member on public.order_items
   with check (public.is_member());
 
 drop policy if exists order_items_delete_member on public.order_items;
-create policy order_items_delete_member on public.order_items
+drop policy if exists order_items_delete_owner on public.order_items;
+create policy order_items_delete_owner on public.order_items
   for delete to authenticated
-  using (public.is_member() or public.is_owner());
+  using (public.is_owner());
 
 drop policy if exists payments_read on public.payments;
 create policy payments_read on public.payments
@@ -346,9 +350,10 @@ create policy bill_orders_write_member on public.bill_orders
   with check (public.is_member());
 
 drop policy if exists bill_orders_delete_member on public.bill_orders;
-create policy bill_orders_delete_member on public.bill_orders
+drop policy if exists bill_orders_delete_owner on public.bill_orders;
+create policy bill_orders_delete_owner on public.bill_orders
   for delete to authenticated
-  using (public.is_member() or public.is_owner());
+  using (public.is_owner());
 
 -- ============================================================
 -- PROFILE CREATED ON SIGNUP
