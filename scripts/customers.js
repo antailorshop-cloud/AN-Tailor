@@ -139,10 +139,22 @@ window.ANT.customers = (function () {
   }
 
   function toolbar() {
-    var showing = state.rows.length;
     var total = state.total;
     var from = state.page * PAGE_SIZE + 1;
     var to = state.page * PAGE_SIZE + state.rows.length;
+
+    var label;
+    if (state.loading) {
+      label = 'Loading...';
+    } else if (state.search) {
+      label = total === 0
+        ? 'No match for "' + state.search + '"'
+        : 'Showing ' + from + '-' + to + ' of ' + total + ' for "' + state.search + '"';
+    } else if (total === 0) {
+      label = 'No customers yet';
+    } else {
+      label = 'Showing ' + from + '-' + to + ' of ' + total;
+    }
 
     return '<div class="cust-toolbar">' +
       '<input class="ui-input cust-search" id="custSearch" type="search" ' +
@@ -152,13 +164,7 @@ window.ANT.customers = (function () {
         ? '<label class="cust-toggle"><input type="checkbox" id="custArchived"' +
             (state.showArchived ? ' checked' : '') + '> Show archived only</label>'
         : '') +
-      '<span class="cust-count">' +
-        (state.loading
-          ? 'Loading...'
-          : (total === 0
-              ? 'No customers yet'
-              : 'Showing ' + from + '-' + to + ' of ' + total)) +
-      '</span>' +
+      '<span class="cust-count">' + esc(label) + '</span>' +
     '</div>';
   }
 
@@ -406,17 +412,19 @@ window.ANT.customers = (function () {
     var search = byId('custSearch');
     if (search) {
       search.addEventListener('input', function (e) {
+        // state.search is the source of truth. Reading e.target again after the
+        // 260ms delay would read a detached node, because painting replaces
+        // this input.
         state.search = e.target.value;
         state.page = 0;
         if (searchTimer) window.clearTimeout(searchTimer);
         searchTimer = window.setTimeout(function () {
-          var value = e.target.value;
           load(false).then(function () {
             var again = byId('custSearch');
             if (again) {
-              again.value = value;
+              again.value = state.search;
               again.focus();
-              try { again.setSelectionRange(value.length, value.length); } catch (err) {}
+              try { again.setSelectionRange(state.search.length, state.search.length); } catch (err) {}
             }
           });
         }, 260);
