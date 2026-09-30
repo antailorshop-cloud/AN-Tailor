@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f3460">
+<meta name="description" content="AN TAILOR shop management">
+<title>AN TAILOR</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="assets/icon-192.png">
+<link rel="stylesheet" href="styles/tokens.css">
+<link rel="stylesheet" href="styles/app.css">
+<script src="scripts/config.js"></script>
+</head>
+<body>
+
+<a class="skip-link" href="#main">Skip to content</a>
+
+<div class="login-screen" id="loginScreen" hidden>
+  <div class="login-card">
+    <div class="login-mark" aria-hidden="true">AN</div>
+    <h1 class="login-name">AN TAILOR</h1>
+    <p class="login-sub" id="loginSub">Sign in to continue</p>
+
+    <form class="login-form" id="loginForm" novalidate>
+      <label class="ui-label" for="loginEmail">Email</label>
+      <input class="ui-input" type="email" id="loginEmail" autocomplete="username" required>
+
+      <label class="ui-label" for="loginPassword">Password</label>
+      <input class="ui-input" type="password" id="loginPassword" autocomplete="current-password" required>
+
+      <div class="login-error" id="loginError" role="alert" hidden></div>
+
+      <button class="btn btn-primary btn-block" type="submit" id="loginSubmit">Sign in</button>
+    </form>
+
+    <div class="login-dev" id="loginDev" hidden>
+      <p class="login-dev-label">Preview mode &mdash; no database connected</p>
+      <div class="login-dev-row">
+        <button class="btn btn-secondary" type="button" data-preview-role="owner">Preview as Owner</button>
+        <button class="btn btn-secondary" type="button" data-preview-role="staff">Preview as Staff</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="shell" id="shell" hidden>
+
+  <header class="topbar">
+    <div class="topbar-brand">
+      <span class="topbar-mark" aria-hidden="true">AN</span>
+      <span class="topbar-brand-text">
+        <span class="topbar-brand-name">AN TAILOR</span>
+        <span class="topbar-brand-tag" id="shopTagline">Professional Tailoring Services</span>
+      </span>
+    </div>
+
+    <div class="topbar-title" id="pageTitle">Dashboard</div>
+
+    <div class="topbar-right">
+      <button class="icon-btn" type="button" id="themeToggle" aria-label="Switch to dark mode" title="Switch theme">
+        <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" id="themeIcon"></svg>
+      </button>
+      <div class="profile">
+        <button class="profile-btn" type="button" id="profileBtn" aria-haspopup="menu" aria-expanded="false">
+          <span class="profile-avatar" id="profileAvatar">A</span>
+          <span class="profile-name" id="profileName">&mdash;</span>
+        </button>
+        <div class="profile-menu" id="profileMenu" role="menu" hidden>
+          <div class="profile-menu-head">
+            <div class="profile-menu-name" id="menuName">&mdash;</div>
+            <div class="profile-menu-role" id="menuRole">&mdash;</div>
+          </div>
+          <button class="profile-menu-item" type="button" role="menuitem" id="menuSettings">Settings</button>
+          <button class="profile-menu-item danger" type="button" role="menuitem" id="menuSignOut">Sign out</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <nav class="nav" aria-label="Sections">
+    <div class="nav-track" id="navTrack"></div>
+  </nav>
+
+  <main class="content" id="main" tabindex="-1"></main>
+
+</div>
+
+<div class="toast-stack" id="toastStack" role="status" aria-live="polite"></div>
+
+<div class="install-bar" id="installBar" hidden>
+  <span>Install AN TAILOR on this device</span>
+  <button class="btn btn-primary btn-sm" type="button" id="installBtn">Install</button>
+  <button class="icon-btn" type="button" id="installDismiss" aria-label="Dismiss">&times;</button>
+</div>
+
+<script src="scripts/auth.js"></script>
+<script src="scripts/app.js"></script>
+</body>
+</html>

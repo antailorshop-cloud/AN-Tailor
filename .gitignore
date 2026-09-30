@@ -1,0 +1,6 @@
+*.xlsx
+*.xls
+_schema/
+node_modules/
+.env
+.env.local
