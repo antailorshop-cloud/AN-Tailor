@@ -206,6 +206,13 @@ function blocked(r) {
 }
 
 async function clearFixtures(owner) {
+  // Children first: order_items and bill_orders cascade from orders, and
+  // orders.restrict blocks deleting the customer they point at.
+  const prods = await owner.from('orders').select('id').eq('code', PROBE.order);
+  const orderIds = (prods.data || []).map(r => r.id);
+  for (const id of orderIds) {
+    await owner.from('order_items').delete().eq('order_id', id);
+  }
   await owner.from('orders').delete().eq('code', PROBE.order);
   await owner.from('customers').delete().eq('code', PROBE.customer);
   await owner.from('customers').delete().eq('code', PROBE.customerLoose);
@@ -238,18 +245,22 @@ async function makeFixtures(owner) {
   else {
     out.customerId = customer.data.id;
 
-    const item = await owner.from('order_items')
-      .insert({ order_id: customer.data.id, category: 'Shirt', dress_type: 'Probe', quantity: 1, rate: 100 })
-      .select('id').single();
-    if (item.error) out.errors.push('order_items insert: ' + item.error.message);
-    else if (item.data) out.itemId = item.data.id;
-
+    // The order must exist before its items, because order_items.order_id
+    // references orders(id).
     const order = await owner.from('orders')
       .insert({ code: PROBE.order, customer_id: customer.data.id, notes: 'original' })
       .select('id').single();
     if (order.error) out.errors.push('orders insert: ' + order.error.message);
     else if (!order.data) out.errors.push('orders insert: returned no row');
-    else out.orderId = order.data.id;
+    else {
+      out.orderId = order.data.id;
+
+      const item = await owner.from('order_items')
+        .insert({ order_id: order.data.id, category: 'Shirt', dress_type: 'Probe', quantity: 1, rate: 100 })
+        .select('id').single();
+      if (item.error) out.errors.push('order_items insert: ' + item.error.message);
+      else if (item.data) out.itemId = item.data.id;
+    }
   }
 
   // A customer with no history, so owner-only hard delete can be proven.
