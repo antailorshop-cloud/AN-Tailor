@@ -45,6 +45,7 @@
     <label for="key">anon public key</label>
     <input id="key" placeholder="eyJhbGci..." autocomplete="off">
   </div>
+  <p class="note" id="configStatus" style="margin:0 0 12px"></p>
   <div class="grid">
     <div class="field">
       <label for="ownerEmail">Owner test account</label>
@@ -90,12 +91,49 @@
 
 <script src="../../config.local.js"></script>
 <script>
-  // Prefill the connection fields from the gitignored local config so the
-  // URL and anon key never have to be typed or shared.
+  // Connection details come from the gitignored config.local.js so the URL
+  // and anon key never have to be typed or shared. The four fields are also
+  // mirrored into localStorage so re-running the suite does not mean
+  // re-typing the two test passwords.
   (function () {
     var local = (window.ANT && window.ANT.local) || {};
-    if (local.supabaseUrl) document.getElementById('url').value = local.supabaseUrl;
-    if (local.supabaseAnonKey) document.getElementById('key').value = local.supabaseAnonKey;
+    var ids = ['url', 'key', 'ownerEmail', 'ownerPass', 'staffEmail', 'staffPass'];
+    var store = 'anTailorRlsTest';
+
+    function saved() {
+      try { return JSON.parse(localStorage.getItem(store) || '{}'); }
+      catch (e) { return {}; }
+    }
+
+    var url = local.supabaseUrl || '';
+    var key = local.supabaseAnonKey || '';
+
+    if (url) document.getElementById('url').value = url;
+    if (key) document.getElementById('key').value = key;
+
+    var prior = saved();
+    ['ownerEmail', 'ownerPass', 'staffEmail', 'staffPass'].forEach(function (id) {
+      if (prior[id]) document.getElementById(id).value = prior[id];
+    });
+
+    ids.forEach(function (id) {
+      document.getElementById(id).addEventListener('input', function () {
+        var out = {};
+        ids.forEach(function (k) { out[k] = document.getElementById(k).value; });
+        try { localStorage.setItem(store, JSON.stringify(out)); } catch (e) {}
+      });
+    });
+
+    var badge = document.getElementById('configStatus');
+    if (url && key) {
+      badge.style.color = '#1a7f4b';
+      badge.textContent = 'config.local.js loaded - URL and anon key filled in automatically.';
+    } else {
+      badge.style.color = '#b3261e';
+      badge.textContent = 'config.local.js NOT loaded. Copy config.local.example.js to ' +
+        'config.local.js in the AN TAILOR Web folder, paste your URL and anon key, then ' +
+        'hard-reload this page with Ctrl+Shift+R. Or just type the values into the boxes above.';
+    }
   })();
 </script>
 
