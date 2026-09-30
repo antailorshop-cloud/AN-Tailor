@@ -1092,6 +1092,17 @@ button, input, select, textarea { font: inherit; color: inherit; }
   margin-top: var(--gap-sm);
 }
 
+/* Values are free text, not numbers, so a long note like "40.5 old" or
+   "same as last" has to fit without being clipped. */
+.msr-form-grid .ui-input {
+  min-width: 0;
+  text-overflow: ellipsis;
+}
+
+.msr-cell-value {
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 640px) {
   .msr-grid,
   .msr-form-grid {

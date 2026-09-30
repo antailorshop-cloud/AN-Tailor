@@ -291,10 +291,14 @@ window.ANT.measurements = (function () {
     } else {
       grid = '<div class="msr-form-grid">' + fields.map(function (f) {
         var v = values[f];
+        // The id is derived from the label so clicking the label text focuses
+        // the box. Without it the label points at nothing and tapping the name
+        // on a phone does nothing, which reads as a field that cannot be edited.
+        var fid = 'msrF' + f.replace(/[^a-z0-9]/gi, '');
         return '<div class="ui-field">' +
-          '<label class="ui-label" for="msrF' + esc(f.replace(/[^a-z0-9]/gi, '')) + '">' + esc(f) + '</label>' +
-          '<input class="ui-input" data-msr-field="' + esc(f) + '" inputmode="decimal" ' +
-            'value="' + esc(v === undefined || v === null ? '' : v) + '" autocomplete="off">' +
+          '<label class="ui-label" for="' + esc(fid) + '">' + esc(f) + '</label>' +
+          '<input class="ui-input" id="' + esc(fid) + '" data-msr-field="' + esc(f) + '" ' +
+            'type="text" value="' + esc(v === undefined || v === null ? '' : v) + '" autocomplete="off">' +
         '</div>';
       }).join('') + '</div>';
     }
