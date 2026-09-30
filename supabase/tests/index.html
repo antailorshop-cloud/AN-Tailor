@@ -206,23 +206,35 @@ async function clearFixtures(owner) {
 }
 
 async function makeFixtures(owner) {
+  const out = { priceId: null, customerId: null, orderId: null, errors: [] };
+
   const price = await owner.from('prices')
     .insert({ code: PROBE.price, group_name: 'RLS Probe', item: 'Probe', option: '', price: 100, status: 'ACTIVE' })
     .select('id').single();
+  if (price.error) out.errors.push('prices insert: ' + price.error.message);
+  else if (!price.data) out.errors.push('prices insert: returned no row');
+  else out.priceId = price.data.id;
+
   const setting = await owner.from('shop_settings')
     .insert({ key: PROBE.setting, value: 'original' }).select('key').single();
-  const customer = await owner.from('customers')
-    .insert({ code: PROBE.customer, name: 'RLS Probe Customer' }).select('id').single();
-  const order = await owner.from('orders')
-    .insert({ code: PROBE.order, customer_id: customer.data.id, notes: 'original' })
-    .select('id').single();
+  if (setting.error) out.errors.push('shop_settings insert: ' + setting.error.message);
 
-  return {
-    priceId: price.data && price.data.id,
-    customerId: customer.data && customer.data.id,
-    orderId: order.data && order.data.id,
-    errors: [price.error, setting.error, customer.error, order.error].filter(Boolean)
-  };
+  const customer = await owner.from('customers')
+    .insert({ code: PROBE.customer, name: 'RLS Probe Customer' })
+    .select('id').single();
+  if (customer.error) out.errors.push('customers insert: ' + customer.error.message);
+  else if (!customer.data) out.errors.push('customers insert: returned no row');
+  else {
+    out.customerId = customer.data.id;
+    const order = await owner.from('orders')
+      .insert({ code: PROBE.order, customer_id: customer.data.id, notes: 'original' })
+      .select('id').single();
+    if (order.error) out.errors.push('orders insert: ' + order.error.message);
+    else if (!order.data) out.errors.push('orders insert: returned no row');
+    else out.orderId = order.data.id;
+  }
+
+  return out;
 }
 
 async function staffPhase(staff, ids) {
@@ -241,15 +253,17 @@ async function staffPhase(staff, ids) {
       settings.error ? settings.error.message : 'ok');
 
   // Staff may edit orders, and this must genuinely land.
-  const orderEdit = await staff.from('orders')
-    .update({ notes: 'edited by staff' }).eq('id', ids.orderId).select('notes');
-  const landed = oneRow(orderEdit) && orderEdit.data[0].notes === 'edited by staff';
-  log('Staff', 'Edit an order', 'allowed and applied', landed,
-      orderEdit.error ? orderEdit.error.message
-                      : (orderEdit.data || []).length + ' row(s) returned, notes now "' +
-                        ((orderEdit.data && orderEdit.data[0]) ? orderEdit.data[0].notes : '?') + '"');
+  if (ids.orderId) {
+    const orderEdit = await staff.from('orders')
+      .update({ notes: 'edited by staff' }).eq('id', ids.orderId).select('notes');
+    const landed = oneRow(orderEdit) && orderEdit.data[0].notes === 'edited by staff';
+    log('Staff', 'Edit an order', 'allowed and applied', landed,
+        orderEdit.error ? orderEdit.error.message
+                        : (orderEdit.data || []).length + ' row(s) returned, notes now "' +
+                          ((orderEdit.data && orderEdit.data[0]) ? orderEdit.data[0].notes : '?') + '"');
+  }
 
-  const priceWrite = await staff.from('prices').update({ price: 999 }).eq('id', ids.priceId).select('id');
+  const priceWrite = await staff.from('prices').update({ price: 999 }).eq('code', PROBE.price).select('id');
   log('Staff', 'Change a price', 'blocked (0 rows)', zeroRows(priceWrite),
       priceWrite.error ? priceWrite.error.message : (priceWrite.data || []).length + ' rows returned');
 
@@ -257,7 +271,7 @@ async function staffPhase(staff, ids) {
   log('Staff', 'Change shop settings', 'blocked (0 rows)', zeroRows(setWrite),
       setWrite.error ? setWrite.error.message : (setWrite.data || []).length + ' rows returned');
 
-  const del = await staff.from('customers').delete().eq('id', ids.customerId).select('id');
+  const del = await staff.from('customers').delete().eq('code', PROBE.customer).select('id');
   log('Staff', 'Delete a customer', 'blocked (0 rows)', zeroRows(del),
       del.error ? del.error.message : (del.data || []).length + ' rows returned');
 
@@ -280,34 +294,38 @@ async function staffPhase(staff, ids) {
 // Definitive proof: the owner re-reads every row the staff account tried to
 // tamper with and confirms the stored values are untouched.
 async function ownerVerifies(owner, ids) {
-  const price = await owner.from('prices').select('price').eq('id', ids.priceId).maybeSingle();
-  log('Owner', 'Price unchanged by staff', 'still 100',
-      !price.error && price.data && Number(price.data.price) === 100,
-      price.error ? price.error.message : 'price is ' + (price.data && price.data.price));
+  if (ids.priceId) {
+    const price = await owner.from('prices').select('price').eq('id', ids.priceId).maybeSingle();
+    log('Owner', 'Price unchanged by staff', 'still 100',
+        !price.error && price.data && Number(price.data.price) === 100,
+        price.error ? price.error.message : 'price is ' + (price.data && price.data.price));
+  }
 
   const setting = await owner.from('shop_settings').select('value').eq('key', PROBE.setting).maybeSingle();
   log('Owner', 'Shop setting unchanged by staff', "still 'original'",
       !setting.error && setting.data && setting.data.value === 'original',
       setting.error ? setting.error.message : 'value is "' + (setting.data && setting.data.value) + '"');
 
-  const customer = await owner.from('customers').select('id').eq('id', ids.customerId).maybeSingle();
+  const customer = await owner.from('customers').select('id').eq('code', PROBE.customer).maybeSingle();
   log('Owner', 'Customer survived staff delete', 'still exists',
       !customer.error && !!customer.data,
       customer.error ? customer.error.message : (customer.data ? 'row still present' : 'row was deleted'));
 }
 
 async function ownerPositive(owner, ids) {
-  const p = await owner.from('prices').update({ price: 250 }).eq('id', ids.priceId).select('price').single();
-  log('Owner', 'Change a price', 'allowed and applied',
-      !p.error && Number(p.data && p.data.price) === 250,
-      p.error ? p.error.message : 'price is now ' + (p.data && p.data.price));
+  if (ids.priceId) {
+    const p = await owner.from('prices').update({ price: 250 }).eq('id', ids.priceId).select('price').single();
+    log('Owner', 'Change a price', 'allowed and applied',
+        !p.error && Number(p.data && p.data.price) === 250,
+        p.error ? p.error.message : 'price is now ' + (p.data && p.data.price));
+  }
 
   const s = await owner.from('shop_settings').update({ value: 'set by owner' }).eq('key', PROBE.setting).select('value').single();
   log('Owner', 'Change shop settings', 'allowed and applied',
       !s.error && s.data && s.data.value === 'set by owner',
       s.error ? s.error.message : 'value is now "' + (s.data && s.data.value) + '"');
 
-  const d = await owner.from('customers').delete().eq('id', ids.customerId).select('id');
+  const d = await owner.from('customers').delete().eq('code', PROBE.customer).select('id');
   log('Owner', 'Delete a customer', 'allowed and applied', oneRow(d),
       d.error ? d.error.message : (d.data || []).length + ' row(s) deleted');
 }
@@ -359,9 +377,8 @@ el('run').addEventListener('click', async () => {
       await clearFixtures(owner);
       const ids = await makeFixtures(owner);
 
-      if (ids.errors.length || !ids.priceId || !ids.customerId || !ids.orderId) {
-        log('Owner', 'Create probe rows', 'success', false,
-            ids.errors.map(e => e.message).join('; ') || 'a fixture id came back empty');
+      if (ids.errors.length) {
+        log('Owner', 'Create probe rows', 'success', false, ids.errors.join(' | '));
       } else {
         log('Owner', 'Create probe rows', 'success', true, 'price, setting, customer and order created');
 
