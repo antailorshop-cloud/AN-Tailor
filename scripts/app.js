@@ -108,36 +108,6 @@
     '</div>';
   }
 
-  function statTile(label, value, foot, hero) {
-    return '<div class="stat' + (hero ? ' dashboard-hero' : '') + '">' +
-      '<div class="stat-label">' + escapeHtml(label) + '</div>' +
-      '<div class="stat-value">' + escapeHtml(value) + '</div>' +
-      '<div class="stat-foot">' + escapeHtml(foot) + '</div>' +
-    '</div>';
-  }
-
-  function renderDashboard() {
-    var tiles =
-      statTile('Outstanding', '₹0.00', 'Money still owed by customers', true) +
-      statTile('Orders today', '0', 'New orders taken today', true) +
-      statTile('In progress', '0', 'Taken but not yet ready') +
-      statTile('Ready', '0', 'Finished, waiting for pickup') +
-      statTile('Delivered', '0', 'Handed over this week') +
-      statTile('Collected', '₹0.00', 'Received against bills');
-
-    return pageHead('Dashboard', 'Today at a glance for the shop.')
-      + '<div class="dashboard-grid">' + tiles + '</div>'
-      + '<div class="ui-card" style="margin-top:var(--gap)">'
-        + '<h2 class="ui-card-title">Live figures appear here</h2>'
-        + '<p class="ui-card-sub">These cards are wired to the real layout now. The numbers fill in once the database is connected and the security gate has passed.</p>'
-        + '<div class="skeleton-line w70"></div>'
-        + '<div class="skeleton-line w45"></div>'
-      + '</div>'
-      + '<div style="margin-top:var(--gap)">'
-        + phaseNote(4, 'The security gate passed 24 of 24 checks, so signed-out visitors and staff accounts are both genuinely blocked from the wrong data. Customer records are safe to add.')
-      + '</div>';
-  }
-
   function renderArea(area) {
     var descriptions = {
       customers: ['Customers', 'Search, add, edit, archive and view a customer\u2019s full history.', 6],
@@ -191,6 +161,7 @@
     }
 
     var modules = {
+      dashboard: window.ANT.dashboard,
       customers: window.ANT.customers,
       settings: window.ANT.settings,
       measurements: window.ANT.measurements,
@@ -210,7 +181,7 @@
       return;
     }
 
-    el.main.innerHTML = area.id === 'dashboard' ? renderDashboard() : renderArea(area);
+    el.main.innerHTML = renderArea(area);
     el.pageTitle.textContent = area.label;
     el.navTrack.scrollTop = 0;
     markActiveNav();

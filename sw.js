@@ -6,7 +6,7 @@
 // network-first falls back to the cache, and the cache still holds the old
 // copy. That is how a "Save order" fix reached the server and never reached
 // the shop phone.
-var CACHE = 'an-tailor-v16';
+var CACHE = 'an-tailor-v17';
 
 var SHELL = [
   './',
@@ -21,6 +21,7 @@ var SHELL = [
   './scripts/measurements.js',
   './scripts/orders.js',
   './scripts/settings.js',
+  './scripts/dashboard.js',
   './scripts/app.js',
   './assets/icon.svg'
 ];
