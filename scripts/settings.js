@@ -30,14 +30,14 @@ window.ANT.settings = (function () {
   // Bill payment uses the first three. The last is the wording of the WhatsApp
   // bill message; an empty value means the standard wording, which is why it is
   // kept here beside the UPI id rather than hardcoded in the message builder.
-  var SHOP_KEYS = ['shop_name', 'upi_id', 'upi_payee_name', 'wa_bill_message'];
+  var SHOP_KEYS = ['shop_name', 'upi_id', 'upi_payee_name', 'wa_bill_message', 'bill_print_size'];
 
   var state = {
     tab: 'dress',
     search: '',
     dressRows: [],
     priceRows: [],
-    shop: { shop_name: '', upi_id: '', upi_payee_name: '', wa_bill_message: '' },
+    shop: { shop_name: '', upi_id: '', upi_payee_name: '', wa_bill_message: '', bill_print_size: '' },
     loading: false,
     error: null,
     form: null   // null = closed, {kind:'dress'|'price', row:{}|null}
@@ -93,7 +93,7 @@ window.ANT.settings = (function () {
   // shop_settings is a key/value table. Only the keys the bill uses are kept;
   // anything else a hand-edit left in the table is ignored rather than shown.
   function applyShop(rows) {
-    var shop = { shop_name: '', upi_id: '', upi_payee_name: '', wa_bill_message: '' };
+    var shop = { shop_name: '', upi_id: '', upi_payee_name: '', wa_bill_message: '', bill_print_size: '' };
     rows.forEach(function (row) {
       if (SHOP_KEYS.indexOf(row.key) !== -1) {
         shop[row.key] = String(row.value == null ? '' : row.value);
@@ -332,6 +332,23 @@ window.ANT.settings = (function () {
     '</div>';
   }
 
+  function printSizeField(current) {
+    var picked = window.ANT.printsize.normalize(current);
+
+    var options = window.ANT.printsize.SIZES.map(function (s) {
+      return '<option value="' + esc(s.key) + '"' + (s.key === picked ? ' selected' : '') + '>' +
+        esc(s.label) + '</option>';
+    }).join('');
+
+    return '<div class="ui-field">' +
+      '<label class="ui-label" for="shopPrintSize">Bill print size</label>' +
+      '<select class="ui-input" id="shopPrintSize">' + options + '</select>' +
+      '<p class="ui-hint">Lays out the printed bill only; it never changes a figure. ' +
+        'The A4 sheet option prints one A5 bill on the left half and leaves the ' +
+        'right half blank to cut off and reuse.</p>' +
+    '</div>';
+  }
+
   function shopPanel() {
     if (state.loading) {
       return '<div class="ui-card"><div class="empty"><div class="empty-title">Loading...</div></div></div>';
@@ -350,6 +367,7 @@ window.ANT.settings = (function () {
           shopField('shopUpi', 'UPI ID', upi, 'Like antailor@okhdfcbank. Printed as a QR on any bill with money still due.') +
           shopField('shopPayee', 'UPI payee name', s.upi_payee_name, 'The name the customer sees in their UPI app.') +
           shopField('shopConfirm', 'Confirm UPI ID', '', 'Type the new UPI ID again, but only when you change an existing one.') +
+          printSizeField(s.bill_print_size) +
         '</div>' +
         '<div class="form-actions">' +
           '<button type="submit" class="btn btn-primary">Save shop settings</button>' +
@@ -363,6 +381,7 @@ window.ANT.settings = (function () {
     var upiIn = window.ANT.upi.normalizeVpa(byId('shopUpi').value);
     var payee = byId('shopPayee').value.trim();
     var confirm = window.ANT.upi.normalizeVpa(byId('shopConfirm').value);
+    var printSize = window.ANT.printsize.normalize(byId('shopPrintSize').value);
 
     var problem = window.ANT.upi.vpaProblem(upiIn);
     if (problem) {
@@ -387,7 +406,8 @@ window.ANT.settings = (function () {
     Promise.all([
       putSetting('shop_name', name),
       putSetting('upi_id', upiIn),
-      putSetting('upi_payee_name', payee)
+      putSetting('upi_payee_name', payee),
+      putSetting('bill_print_size', printSize)
     ]).then(function (results) {
       var bad = results.filter(function (r) { return r && r.error; })[0];
       if (bad) {

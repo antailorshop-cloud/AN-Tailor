@@ -79,7 +79,7 @@ window.ANT.bills = (function () {
     // Shop details for the printed bill and the WhatsApp message. Read once
     // from shop_settings; a missing or unreadable row simply means no UPI code
     // is drawn and the WhatsApp message falls back to the standard wording.
-    shop: { name: '', upiId: '', payee: '', waBillMessage: '' }
+    shop: { name: '', upiId: '', payee: '', waBillMessage: '', printSize: '' }
   };
 
   function byId(id) { return document.getElementById(id); }
@@ -278,7 +278,7 @@ window.ANT.bills = (function () {
     return sb().from('shop_settings')
       .select('key,value')
       .then(function (res) {
-        var shop = { name: '', upiId: '', payee: '', waBillMessage: '' };
+        var shop = { name: '', upiId: '', payee: '', waBillMessage: '', printSize: '' };
 
         if (!res.error && res.data) {
           res.data.forEach(function (row) {
@@ -286,6 +286,7 @@ window.ANT.bills = (function () {
             else if (row.key === 'upi_id') shop.upiId = row.value || '';
             else if (row.key === 'upi_payee_name') shop.payee = row.value || '';
             else if (row.key === 'wa_bill_message') shop.waBillMessage = row.value || '';
+            else if (row.key === 'bill_print_size') shop.printSize = row.value || '';
           });
         }
 
@@ -1041,6 +1042,9 @@ window.ANT.bills = (function () {
       return;
     }
 
+    // The size only lays the page out; it never touches a figure on it.
+    var size = window.ANT.printsize.normalize(state.shop.printSize);
+
     var rows = list.map(function (o) {
       return '<tr><td>' + esc(o.code) + '</td>' +
         '<td>' + esc(dateLabel(o.order_date)) + '</td>' +
@@ -1102,8 +1106,13 @@ window.ANT.bills = (function () {
       // Paper cannot be tapped, but the bill is very often sent on as a PDF, and
       // some viewers - WhatsApp among them - do make a link live there. Hiding it
       // would throw that away for the sake of a print preview nobody keeps.
-      '@media print{body{margin:12mm}}' +
+      // The page margin comes from @page now, so the printed body margin is
+      // zeroed rather than left at 12mm, which would double it.
+      '@media print{body{margin:0}}' +
+      window.ANT.printsize.pageCss(size) +
+      window.ANT.printsize.layoutCss(size) +
       '</style></head><body>' +
+      '<div class="bill' + (size === 'A4HALF' ? ' bill-half' : '') + '">' +
       '<h1>Bill ' + esc(bill.code) + '</h1>' +
       '<p class="sub">' + esc(c.name) + ' &middot; ' + esc(c.mobile) +
       (c.address ? ' &middot; ' + esc(c.address) : '') + '</p>' +
@@ -1126,6 +1135,7 @@ window.ANT.bills = (function () {
       payBlock +
       '<footer>Printed ' + esc(dateLabel(today())) + ' from ' +
         esc(state.shop.name || 'AN TAILOR') + '.</footer>' +
+      '</div>' +
       '</body></html>';
 
     var win = window.open('', '_blank');
