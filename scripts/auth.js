@@ -71,6 +71,32 @@ window.ANT.auth = (function () {
     });
   }
 
+  /* Can the signed-in person read this area's data right now?
+   *
+   * A data module asks this before building a query, so a tailor the owner has
+   * narrowed to one counter does not have the other counters' rows pulled into
+   * their browser. Today the only consumer is the dashboard, which is the one
+   * page that reads across areas by design; the other pages each read their own.
+   *
+   * It is a courtesy to the data, not a lock. RLS still admits is_member() on
+   * these tables, the anon key is public, and the anon key is in the source
+   * anyone loading the page already has. So this makes the app not *go looking*
+   * for rows the person was not granted; it does not stop anyone who decides to
+   * ask the API directly. Do not describe it to a shop owner as protection.
+   *
+   * An absent profile is treated as "not granted" rather than "granted". A
+   * module that loads before sign-in has finished, or in preview mode with no
+   * profile, would otherwise ask for everything.
+   */
+  function canRead(areaId) {
+    var user = readCache();
+    if (!user) return false;
+    var hit = areasFor(user.role, user.areas).filter(function (a) {
+      return a.id === areaId;
+    })[0];
+    return !!hit;
+  }
+
   // The rows a person has been given. A read that fails or is filtered by RLS
   // yields an empty list, which means "leave them to their role" - never a
   // reason to keep a tailor out of the app.
@@ -183,6 +209,7 @@ window.ANT.auth = (function () {
   return {
     canAccess: canAccess,
     areasFor: areasFor,
+    canRead: canRead,
     current: readCache,
 
     signIn: function (email, password) {

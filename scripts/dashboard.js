@@ -76,6 +76,10 @@ window.ANT.dashboard = (function () {
   var state = {
     loaded: false,
     error: '',
+    /* Areas this account was not granted, so their tiles can say "not in your
+     * access" instead of a number that was never asked for. Empty means the
+     * person can read everything the dashboard reports. */
+    held: null,
     ordersToday: 0,
     inProgress: 0,
     ready: 0,
@@ -102,30 +106,70 @@ window.ANT.dashboard = (function () {
     return null;
   }
 
+  /* The dashboard is the one page that reads across areas, because it reports
+   * the whole shop. So it is also the one page where a narrowed account matters:
+   * a tailor granted the dashboard but not bills should not have every live bill
+   * balance sitting in their browser, and one granted payments but not orders
+   * should not have the order book.
+   *
+   * An area the person cannot read is not queried at all, and its tile says so
+   * rather than showing a number. The distinction matters and is the same one
+   * this file already made for a failed load: "0" means nothing is owed, and
+   * "not in your access" means the question was never asked.
+   *
+   * This is not access control. The database lets any active member read these
+   * tables, and the anon key is public, so the rows are not beyond reach - the
+   * app just stops going to look for them. See the note on canRead() in auth.js. */
+  function canRead(areaId) {
+    return window.ANT.auth.canRead(areaId);
+  }
+
+  function withheld(areaId) {
+    return { withheld: areaId, error: null, data: [] };
+  }
+
   function load() {
     var today = isoToday();
     var week = isoWeekStart();
 
-    var orders = sb().from('orders')
-      .select('id,code,status,order_date,delivery_date,balance,priority,customer:customers(id,code,name)')
-      .neq('status', 'Cancelled')
-      .is('archived_at', null);
+    var wantOrders = canRead('orders');
+    var wantBills = canRead('bills');
+    var wantPayments = canRead('payments');
 
-    var bills = sb().from('bills')
-      .select('id,balance')
-      .is('archived_at', null);
+    var orders = wantOrders
+      ? sb().from('orders')
+          .select('id,code,status,order_date,delivery_date,balance,priority,customer:customers(id,code,name)')
+          .neq('status', 'Cancelled')
+          .is('archived_at', null)
+      : withheld('orders');
 
-    var payments = sb().from('payments')
-      .select('id,amount,paid_on')
-      .gte('paid_on', week);
+    var bills = wantBills
+      ? sb().from('bills')
+          .select('id,balance')
+          .is('archived_at', null)
+      : withheld('bills');
+
+    var payments = wantPayments
+      ? sb().from('payments')
+          .select('id,amount,paid_on')
+          .gte('paid_on', week)
+      : withheld('payments');
 
     return Promise.all([orders, bills, payments]).then(function (res) {
       var err = firstError(res);
       if (err) {
         state.error = (err && err.message) || 'The figures could not be loaded.';
         state.loaded = false;
+        state.held = null;
         return;
       }
+
+      // Which areas were left unasked, so the tiles can name the gap instead of
+      // implying an answer they never received.
+      state.held = [];
+      if (res[0].withheld) state.held.push('orders');
+      if (res[1].withheld) state.held.push('bills');
+      if (res[2].withheld) state.held.push('payments');
 
       var rows = res[0].data || [];
       var billRows = res[1].data || [];
@@ -195,6 +239,17 @@ window.ANT.dashboard = (function () {
     '</div>';
   }
 
+  /* A tile for a figure the account was not allowed to ask for. It reads as a
+   * blank rather than a zero, for the same reason a failed load does not draw
+   * zeros: a tailor must not act on a number the app never fetched. */
+  function heldTile(label, hero) {
+    return '<div class="stat' + (hero ? ' dashboard-hero' : '') + '">' +
+      '<div class="stat-label">' + esc(label) + '</div>' +
+      '<div class="stat-value">—</div>' +
+      '<div class="stat-foot">Not in your access</div>' +
+    '</div>';
+  }
+
   function head() {
     return '<div class="page-head"><div>' +
       '<h1 class="page-head-title">Dashboard</h1>' +
@@ -203,13 +258,29 @@ window.ANT.dashboard = (function () {
     '</div>';
   }
 
+  function held(area) {
+    return state.held && state.held.indexOf(area) !== -1;
+  }
+
   function tiles() {
-    return statTile('Outstanding', money(state.outstanding), 'Money still owed on live bills', true) +
-      statTile('Collected this week', money(state.collectedWeek), 'Payments taken since Monday', true) +
-      statTile('Orders today', String(state.ordersToday), 'New orders taken today') +
-      statTile('In progress', String(state.inProgress), 'Taken but not yet ready') +
-      statTile('Ready', String(state.ready), 'Finished, waiting for pickup') +
-      statTile('Delivered this week', String(state.deliveredWeek), 'Handed over since Monday');
+    // Grouped by the area each figure is read from, so a held area takes its
+    // tiles with it. Orders feeds five of the six, so a tailor with the
+    // dashboard but no orders sees a screen that says what it cannot see.
+    var orderTiles = held('orders')
+      ? heldTile('Orders today') + heldTile('In progress') + heldTile('Ready') +
+        heldTile('Delivered this week')
+      : statTile('Orders today', String(state.ordersToday), 'New orders taken today') +
+        statTile('In progress', String(state.inProgress), 'Taken but not yet ready') +
+        statTile('Ready', String(state.ready), 'Finished, waiting for pickup') +
+        statTile('Delivered this week', String(state.deliveredWeek), 'Handed over since Monday');
+
+    return (held('bills')
+      ? heldTile('Outstanding', true)
+      : statTile('Outstanding', money(state.outstanding), 'Money still owed on live bills', true)) +
+      (held('payments')
+        ? heldTile('Collected this week', true)
+        : statTile('Collected this week', money(state.collectedWeek), 'Payments taken since Monday', true)) +
+      orderTiles;
   }
 
   function loading() {
@@ -253,6 +324,15 @@ window.ANT.dashboard = (function () {
    * up, so this names the customer, the order and when it is due, and marks
    * the one that is finished and only waiting to be handed over. */
   function benchCard() {
+    // The bench is a list of orders by name, so it goes with the orders area
+    // rather than reporting itself as an empty shop.
+    if (held('orders')) {
+      return '<div class="ui-card" style="margin-top:var(--gap)">' +
+        '<h2 class="ui-card-title">On the bench</h2>' +
+        '<p class="ui-card-sub">The bench is a list of live orders, and Orders is not in your access.</p>' +
+      '</div>';
+    }
+
     if (!state.bench.length) {
       return '<div class="ui-card" style="margin-top:var(--gap)">' +
         '<h2 class="ui-card-title">Nothing on the bench</h2>' +
@@ -299,7 +379,26 @@ window.ANT.dashboard = (function () {
     if (state.error) return failed(state.error);
     if (!state.loaded) return loading();
 
-    return '<div class="dashboard-grid">' + tiles() + '</div>' + benchCard();
+    return '<div class="dashboard-grid">' + tiles() + '</div>' + benchCard() + heldNote();
+  }
+
+  /* When any figure is missing for want of access rather than want of data, say
+   * it once, at the bottom. The tiles already mark themselves, and this is here
+   * so the reason is stated rather than left for the tailor to work out - a
+   * blank that nobody explains looks like a fault. */
+  function heldNote() {
+    if (!state.held || !state.held.length) return '';
+
+    var names = { orders: 'Orders', bills: 'Bills', payments: 'Payments' };
+    var list = state.held.map(function (a) { return names[a] || a; });
+
+    return '<div class="ui-card" style="margin-top:var(--gap)">' +
+      '<h2 class="ui-card-title">Some figures are not shown</h2>' +
+      '<p class="ui-card-sub">' +
+        esc(list.join(', ')) + (list.length === 1 ? ' is' : ' are') +
+        ' not in your access, so ' + (list.length === 1 ? 'that figure was' : 'those figures were') +
+        ' not asked for. Ask the shop owner if you need it.</p>' +
+    '</div>';
   }
 
   function paint() {

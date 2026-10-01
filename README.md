@@ -101,14 +101,18 @@ directly, whatever the menu shows.
 
 Per-area access is the second layer, and it is weaker than the role. Rows in
 `staff_access` narrow one tailor to the counters they work. Those rows are read
-in `scripts/auth.js` and used to build the menu and gate the router, but no
-policy on the data tables consults them and no data table carries an area
-column. So a per-area grant controls where someone can navigate, not which rows
-they can read: someone narrowed to a single area still has a valid session and a
-public anon key, and can read every row through the API. Treat per-area grants
-as a way of keeping the menu honest, not as a way of keeping customer data
-private. Making them real means area-aware policies on the data tables, which is
-its own piece of work.
+in `scripts/auth.js` and used to build the menu, gate the router, and decide
+which tables a page queries (`auth.canRead`). No policy on the data tables
+consults them and no data table carries an area column, so this is not a data
+boundary: someone narrowed to a single area still has a valid session and a
+public anon key, and can read every row through the API by asking directly.
+
+What the query gate does achieve is that the app stops going looking. The
+dashboard reads across areas because it reports the whole shop, so it is where
+this matters most: a tailor granted payments but not bills no longer has every
+live bill balance and the order book delivered into their browser, and the
+figures they are not entitled to show a dash and say so rather than a `0` that
+would read as "nothing is owed". Treat it as data minimisation, not protection.
 
 A grant can only ever subtract from a role, never widen it. No rows at all means
 "leave them to their role", which is why an account created before this feature
