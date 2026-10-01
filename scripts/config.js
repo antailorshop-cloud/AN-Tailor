@@ -38,14 +38,19 @@ window.ANT.config = {
     staff: { label: 'Staff', rank: 1 }
   },
 
+  // `access` is the name the area is filed under in the staff_access table,
+  // which is how the owner narrows one person's reach from the Staff tab. It is
+  // absent on Settings because access there follows the role alone: no row can
+  // hand it out. A grant can only ever subtract, never add, so a name that is
+  // missing or misspelled leaves the role in charge rather than inventing access.
   areas: [
-    { id: 'dashboard', label: 'Dashboard', minRole: 'staff', phase: 1 },
-    { id: 'customers', label: 'Customers', minRole: 'staff', phase: 6 },
-    { id: 'measurements', label: 'Measurements', minRole: 'staff', phase: 7 },
-    { id: 'orders', label: 'Orders', minRole: 'staff', phase: 8 },
-    { id: 'bills', label: 'Bills', minRole: 'staff', phase: 10 },
-    { id: 'payments', label: 'Payments', minRole: 'staff', phase: 9 },
-    { id: 'resale', label: 'Resale Stock', minRole: 'staff', phase: 10 },
+    { id: 'dashboard', label: 'Dashboard', minRole: 'staff', phase: 1, access: 'DASHBOARD' },
+    { id: 'customers', label: 'Customers', minRole: 'staff', phase: 6, access: 'CUSTOMERS' },
+    { id: 'measurements', label: 'Measurements', minRole: 'staff', phase: 7, access: 'MEASUREMENTS' },
+    { id: 'orders', label: 'Orders', minRole: 'staff', phase: 8, access: 'ORDERS' },
+    { id: 'bills', label: 'Bills', minRole: 'staff', phase: 10, access: 'BILLS' },
+    { id: 'payments', label: 'Payments', minRole: 'staff', phase: 9, access: 'PAYMENTS' },
+    { id: 'resale', label: 'Resale Stock', minRole: 'staff', phase: 10, access: 'RESALE' },
     { id: 'settings', label: 'Settings', minRole: 'owner', phase: 2 }
   ]
 };

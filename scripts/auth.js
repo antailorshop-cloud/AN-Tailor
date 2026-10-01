@@ -17,20 +17,59 @@ window.ANT.auth = (function () {
   var cfg = window.ANT.config;
   var CACHE_KEY = 'anTailorCurrentUser';
 
-  /* Access rules - the menu. The database is the real enforcement. */
+  /* Access rules - the menu. The database is the real enforcement.
+   *
+   * Two things decide an area, and they can only ever subtract:
+   *
+   *   1. the role on the profile, which is the coarse switch, and
+   *   2. the rows in staff_access, which is how the owner narrows one tailor to
+   *      the counter they actually work.
+   *
+   * A person with no staff_access rows is left to their role. That default is
+   * deliberate and it is the safe direction: an account created before this
+   * feature existed has a profile and no rows, and reading the empty case as
+   * "no access" would sign the owner out of their own shop with no way back in
+   * but the database editor. Rows that are present always win, so a grant can
+   * narrow a person to nothing but can never widen them past their role.
+   */
 
-  function canAccess(area, role) {
+  function canAccess(area, role, granted) {
     if (!area || !role) return false;
     var have = cfg.roles[role];
     var needed = cfg.roles[area.minRole || 'staff'];
     if (!have || !needed) return false;
-    return have.rank >= needed.rank;
+    if (have.rank < needed.rank) return false;
+
+    if (area.access && granted && granted.length) {
+      return granted.indexOf(area.access) !== -1;
+    }
+    return true;
   }
 
-  function areasFor(role) {
+  function areasFor(role, granted) {
     return cfg.areas.filter(function (a) {
-      return canAccess(a, role);
+      return canAccess(a, role, granted);
     });
+  }
+
+  // The rows a person has been given. A read that fails or is filtered by RLS
+  // yields an empty list, which means "leave them to their role" - never a
+  // reason to keep a tailor out of the app.
+  function loadAreas(userId) {
+    return window.ANT.sb.from('staff_access')
+      .select('area')
+      .eq('user_id', userId)
+      .then(function (res) {
+        if (res.error || !res.data) return [];
+        return res.data.map(function (r) {
+          return String(r.area || '');
+        }).filter(function (a) {
+          return a !== '';
+        });
+      })
+      .catch(function () {
+        return [];
+      });
   }
 
   /* Cached profile, so a reload paints the shell before the network returns */
@@ -80,13 +119,18 @@ window.ANT.auth = (function () {
         if (res.data.active === false) {
           return { blocked: true, reason: 'inactive' };
         }
-        return {
-          id: res.data.id,
-          email: res.data.email || user.email,
-          name: res.data.display_name || res.data.email || user.email,
-          role: res.data.role,
-          preview: false
-        };
+        // The granted areas are carried in the cached profile so a reload
+        // paints the right menu before the second network read returns.
+        return loadAreas(user.id).then(function (areas) {
+          return {
+            id: res.data.id,
+            email: res.data.email || user.email,
+            name: res.data.display_name || res.data.email || user.email,
+            role: res.data.role,
+            areas: areas,
+            preview: false
+          };
+        });
       })
       .catch(function () {
         return { blocked: true, reason: 'lookup_failed' };

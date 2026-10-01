@@ -1613,3 +1613,50 @@ button, input, select, textarea { font: inherit; color: inherit; }
    figure. */
 .resale-price-only td { opacity: 0.7; }
 .resale-price-only:hover td { opacity: 1; }
+
+/* Staff cards. Each person is a card rather than a table row, because a tailor
+   is used to a list of names and an owner's decisions are per person, not
+   comparable across a grid. */
+.staff-card.is-off { opacity: 0.72; }
+.staff-card.is-off:hover { opacity: 1; }
+
+.staff-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--gap);
+  margin-bottom: var(--gap);
+}
+
+.staff-actions { flex: none; }
+
+/* The area boxes wrap on a phone, and tapping the word counts as well as the
+   square, because the word is what the tailor is looking at. */
+.staff-areas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.staff-area {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 11px;
+  border: 1px solid var(--surface-line);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  font-size: var(--fs-sm);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.staff-area.is-on {
+  border-color: var(--brand-gold);
+  background: var(--brand-gold-tint);
+  color: var(--text-strong);
+  font-weight: 600;
+}
+
+.staff-area.is-locked { cursor: default; opacity: 0.75; }
+

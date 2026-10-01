@@ -57,7 +57,7 @@
   function allowedAreas() {
     var user = auth.current();
     if (!user) return [];
-    return auth.areasFor(user.role);
+    return auth.areasFor(user.role, user.areas);
   }
 
   function currentAreaId() {

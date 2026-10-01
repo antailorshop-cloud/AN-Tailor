@@ -415,3 +415,18 @@ select
 from auth.users u
 where not exists (select 1 from public.profiles p where p.id = u.id)
 on conflict (id) do nothing;
+
+-- The same backfill for staff_access. The trigger below gives every new account
+-- the seven day-to-day areas, so an account created before the trigger existed
+-- has a profile but no rows - and no rows means "left to their role", which
+-- arrives at the same place. Writing the rows out just makes the Staff tab show
+-- the truth instead of relying on that fallback, and it is safe to re-run.
+insert into public.staff_access (user_id, area, level)
+select p.id, area, 1
+from public.profiles p
+cross join unnest(array[
+  'DASHBOARD', 'CUSTOMERS', 'MEASUREMENTS',
+  'ORDERS', 'BILLS', 'PAYMENTS', 'RESALE'
+]) as area
+where p.role = 'staff'
+on conflict (user_id, area) do nothing;

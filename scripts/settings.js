@@ -40,6 +40,7 @@ window.ANT.settings = (function () {
     priceRows: [],
     shop: { shop_name: '', upi_id: '', upi_payee_name: '', wa_bill_message: '',
       wa_reminder_message: '', wa_ready_message: '', bill_print_size: '' },
+    staff: { rows: [], access: {}, loading: false, error: null },
     loading: false,
     error: null,
     form: null   // null = closed, {kind:'dress'|'price', row:{}|null}
@@ -53,6 +54,15 @@ window.ANT.settings = (function () {
 
   function isOwner() {
     return me().role === 'owner';
+  }
+
+  // The day-to-day areas a person can be narrowed to. Settings is not in the
+  // list because access to it follows the role: no staff_access row can hand it
+  // out, so offering a box for it would be a box that never takes effect.
+  function grantableAreas() {
+    return (window.ANT.config.areas || []).filter(function (a) {
+      return a.access && a.minRole !== 'owner';
+    });
   }
 
   function byId(id) {
@@ -154,6 +164,7 @@ window.ANT.settings = (function () {
       '<button class="set-tab' + (state.tab === 'price' ? ' is-active' : '') + '" data-set-tab="price">Prices</button>' +
       '<button class="set-tab' + (state.tab === 'shop' ? ' is-active' : '') + '" data-set-tab="shop">Shop &amp; UPI</button>' +
       '<button class="set-tab' + (state.tab === 'whatsapp' ? ' is-active' : '') + '" data-set-tab="whatsapp">WhatsApp</button>' +
+      '<button class="set-tab' + (state.tab === 'staff' ? ' is-active' : '') + '" data-set-tab="staff">Staff</button>' +
     '</div>';
   }
 
@@ -204,6 +215,7 @@ window.ANT.settings = (function () {
     }
     if (state.tab === 'shop') return shopPanel();
     if (state.tab === 'whatsapp') return whatsappPanel();
+    if (state.tab === 'staff') return staffPanel();
     return state.tab === 'dress' ? dressPanel() : pricePanel();
   }
 
@@ -510,6 +522,278 @@ window.ANT.settings = (function () {
     });
   }
 
+  /* Staff --------------------------------------------------------------- */
+
+  // Written in place of a real area name to say "this person was narrowed to
+  // nothing". It has to exist, because the rule in auth.js reads no rows as "no
+  // narrowing", and a tailor the owner has deliberately locked out would
+  // otherwise be handed every area back the moment the last box was unticked.
+  var NO_AREA = 'NONE';
+
+  function loadStaff() {
+    state.staff.loading = true;
+    state.staff.error = null;
+    paint();
+
+    var p = sb().from('profiles')
+      .select('id, email, display_name, role, active')
+      .order('display_name', true);
+
+    var a = sb().from('staff_access').select('user_id, area');
+
+    return Promise.all([p, a]).then(function (both) {
+      state.staff.loading = false;
+
+      // An owner can read every profile and every access row. Anything else is
+      // a genuine failure, and saying so beats showing an empty staff list that
+      // looks like a shop with no employees.
+      var first = both[0].error ? both[0] : (both[1].error ? both[1] : null);
+      if (first) {
+        state.staff.error = first.message;
+        paint();
+        return;
+      }
+
+      var byUser = {};
+      (both[1].data || []).forEach(function (r) {
+        var list = byUser[r.user_id] || (byUser[r.user_id] = []);
+        list.push(String(r.area || ''));
+      });
+
+      state.staff.rows = both[0].data || [];
+      state.staff.access = byUser;
+      paint();
+    });
+  }
+
+  // The areas a person can actually open, which is the role narrowed by their
+  // rows. It reads the same two rules auth.js does, so the boxes on this screen
+  // always show what the menu will actually offer.
+  function effectiveAreas(role, rows) {
+    return (window.ANT.config.areas || []).filter(function (a) {
+      if (a.minRole === 'owner') return role === 'owner';
+      if (role !== 'owner' && role !== 'staff') return false;
+      if (a.access && rows && rows.length) return rows.indexOf(a.access) !== -1;
+      return true;
+    }).map(function (a) { return a.access; });
+  }
+
+  function staffRow(r) {
+    var mine = r.id === me().id;
+    var rows = state.staff.access[r.id] || [];
+    var open = effectiveAreas(r.role, rows);
+    var off = r.active === false;
+
+    var roleOptions = ['owner', 'staff'].map(function (role) {
+      return '<option value="' + role + '"' + (r.role === role ? ' selected' : '') + '>' +
+        window.ANT.config.roles[role].label + '</option>';
+    }).join('');
+
+    // The owner is left alone on their own row. Narrowing or deactivating the
+    // person reading the screen is the one mistake that cannot be undone from
+    // inside the app, so those controls are simply not drawn.
+    // The chip says "on" in its markup rather than through :has(), because a
+    // shop phone may be on a browser too old for that and the box would still
+    // be ticked with nothing to show it.
+    var boxes = grantableAreas().map(function (a) {
+      var on = open.indexOf(a.access) !== -1;
+      return '<label class="staff-area ' + (on ? 'is-on ' : '') + (mine ? 'is-locked' : '') + '">' +
+        '<input type="checkbox" data-staff-area="' + esc(a.access) + '" ' +
+          'data-staff-user="' + esc(r.id) + '"' + (on ? ' checked' : '') +
+          (mine ? ' disabled' : '') + '>' +
+        '<span>' + esc(a.label) + '</span>' +
+      '</label>';
+    }).join('');
+
+    return '<section class="ui-card staff-card' + (off ? ' is-off' : '') + '">' +
+      '<div class="staff-head">' +
+        '<div>' +
+          '<h2 class="ui-card-title">' + esc(r.display_name || r.email || '(no name)') +
+            (mine ? ' <span class="chip">you</span>' : '') +
+          '</h2>' +
+          '<p class="ui-hint">' + esc(r.email || '') +
+            (off ? ' &middot; deactivated, cannot sign in' : '') + '</p>' +
+        '</div>' +
+        (mine ? '' :
+          '<div class="staff-actions">' +
+            '<button class="btn btn-sm ' + (off ? 'btn-secondary' : 'btn-danger') + '" ' +
+              'data-staff-active="' + esc(r.id) + '">' +
+              (off ? 'Reactivate' : 'Deactivate') + '</button>' +
+          '</div>') +
+      '</div>' +
+      '<div class="ui-field">' +
+        '<label class="ui-label" for="staffRole-' + esc(r.id) + '">Role</label>' +
+        '<select class="ui-input" id="staffRole-' + esc(r.id) + '" ' +
+          'data-staff-role="' + esc(r.id) + '"' + (mine ? ' disabled' : '') + '>' +
+          roleOptions + '</select>' +
+      '</div>' +
+      '<div class="ui-field">' +
+        '<span class="ui-label">Can open</span>' +
+        '<div class="staff-areas">' + boxes + '</div>' +
+        '<p class="ui-hint">' + (mine
+          ? 'Your own row is left as it is, so the shop cannot be locked out of its own settings.'
+          : 'Unticking everything stops this person opening any page. An owner always keeps every area, which is why Settings is not in the list.') +
+        '</p>' +
+      '</div>' +
+    '</section>';
+  }
+
+  function staffPanel() {
+    if (!isOwner()) {
+      return '<div class="ui-card"><div class="empty">' +
+        '<div class="empty-title">Only the Owner can see this</div>' +
+        '<p class="empty-text">Ask the shop owner to change who works where.</p>' +
+      '</div></div>';
+    }
+
+    if (state.staff.error) {
+      return '<div class="ui-card"><div class="empty">' +
+        '<div class="empty-title">Could not load the staff list</div>' +
+        '<p class="empty-text">' + esc(state.staff.error) + '</p>' +
+      '</div></div>';
+    }
+
+    var rows = state.staff.rows;
+
+    var head = '<div class="ui-card cust-form">' +
+      '<h2 class="ui-card-title">Staff</h2>' +
+      '<p class="ui-hint">Who may sign in, what they may open, and whether they still can. ' +
+        'Accounts are made in the Supabase dashboard for now; once one exists it appears here. ' +
+        'A deactivated person is refused at sign in and cannot be reached by writing to the ' +
+        'database directly either.</p>' +
+    '</div>';
+
+    if (state.staff.loading && !rows.length) {
+      return head + '<div class="ui-card"><div class="empty"><div class="empty-title">Loading...</div></div></div>';
+    }
+
+    if (!rows.length) {
+      return head + '<div class="ui-card"><div class="empty">' +
+        '<div class="empty-title">No accounts yet</div>' +
+        '<p class="empty-text">Add one in the Supabase dashboard under Authentication, then sign ' +
+          'in once so it gets a profile. It will be listed here.</p>' +
+      '</div></div>';
+    }
+
+    return head + rows.map(staffRow).join('');
+  }
+
+  function setRole(id, role) {
+    var found = state.staff.rows.filter(function (r) { return r.id === id; })[0];
+    if (!found || found.role === role) return Promise.resolve();
+
+    // Set first and repaint, so a second change is measured against this one.
+    found.role = role;
+    paint();
+
+    return sb().from('profiles')
+      .update({ role: role })
+      .eq('id', id)
+      .select('id')
+      .then(guardEmpty)
+      .then(function (res) {
+        if (res.error) {
+          toast(res.error.message, 'error');
+          loadStaff();
+          return;
+        }
+        toast((role === 'owner' ? 'Promoted' : 'Made staff') + ': ' + nameOf(found), 'success');
+      });
+  }
+
+  function setActive(id) {
+    var found = state.staff.rows.filter(function (r) { return r.id === id; })[0];
+    if (!found) return Promise.resolve();
+
+    var next = found.active === false;
+
+    // Turning the last working owner off would leave the shop with nobody who
+    // can undo it, so it is refused here as well as in the database.
+    if (!next && found.role === 'owner' && owners().length <= 1) {
+      toast('This is the only active Owner. Promote somebody else first.', 'error');
+      paint();
+      return Promise.resolve();
+    }
+
+    found.active = next;
+    paint();
+
+    return sb().from('profiles')
+      .update({ active: next })
+      .eq('id', id)
+      .select('id')
+      .then(guardEmpty)
+      .then(function (res) {
+        if (res.error) {
+          toast(res.error.message, 'error');
+          loadStaff();
+          return;
+        }
+        toast(nameOf(found) + (next ? ' can sign in again' : ' can no longer sign in'), 'success');
+      });
+  }
+
+  function owners() {
+    return state.staff.rows.filter(function (r) {
+      return r.role === 'owner' && r.active !== false;
+    });
+  }
+
+  function nameOf(r) {
+    return r.display_name || r.email || '(no name)';
+  }
+
+  // One write per change, and the row that keeps "no access" true goes in first.
+  // Deleting the last area before writing NONE would leave the person with no
+  // rows at all for a moment, and no rows means every area.
+  //
+  // The saved list is put in place before the write rather than after it, so a
+  // tailor who ticks two boxes in quick succession is measured against the
+  // answer to the first one and not the answer that was on screen when they
+  // started. A refused write reloads the list rather than leaving a guess.
+  function toggleArea(id, area, on) {
+    var found = state.staff.rows.filter(function (r) { return r.id === id; })[0];
+    if (!found) return Promise.resolve();
+
+    var rows = state.staff.access[id] || [];
+    if ((rows.indexOf(area) !== -1) === on) return Promise.resolve();
+
+    var wanted = on ? rows.concat([area]) : rows.filter(function (a) { return a !== area; });
+    var keep = wanted.length ? wanted : [NO_AREA];
+    var toAdd = keep.filter(function (a) { return rows.indexOf(a) === -1; });
+    var toDrop = rows.filter(function (a) { return keep.indexOf(a) === -1; });
+
+    state.staff.access[id] = keep;
+    paint();
+
+    var adding = toAdd.length
+      ? sb().from('staff_access').insert(toAdd.map(function (a) {
+          return { user_id: id, area: a, level: 1 };
+        })).select('area')
+      : Promise.resolve({ error: null });
+
+    return adding.then(function (res) {
+      if (res.error) {
+        toast(res.error.message, 'error');
+        loadStaff();
+        return;
+      }
+      if (!toDrop.length) return;
+
+      return sb().from('staff_access')
+        .delete()
+        .eq('user_id', id)
+        .in('area', toDrop)
+        .select('area')
+        .then(function (res2) {
+          if (res2.error) {
+            toast(res2.error.message, 'error');
+            loadStaff();
+          }
+        });
+    });
+  }
+
   /* Form --------------------------------------------------------------- */
 
   function select(name, id, options, current) {
@@ -759,6 +1043,9 @@ window.ANT.settings = (function () {
         state.search = '';
         state.form = null;
         paint();
+        // Staff is not read with the rest, so it is fetched when it is opened.
+        // The list is small and it is the one screen that must not be stale.
+        if (state.tab === 'staff') loadStaff();
       });
     });
 
@@ -837,6 +1124,24 @@ window.ANT.settings = (function () {
     Array.prototype.forEach.call(document.querySelectorAll('[data-set-del]'), function (btn) {
       btn.addEventListener('click', function () {
         remove(state.tab === 'dress' ? 'dress' : 'price', btn.getAttribute('data-set-del'));
+      });
+    });
+
+    Array.prototype.forEach.call(document.querySelectorAll('[data-staff-role]'), function (sel) {
+      sel.addEventListener('change', function () {
+        setRole(sel.getAttribute('data-staff-role'), sel.value);
+      });
+    });
+
+    Array.prototype.forEach.call(document.querySelectorAll('[data-staff-active]'), function (btn) {
+      btn.addEventListener('click', function () {
+        setActive(btn.getAttribute('data-staff-active'));
+      });
+    });
+
+    Array.prototype.forEach.call(document.querySelectorAll('[data-staff-area]'), function (box) {
+      box.addEventListener('change', function () {
+        toggleArea(box.getAttribute('data-staff-user'), box.getAttribute('data-staff-area'), box.checked);
       });
     });
   }
