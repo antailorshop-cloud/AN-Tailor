@@ -1,4 +1,4 @@
-/* AN TAILOR - Payments.
+﻿/* AN TAILOR - Payments.
  *
  * A payment is money received against exactly one order. The legacy system had
  * no customer-level payment and no way to settle several orders at once, and
@@ -63,6 +63,10 @@ window.ANT.payments = (function () {
     amount: '',
     method: 'Cash',
     notes: '',
+    // Read for the printed receipt only. A failure here must not stop the page
+    // loading, because a tailor taking a payment does not care what the shop is
+    // called - the money is what matters, and it is already recorded.
+    shop: { name: '', receiptSize: '' },
     error: null,
     busy: false,
     saved: false
@@ -93,8 +97,13 @@ window.ANT.payments = (function () {
     return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
   }
 
+  // auth.js exports current(). It used to read currentUser here, which does not
+  // exist on it - sb.currentUser does, and it answers with a promise rather than
+  // a person - so this always said "not the owner". It was never called, which is
+  // the only reason it went unnoticed, and the next owner-only action in this
+  // module would have been refused to the owner.
   function isOwner() {
-    var u = window.ANT.auth && window.ANT.auth.currentUser && window.ANT.auth.currentUser();
+    var u = window.ANT.auth && window.ANT.auth.current && window.ANT.auth.current();
     return !!u && u.role === 'owner';
   }
 
@@ -141,7 +150,7 @@ window.ANT.payments = (function () {
     var from = state.page * PAGE_SIZE;
 
     var q = sb().from('payments')
-      .select('id,code,order_id,customer_id,amount,method,reference,previous_balance,new_balance,notes,paid_on,created_at, customer:customers(id,code,name,mobile)', { count: true })
+      .select('id,code,order_id,customer_id,amount,method,reference,previous_balance,new_balance,notes,paid_on,created_at, customer:customers(id,code,name,mobile), order:orders(id,code)', { count: true })
       .order('paid_on', false)
       .order('created_at', false)
       .range(from, from + PAGE_SIZE - 1);
@@ -157,6 +166,28 @@ window.ANT.payments = (function () {
       state.payments = res.data || [];
       state.count = res.count == null ? state.payments.length : res.count;
     });
+  }
+
+  // The receipt is printed with the shop's name on it, which is the one thing a
+  // slip has that the payments table does not carry. shop_settings is read
+  // separately and quietly: if it cannot be read the receipt still prints, with
+  // the app's own name, because refusing to print a receipt would be a worse
+  // answer than printing one with the wrong name at the top of it.
+  function loadShop() {
+    // Reset first, so a key that has been deleted from shop_settings falls back
+    // to the app's own name rather than keeping whatever was read last time.
+    state.shop.name = '';
+    state.shop.receiptSize = '';
+
+    return sb().from('shop_settings').select('key,value')
+      .then(function (res) {
+        if (res.error || !res.data) return;
+        res.data.forEach(function (row) {
+          if (row.key === 'shop_name') state.shop.name = String(row.value || '');
+          if (row.key === 'receipt_print_size') state.shop.receiptSize = String(row.value || '');
+        });
+      })
+      .catch(function () { return; });
   }
 
   // payments.code is NOT NULL with no default, so the number has to exist before
@@ -220,7 +251,7 @@ window.ANT.payments = (function () {
   function payableCard() {
     var body;
     if (state.loading) {
-      body = '<div class="empty"><p class="empty-text">Loading…</p></div>';
+      body = '<div class="empty"><p class="empty-text">Loadingâ€¦</p></div>';
     } else if (!state.orders.length) {
       body = '<div class="empty"><div class="empty-title">Nothing outstanding</div>' +
         '<p class="empty-text">Every order is either settled or cancelled.</p></div>';
@@ -242,7 +273,7 @@ window.ANT.payments = (function () {
   function payableRow(o) {
     return '<tr>' +
       '<td><span class="ord-mono">' + esc(o.code) + '</span></td>' +
-      '<td>' + esc(o.customer ? o.customer.name : '—') +
+      '<td>' + esc(o.customer ? o.customer.name : 'â€”') +
         (o.customer && o.customer.mobile ? '<div class="ord-sub">' + esc(o.customer.mobile) + '</div>' : '') +
       '</td>' +
       '<td>' + esc(dateLabel(o.order_date)) + '</td>' +
@@ -279,7 +310,7 @@ window.ANT.payments = (function () {
         '<th>Payment</th><th>Order</th><th>Customer</th><th>Date</th>' +
         '<th>Method</th><th class="num">Amount</th>' +
         '<th class="num">Balance before</th><th class="num">Balance after</th>' +
-        '<th>Notes</th>' +
+        '<th>Notes</th><th></th>' +
         '</tr></thead><tbody>' +
         state.payments.map(historyRow).join('') +
         '</tbody></table>';
@@ -296,22 +327,34 @@ window.ANT.payments = (function () {
       '<td><span class="ord-mono">' + esc(p.code) + '</span>' +
         (p.reference ? '<div class="ord-sub">' + esc(p.reference) + '</div>' : '') + '</td>' +
       '<td><span class="ord-link" data-pay-order="' + esc(p.order_id) + '">' +
-        esc(orderCodeOf(p.order_id)) + '</span></td>' +
-      '<td>' + esc(p.customer ? p.customer.name : '—') + '</td>' +
+        esc(orderCodeOf(p.order_id, p.order)) + '</span></td>' +
+      '<td>' + esc(p.customer ? p.customer.name : 'â€”') + '</td>' +
       '<td>' + esc(dateLabel(p.paid_on || p.created_at)) + '</td>' +
       '<td>' + esc(p.method) + '</td>' +
       '<td class="num"><strong>' + money(p.amount) + '</strong></td>' +
       '<td class="num">' + money(p.previous_balance) + '</td>' +
       '<td class="num">' + money(p.new_balance) + '</td>' +
       '<td class="ord-note">' + esc(p.notes || '') + '</td>' +
+      // A payment with no slip is money the customer paid for and cannot show
+      // for. The button is on every row because a receipt may be wanted long
+      // after the money changed hands - a customer returning with a query.
+      '<td class="ord-row-actions">' +
+        '<button class="btn btn-sm btn-secondary" data-pay-receipt="' + esc(p.id) + '">Receipt</button>' +
+      '</td>' +
       '</tr>';
   }
 
   // The history list only carries payment rows, not the orders they point at, so
   // a short code is looked up from the payable list when it is to hand. When it
   // is not - a settled order - the short id is shown instead of a blank cell.
-  function orderCodeOf(orderId) {
-    if (!orderId) return '—';
+  //
+  // The order is also read back with the payment where the database will supply
+  // it, because a settled order is the common case for a receipt: a customer who
+  // has just paid the last of the balance is exactly the one holding the slip, and
+  // "o1" on a printed receipt names nothing.
+  function orderCodeOf(orderId, order) {
+    if (order && order.code) return order.code;
+    if (!orderId) return 'â€”';
     var hit = state.orders.filter(function (o) { return o.id === orderId; })[0];
     return hit ? hit.code : orderId.slice(0, 8);
   }
@@ -336,11 +379,11 @@ window.ANT.payments = (function () {
 
     return '<div class="page-head"><div>' +
       '<h1 class="page-head-title">Take a payment</h1>' +
-      '<p class="page-head-sub">Against order ' + esc(o.code) + ' for ' + esc(o.customer ? o.customer.name : '—') + '.</p>' +
+      '<p class="page-head-sub">Against order ' + esc(o.code) + ' for ' + esc(o.customer ? o.customer.name : 'â€”') + '.</p>' +
       '</div><div class="page-head-actions">' +
       '<button class="btn btn-secondary" id="payCancel">Cancel</button>' +
       '<button class="btn btn-primary" id="paySave"' + (state.busy ? ' disabled' : '') + '>' +
-        (state.busy ? 'Recording…' : 'Record payment') + '</button>' +
+        (state.busy ? 'Recordingâ€¦' : 'Record payment') + '</button>' +
       '</div></div>' +
 
       '<div class="ui-card"><div class="pay-grid">' +
@@ -553,7 +596,108 @@ window.ANT.payments = (function () {
       });
   }
 
+  /* Receipt -------------------------------------------------------------- */
+
+  function printReceipt(id) {
+    var p = state.payments.filter(function (x) { return x.id === id; })[0];
+    if (!p) {
+      toast('That payment is not on this page any more. Reload and try again.', 'error');
+      return;
+    }
+
+    var size = window.ANT.printsize
+      ? window.ANT.printsize.normalize(state.shop.receiptSize, window.ANT.printsize.RECEIPT_DEFAULT)
+      : 'A5';
+
+    var shopName = state.shop.name || 'AN TAILOR';
+    var c = p.customer || {};
+    var due = Math.max(0, num(p.new_balance));
+
+    // A line of label and value. Written as a table rather than a flex row so
+    // the two columns stay aligned in a print engine that ignores flex, which
+    // several phone browsers still do on a print preview.
+    function line(label, value, cls) {
+      return '<tr' + (cls ? ' class="' + cls + '"' : '') + '>' +
+        '<th>' + esc(label) + '</th><td>' + esc(value) + '</td></tr>';
+    }
+
+    var html = '<!doctype html><html><head><meta charset="utf-8"><title>' +
+      esc(p.code) + '</title><style>' +
+      'body{font:14px/1.5 system-ui,"Segoe UI",Arial,sans-serif;color:#111;margin:24px}' +
+      'h1{font-size:20px;margin:0}' +
+      '.shop{font-size:15px;font-weight:700;margin:0 0 2px}' +
+      '.sub{color:#555;margin:0 0 14px}' +
+      'table{width:100%;border-collapse:collapse;margin:0 0 14px}' +
+      'th,td{border:1px solid #ccc;padding:6px 8px;text-align:left}' +
+      'th{background:#f2f2f2;font-size:12px;text-transform:uppercase;width:38%}' +
+      '.r{text-align:right;white-space:nowrap;font-weight:700}' +
+      '.totals td{border-top:1px solid #111;font-weight:700}' +
+      '.due th,.due td{font-weight:700}' +
+      '.notes{white-space:pre-wrap;font-size:13px}' +
+      '.sign{margin-top:34px;font-size:12px;color:#555}' +
+      // The page margin comes from @page now, so the printed body margin is
+      // zeroed rather than left at 24px, which would double it.
+      '@media print{body{margin:0}}' +
+      window.ANT.printsize.pageCss(size) +
+      window.ANT.printsize.layoutCss(size, 'receipt') +
+      '</style></head><body>' +
+      '<div class="receipt' + (size === 'A4HALF' ? ' receipt-half' : '') + '">' +
+      '<h1>Payment Receipt</h1>' +
+      '<p class="shop">' + esc(shopName) + '</p>' +
+      '<p class="sub">Receipt ' + esc(p.code) + ' &middot; ' +
+        esc(dateLabel(p.paid_on || p.created_at)) + '</p>' +
+      '<table>' +
+        // The customer block comes first because it is what a counter hand-over
+        // needs to be checked against; "received from" is the whole claim the
+        // slip makes.
+        line('Received from', (c.name || '(no name)') +
+          (c.code ? ' (' + c.code + ')' : '')) +
+        line('Mobile', c.mobile || 'â€”') +
+        line('Order', orderCodeOf(p.order_id, p.order)) +
+        line('Amount received', money(p.amount), 'r') +
+        line('Paid by', p.method) +
+        (p.reference ? line('Reference', p.reference) : '') +
+      '</table>' +
+      '<table class="totals">' +
+        line('Balance before', money(p.previous_balance)) +
+        line('Balance after', money(p.new_balance)) +
+        line('Still due', money(due), 'due') +
+      '</table>' +
+      (p.notes ? '<div class="notes">' + esc(p.notes) + '</div>' : '') +
+      '<div class="sign">Received by ______________________ for ' + esc(shopName) + '.</div>' +
+      '</div>' +
+      '</body></html>';
+
+    var win = window.open('', '_blank');
+    if (!win) {
+      toast('Please allow pop-ups to print a receipt.', 'error');
+      return;
+    }
+
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+
+    var go = function () {
+      try {
+        win.focus();
+        win.print();
+      } catch (e) {
+        return;
+      }
+    };
+
+    if (win.document.readyState === 'complete') setTimeout(go, 250);
+    else win.onload = function () { setTimeout(go, 250); };
+  }
+
   function wire() {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-pay-receipt]'), function (btn) {
+      btn.addEventListener('click', function () {
+        printReceipt(btn.getAttribute('data-pay-receipt'));
+      });
+    });
+
     Array.prototype.forEach.call(document.querySelectorAll('[data-pay-order]'), function (btn) {
       btn.addEventListener('click', function () {
         openRecord(btn.getAttribute('data-pay-order'));
@@ -636,6 +780,9 @@ window.ANT.payments = (function () {
     state.loading = true;
     paint();
     loadPayments().then(function () { return loadOrders(); });
+    // The shop name is only wanted by the receipt, so it is fetched alongside
+    // rather than on its own tick, and its failure cannot delay the page.
+    loadShop();
   }
 
   return { mount: mount, render: render };

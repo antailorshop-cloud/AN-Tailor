@@ -1,4 +1,4 @@
-/* AN TAILOR - Settings: dress types, prices and shop details.
+﻿/* AN TAILOR - Settings: dress types, prices and shop details.
  *
  * Dress types and prices are master data. Every order line needs a dress type
  * and a price, so nothing downstream can be created until these hold real
@@ -30,8 +30,12 @@ window.ANT.settings = (function () {
   // Bill payment uses the first three. The last is the wording of the WhatsApp
   // bill message; an empty value means the standard wording, which is why it is
   // kept here beside the UPI id rather than hardcoded in the message builder.
+  // The two print sizes are paper choices for two different documents, and they
+  // are kept apart because a shop that prints receipts two-to-a-sheet almost
+  // always still wants a full A4 bill.
   var SHOP_KEYS = ['shop_name', 'upi_id', 'upi_payee_name', 'wa_bill_message',
-    'wa_reminder_message', 'wa_ready_message', 'bill_print_size'];
+    'wa_reminder_message', 'wa_ready_message', 'bill_print_size',
+    'receipt_print_size'];
 
   var state = {
     tab: 'dress',
@@ -39,7 +43,7 @@ window.ANT.settings = (function () {
     dressRows: [],
     priceRows: [],
     shop: { shop_name: '', upi_id: '', upi_payee_name: '', wa_bill_message: '',
-      wa_reminder_message: '', wa_ready_message: '', bill_print_size: '' },
+      wa_reminder_message: '', wa_ready_message: '', bill_print_size: '', receipt_print_size: '' },
     staff: { rows: [], access: {}, loading: false, error: null },
     loading: false,
     error: null,
@@ -106,7 +110,7 @@ window.ANT.settings = (function () {
   // anything else a hand-edit left in the table is ignored rather than shown.
   function applyShop(rows) {
     var shop = { shop_name: '', upi_id: '', upi_payee_name: '', wa_bill_message: '',
-      wa_reminder_message: '', wa_ready_message: '', bill_print_size: '' };
+      wa_reminder_message: '', wa_ready_message: '', bill_print_size: '', receipt_print_size: '' };
     rows.forEach(function (row) {
       if (SHOP_KEYS.indexOf(row.key) !== -1) {
         shop[row.key] = String(row.value == null ? '' : row.value);
@@ -127,7 +131,7 @@ window.ANT.settings = (function () {
 
   function money(v) {
     var n = Number(v || 0);
-    return '₹' + (Math.round(n * 100) / 100).toLocaleString('en-IN');
+    return 'â‚¹' + (Math.round(n * 100) / 100).toLocaleString('en-IN');
   }
 
   // Prices are numeric(12,2). A blank field means zero rather than an error,
@@ -323,7 +327,7 @@ window.ANT.settings = (function () {
     return '<tr>' +
       '<td class="cust-code">' + esc(r.code) + '</td>' +
       '<td class="cust-name">' + esc(r.item) + '</td>' +
-      '<td>' + esc(r.option || '—') + '</td>' +
+      '<td>' + esc(r.option || 'â€”') + '</td>' +
       '<td class="num set-price-cell">' +
         '<span' + (zero ? ' class="set-price-zero"' : '') + '>' + esc(money(r.price)) + '</span>' +
         (extra !== 0 ? '<span class="set-extra">+ ' + esc(money(extra)) + ' extra</span>' : '') +
@@ -347,20 +351,22 @@ window.ANT.settings = (function () {
     '</div>';
   }
 
-  function printSizeField(current) {
-    var picked = window.ANT.printsize.normalize(current);
+  /* One paper picker, used twice. The wording differs because the sheet means
+   * something different for a bill than for a slip, and the size only ever
+   * affects how the document is laid out - never a figure printed on it. */
+  function printSizeField(id, label, current, kind, hint) {
+    var picked = window.ANT.printsize.normalize(current,
+      kind === 'receipt' ? window.ANT.printsize.RECEIPT_DEFAULT : window.ANT.printsize.DEFAULT);
 
     var options = window.ANT.printsize.SIZES.map(function (s) {
       return '<option value="' + esc(s.key) + '"' + (s.key === picked ? ' selected' : '') + '>' +
-        esc(s.label) + '</option>';
+        esc(window.ANT.printsize.label(s.key, kind)) + '</option>';
     }).join('');
 
     return '<div class="ui-field">' +
-      '<label class="ui-label" for="shopPrintSize">Bill print size</label>' +
-      '<select class="ui-input" id="shopPrintSize">' + options + '</select>' +
-      '<p class="ui-hint">Lays out the printed bill only; it never changes a figure. ' +
-        'The A4 sheet option prints one A5 bill on the left half and leaves the ' +
-        'right half blank to cut off and reuse.</p>' +
+      '<label class="ui-label" for="' + id + '">' + esc(label) + '</label>' +
+      '<select class="ui-input" id="' + id + '">' + options + '</select>' +
+      '<p class="ui-hint">' + esc(hint) + '</p>' +
     '</div>';
   }
 
@@ -382,7 +388,13 @@ window.ANT.settings = (function () {
           shopField('shopUpi', 'UPI ID', upi, 'Like antailor@okhdfcbank. Printed as a QR on any bill with money still due.') +
           shopField('shopPayee', 'UPI payee name', s.upi_payee_name, 'The name the customer sees in their UPI app.') +
           shopField('shopConfirm', 'Confirm UPI ID', '', 'Type the new UPI ID again, but only when you change an existing one.') +
-          printSizeField(s.bill_print_size) +
+          printSizeField('shopPrintSize', 'Bill print size', s.bill_print_size, 'bill',
+            'Lays out the printed bill only; it never changes a figure. The A4 sheet ' +
+            'option prints one A5 bill on the left half and leaves the right half ' +
+            'blank to cut off and reuse.') +
+          printSizeField('shopReceiptSize', 'Receipt print size', s.receipt_print_size, 'receipt',
+            'The slip printed from the Payments page. It defaults to A5, because a ' +
+            'full sheet for a small cash payment is paper wasted.') +
         '</div>' +
         '<div class="form-actions">' +
           '<button type="submit" class="btn btn-primary">Save shop settings</button>' +
@@ -397,6 +409,7 @@ window.ANT.settings = (function () {
     var payee = byId('shopPayee').value.trim();
     var confirm = window.ANT.upi.normalizeVpa(byId('shopConfirm').value);
     var printSize = window.ANT.printsize.normalize(byId('shopPrintSize').value);
+    var receiptSize = window.ANT.printsize.normalize(byId('shopReceiptSize').value);
 
     var problem = window.ANT.upi.vpaProblem(upiIn);
     if (problem) {
@@ -422,7 +435,8 @@ window.ANT.settings = (function () {
       putSetting('shop_name', name),
       putSetting('upi_id', upiIn),
       putSetting('upi_payee_name', payee),
-      putSetting('bill_print_size', printSize)
+      putSetting('bill_print_size', printSize),
+      putSetting('receipt_print_size', receiptSize)
     ]).then(function (results) {
       var bad = results.filter(function (r) { return r && r.error; })[0];
       if (bad) {
