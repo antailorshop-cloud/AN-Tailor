@@ -1,13 +1,16 @@
-/* AN TAILOR - Settings: dress types and prices.
+/* AN TAILOR - Settings: dress types, prices and shop details.
  *
- * These two tables are master data. Every order line needs a dress type and a
- * price, so nothing downstream can be created until these hold real values.
+ * Dress types and prices are master data. Every order line needs a dress type
+ * and a price, so nothing downstream can be created until these hold real
+ * values. Shop details (name and the UPI id a bill pays into) live in the
+ * key/value shop_settings table and are read by the bills page when it prints.
  *
  * Read access is open to every signed-in user, because staff must be able to
- * see a price while taking an order. Writes are the owner's alone, and that is
- * enforced by the database policies `prices_write_owner` and
- * `dress_types_write_owner`, not by this file. A staff member who finds a way
- * to call these functions anyway is refused by Postgres.
+ * see a price while taking an order, and bills read the shop UPI id to draw the
+ * payment QR. Writes are the owner's alone, and that is enforced by the
+ * database policies `prices_write_owner`, `dress_types_write_owner` and
+ * `settings_write_owner`, not by this file. A staff member who finds a way to
+ * call these functions anyway is refused by Postgres.
  *
  * Rows are retired with `status` rather than deleted. A price or dress type
  * that appears on a past order must keep its meaning, otherwise old bills stop
@@ -24,11 +27,16 @@ window.ANT.settings = (function () {
   var CATEGORIES = ['Gents', 'Ladies'];
   var GROUPS = ['TAILORING', 'SERVICE', 'RESALE'];
 
+  // Bill payment uses these three keys. Everything else a bill needs is on the
+  // order and the customer, so this is the whole of the shop's own details.
+  var SHOP_KEYS = ['shop_name', 'upi_id', 'upi_payee_name'];
+
   var state = {
     tab: 'dress',
     search: '',
     dressRows: [],
     priceRows: [],
+    shop: { shop_name: '', upi_id: '', upi_payee_name: '' },
     loading: false,
     error: null,
     form: null   // null = closed, {kind:'dress'|'price', row:{}|null}
@@ -60,19 +68,37 @@ window.ANT.settings = (function () {
     var p = sb().from('prices').select('*')
       .order('group_name', true).order('item', true).order('option', true);
 
-    return Promise.all([d, p]).then(function (both) {
+    var s = sb().from('shop_settings').select('key,value');
+
+    return Promise.all([d, p, s]).then(function (both) {
       state.loading = false;
 
-      var first = both[0].error ? both[0] : (both[1].error ? both[1] : null);
+      var first = both[0].error
+        ? both[0]
+        : (both[1].error ? both[1] : (both[2].error ? both[2] : null));
+
       if (first) {
         state.error = first.message;
       } else {
         state.error = null;
         state.dressRows = both[0].data || [];
         state.priceRows = both[1].data || [];
+        applyShop(both[2].data || []);
       }
       paint();
     });
+  }
+
+  // shop_settings is a key/value table. Only the keys the bill uses are kept;
+  // anything else a hand-edit left in the table is ignored rather than shown.
+  function applyShop(rows) {
+    var shop = { shop_name: '', upi_id: '', upi_payee_name: '' };
+    rows.forEach(function (row) {
+      if (SHOP_KEYS.indexOf(row.key) !== -1) {
+        shop[row.key] = String(row.value == null ? '' : row.value);
+      }
+    });
+    state.shop = shop;
   }
 
   /* Helpers ------------------------------------------------------------ */
@@ -112,7 +138,7 @@ window.ANT.settings = (function () {
     return '<div class="page-head">' +
       '<div>' +
         '<h1 class="page-head-title">Settings</h1>' +
-        '<p class="page-head-sub">Dress types and prices. Staff can read these; only the Owner can change them.</p>' +
+        '<p class="page-head-sub">Dress types, prices and the shop UPI ID. Staff can read these; only the Owner can change them.</p>' +
       '</div>' +
     '</div>';
   }
@@ -121,6 +147,7 @@ window.ANT.settings = (function () {
     return '<div class="set-tabs">' +
       '<button class="set-tab' + (state.tab === 'dress' ? ' is-active' : '') + '" data-set-tab="dress">Dress types</button>' +
       '<button class="set-tab' + (state.tab === 'price' ? ' is-active' : '') + '" data-set-tab="price">Prices</button>' +
+      '<button class="set-tab' + (state.tab === 'shop' ? ' is-active' : '') + '" data-set-tab="shop">Shop &amp; UPI</button>' +
     '</div>';
   }
 
@@ -169,6 +196,7 @@ window.ANT.settings = (function () {
         '<p class="empty-text">' + esc(state.error) + '</p>' +
       '</div></div>';
     }
+    if (state.tab === 'shop') return shopPanel();
     return state.tab === 'dress' ? dressPanel() : pricePanel();
   }
 
@@ -288,6 +316,97 @@ window.ANT.settings = (function () {
           : '') +
       '</td>' +
     '</tr>';
+  }
+
+  /* Shop & UPI --------------------------------------------------------- */
+
+  function shopField(id, label, value, hint) {
+    return '<div class="ui-field">' +
+      '<label class="ui-label" for="' + id + '">' + esc(label) + '</label>' +
+      '<input class="ui-input" id="' + id + '" value="' + esc(value) + '" autocomplete="off">' +
+      (hint ? '<p class="ui-hint">' + esc(hint) + '</p>' : '') +
+    '</div>';
+  }
+
+  function shopPanel() {
+    if (state.loading) {
+      return '<div class="ui-card"><div class="empty"><div class="empty-title">Loading...</div></div></div>';
+    }
+
+    var s = state.shop;
+    var upi = String(s.upi_id || '');
+
+    return '<div class="ui-card cust-form">' +
+      '<h2 class="ui-card-title">Shop &amp; UPI</h2>' +
+      '<p class="ui-hint">These are printed on bills. The UPI ID is where a customer\'s ' +
+        'money lands, so a bill with a wrong one still looks normal - check it carefully.</p>' +
+      '<form id="shopForm" novalidate>' +
+        '<div class="form-grid">' +
+          shopField('shopName', 'Shop name', s.shop_name, 'Shown on the bill and used as the UPI payee when no payee name is set.') +
+          shopField('shopUpi', 'UPI ID', upi, 'Like antailor@okhdfcbank. Printed as a QR on any bill with money still due.') +
+          shopField('shopPayee', 'UPI payee name', s.upi_payee_name, 'The name the customer sees in their UPI app.') +
+          shopField('shopConfirm', 'Confirm UPI ID', '', 'Type the new UPI ID again, but only when you change an existing one.') +
+        '</div>' +
+        '<div class="form-actions">' +
+          '<button type="submit" class="btn btn-primary">Save shop settings</button>' +
+        '</div>' +
+      '</form>' +
+    '</div>';
+  }
+
+  function saveShop() {
+    var name = byId('shopName').value.trim();
+    var upiIn = window.ANT.upi.normalizeVpa(byId('shopUpi').value);
+    var payee = byId('shopPayee').value.trim();
+    var confirm = window.ANT.upi.normalizeVpa(byId('shopConfirm').value);
+
+    var problem = window.ANT.upi.vpaProblem(upiIn);
+    if (problem) {
+      toast(problem, 'error');
+      byId('shopUpi').focus();
+      return;
+    }
+
+    // Changing a live UPI id moves the account customers pay into, and a bill
+    // with the wrong id looks exactly like a correct one, so an existing id may
+    // only be replaced by typing the new one a second time. Clearing is allowed
+    // without the echo: an empty id turns the QR off rather than misdirecting a
+    // payment.
+    var current = window.ANT.upi.normalizeVpa(state.shop.upi_id);
+    if (current && upiIn && upiIn !== current && confirm !== upiIn) {
+      toast('This changes the account customers pay from "' + current + '". ' +
+        'Type the new UPI ID in the confirm box to go ahead.', 'error');
+      byId('shopConfirm').focus();
+      return;
+    }
+
+    Promise.all([
+      putSetting('shop_name', name),
+      putSetting('upi_id', upiIn),
+      putSetting('upi_payee_name', payee)
+    ]).then(function (results) {
+      var bad = results.filter(function (r) { return r && r.error; })[0];
+      if (bad) {
+        toast(bad.error.message, 'error');
+        return;
+      }
+      toast('Shop settings saved', 'success');
+      load();
+    });
+  }
+
+  // shop_settings is one row per key. An update that matches nothing means the
+  // key was never stored (or RLS filtered it), so the row is inserted instead.
+  function putSetting(key, value) {
+    return sb().from('shop_settings')
+      .update({ value: value })
+      .eq('key', key)
+      .select('key')
+      .then(function (res) {
+        if (res.error) return res;
+        if (res.data && res.data.length) return res;
+        return sb().from('shop_settings').insert({ key: key, value: value }).select('key');
+      });
   }
 
   /* Form --------------------------------------------------------------- */
@@ -582,6 +701,14 @@ window.ANT.settings = (function () {
       form.addEventListener('submit', function (e) {
         e.preventDefault();
         save();
+      });
+    }
+
+    var shop = byId('shopForm');
+    if (shop) {
+      shop.addEventListener('submit', function (e) {
+        e.preventDefault();
+        saveShop();
       });
     }
 

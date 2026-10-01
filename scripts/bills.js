@@ -64,7 +64,10 @@ window.ANT.bills = (function () {
     count: 0,
     loading: false,
     busy: false,
-    error: null
+    error: null,
+    // Shop details for the printed bill. Read once from shop_settings; a
+    // missing or unreadable row simply means no UPI code is drawn.
+    shop: { name: '', upiId: '', payee: '' }
   };
 
   function byId(id) { return document.getElementById(id); }
@@ -201,6 +204,30 @@ window.ANT.bills = (function () {
     state.loading = true;
     state.busy = false;
     state.error = null;
+  }
+
+  /* Shop settings --------------------------------------------------------- */
+
+  // The UPI id and payee name live in shop_settings, one row per key. They are
+  // read here rather than copied onto the bill, so changing the id in Settings
+  // changes the next bill printed with no re-save of anything. A missing row is
+  // no UPI, and the bill prints without a code.
+  function loadShop() {
+    return sb().from('shop_settings')
+      .select('key,value')
+      .then(function (res) {
+        var shop = { name: '', upiId: '', payee: '' };
+
+        if (!res.error && res.data) {
+          res.data.forEach(function (row) {
+            if (row.key === 'shop_name') shop.name = row.value || '';
+            else if (row.key === 'upi_id') shop.upiId = row.value || '';
+            else if (row.key === 'upi_payee_name') shop.payee = row.value || '';
+          });
+        }
+
+        state.shop = shop;
+      });
   }
 
   // Cancelled orders are left out. The legacy billing sheet listed every order
@@ -921,6 +948,39 @@ window.ANT.bills = (function () {
         '<td class="r">' + money(o.advance) + '</td></tr>';
     }).join('');
 
+    // A UPI code is drawn only when a real amount is still owed and the shop
+    // has a valid id configured. Both checks live in window.ANT.upi.link, so a
+    // settled bill cannot print a code inviting the customer to pay twice.
+    var payBlock = '';
+
+    if (window.ANT.upi && window.ANT.qr) {
+      var target = window.ANT.upi.link({
+        vpa: state.shop.upiId,
+        payee: state.shop.payee || state.shop.name || 'AN TAILOR',
+        amount: window.ANT.upi.balanceDue(bill),
+        note: bill.code
+      });
+
+      if (target) {
+        var dueLabel = money(window.ANT.upi.balanceDue(bill));
+
+        payBlock = '<div class="pay">' +
+          window.ANT.qr.svg(target, {
+            className: 'qr',
+            border: 1,
+            dark: '#000000',
+            light: '#ffffff',
+            label: 'Scan to pay ' + dueLabel + ' to ' + (state.shop.name || 'AN TAILOR')
+          }) +
+          '<div class="pay-text">' +
+            '<div class="pay-head">Scan to pay ' + esc(dueLabel) + '</div>' +
+            '<a class="pay-link" href="' + esc(target) + '">Tap to Pay ' + esc(dueLabel) + '</a>' +
+            '<div class="pay-id">UPI ID: ' + esc(state.shop.upiId) + '</div>' +
+          '</div>' +
+        '</div>';
+      }
+    }
+
     var html = '<!doctype html><html><head><meta charset="utf-8"><title>' +
       esc(bill.code) + '</title><style>' +
       'body{font:14px/1.5 system-ui,"Segoe UI",Arial,sans-serif;color:#111;margin:24px}' +
@@ -933,8 +993,15 @@ window.ANT.bills = (function () {
       '.totals{margin-left:auto;width:300px}' +
       '.totals div{display:flex;justify-content:space-between;padding:4px 0}' +
       '.totals .due{font-weight:700;border-top:1px solid #111}' +
+      '.pay{display:flex;gap:14px;align-items:center;border:1px solid #ccc;' +
+        'border-radius:6px;padding:10px 12px;margin-top:18px;width:fit-content}' +
+      '.qr{width:34mm;height:34mm;flex:0 0 auto}' +
+      '.pay-text{font-size:13px}' +
+      '.pay-head{font-weight:700;margin-bottom:2px}' +
+      '.pay-link{display:inline-block;margin:2px 0;color:#0f2239;font-weight:600}' +
+      '.pay-id{color:#555;margin-top:2px}' +
       'footer{margin-top:28px;font-size:12px;color:#555}' +
-      '@media print{body{margin:12mm}}' +
+      '@media print{body{margin:12mm}.pay-link{text-decoration:none}}' +
       '</style></head><body>' +
       '<h1>Bill ' + esc(bill.code) + '</h1>' +
       '<p class="sub">' + esc(c.name) + ' &middot; ' + esc(c.mobile) +
@@ -955,7 +1022,9 @@ window.ANT.bills = (function () {
           (bill.paid_on ? ' on ' + esc(dateLabel(bill.paid_on)) : '') + '</p>'
         : '') +
       (bill.notes ? '<p class="sub">' + esc(bill.notes) + '</p>' : '') +
-      '<footer>Printed ' + esc(dateLabel(today())) + ' from AN TAILOR.</footer>' +
+      payBlock +
+      '<footer>Printed ' + esc(dateLabel(today())) + ' from ' +
+        esc(state.shop.name || 'AN TAILOR') + '.</footer>' +
       '</body></html>';
 
     var win = window.open('', '_blank');
@@ -1063,6 +1132,7 @@ window.ANT.bills = (function () {
   function render() {
     resetFor('');
     paint();
+    loadShop();
   }
 
   return { mount: mount, render: render };
