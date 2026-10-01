@@ -547,6 +547,9 @@ window.ANT.bills = (function () {
       '<td>' + esc(b.method || '-') + '</td>' +
       '<td>' + esc(dateLabel(b.paid_on)) + '</td>' +
       '<td class="ord-row-actions">' +
+      (payLink(b)
+        ? '<button class="btn btn-sm btn-primary" data-bill-pay="' + esc(b.id) + '">Pay</button> '
+        : '') +
       '<button class="btn btn-sm btn-secondary" data-bill-print="' + esc(b.id) + '">Print</button>' +
       (owner
         ? ' <button class="btn btn-sm btn-secondary" data-bill-edit="' + esc(b.id) + '">Edit</button>' +
@@ -949,36 +952,31 @@ window.ANT.bills = (function () {
     }).join('');
 
     // A UPI code is drawn only when a real amount is still owed and the shop
-    // has a valid id configured. Both checks live in window.ANT.upi.link, so a
-    // settled bill cannot print a code inviting the customer to pay twice.
+    // has a valid id configured. payLink() is the same builder the on-screen Pay
+    // button uses, so a settled bill cannot print a code inviting the customer
+    // to pay twice and the two can never name different accounts.
+    var target = payLink(bill);
     var payBlock = '';
 
-    if (window.ANT.upi && window.ANT.qr) {
-      var target = window.ANT.upi.link({
-        vpa: state.shop.upiId,
-        payee: state.shop.payee || state.shop.name || 'AN TAILOR',
-        amount: window.ANT.upi.balanceDue(bill),
-        note: bill.code
-      });
+    if (target && window.ANT.qr) {
+      var dueLabel = money(window.ANT.upi.balanceDue(bill));
 
-      if (target) {
-        var dueLabel = money(window.ANT.upi.balanceDue(bill));
-
-        payBlock = '<div class="pay">' +
-          window.ANT.qr.svg(target, {
-            className: 'qr',
-            border: 1,
-            dark: '#000000',
-            light: '#ffffff',
-            label: 'Scan to pay ' + dueLabel + ' to ' + (state.shop.name || 'AN TAILOR')
-          }) +
-          '<div class="pay-text">' +
-            '<div class="pay-head">Scan to pay ' + esc(dueLabel) + '</div>' +
-            '<a class="pay-link" href="' + esc(target) + '">Tap to Pay ' + esc(dueLabel) + '</a>' +
-            '<div class="pay-id">UPI ID: ' + esc(state.shop.upiId) + '</div>' +
-          '</div>' +
-        '</div>';
-      }
+      payBlock = '<div class="pay">' +
+        window.ANT.qr.svg(target, {
+          className: 'qr',
+          border: 1,
+          dark: '#000000',
+          light: '#ffffff',
+          label: 'Scan to pay ' + dueLabel + ' to ' + (state.shop.name || 'AN TAILOR')
+        }) +
+        '<div class="pay-text">' +
+          '<div class="pay-head">Scan to pay ' + esc(dueLabel) + '</div>' +
+          // This link is for the bill on a screen. Paper cannot be tapped, so it
+          // is dropped at print time and the QR plus the id below carry the job.
+          '<a class="pay-link" href="' + esc(target) + '">Tap to Pay ' + esc(dueLabel) + '</a>' +
+          '<div class="pay-id">UPI ID: ' + esc(state.shop.upiId) + '</div>' +
+        '</div>' +
+      '</div>';
     }
 
     var html = '<!doctype html><html><head><meta charset="utf-8"><title>' +
@@ -1001,7 +999,7 @@ window.ANT.bills = (function () {
       '.pay-link{display:inline-block;margin:2px 0;color:#0f2239;font-weight:600}' +
       '.pay-id{color:#555;margin-top:2px}' +
       'footer{margin-top:28px;font-size:12px;color:#555}' +
-      '@media print{body{margin:12mm}.pay-link{text-decoration:none}}' +
+      '@media print{body{margin:12mm}.pay-link{display:none}}' +
       '</style></head><body>' +
       '<h1>Bill ' + esc(bill.code) + '</h1>' +
       '<p class="sub">' + esc(c.name) + ' &middot; ' + esc(c.mobile) +
@@ -1050,6 +1048,63 @@ window.ANT.bills = (function () {
     else win.onload = function () { setTimeout(go, 250); };
   }
 
+  /* Taking a payment ------------------------------------------------------- */
+
+  /* The one place a UPI intent is built, so the Pay button and the printed QR
+   * can never disagree about the account or the amount. Returns '' when there is
+   * nothing owed or no usable id, which is also how the Pay button knows to stay
+   * off the row. */
+  function payLink(bill) {
+    if (!window.ANT.upi) return '';
+
+    return window.ANT.upi.link({
+      vpa: state.shop.upiId,
+      payee: state.shop.payee || state.shop.name || 'AN TAILOR',
+      amount: window.ANT.upi.balanceDue(bill),
+      note: bill.code
+    });
+  }
+
+  /* A upi:// intent is only handed to the phone by clicking a real anchor.
+   * Assigning it to location.href instead would either leave the shop staring
+   * at a "no app found" page or, worse, unload the app mid-order, because the
+   * app has no way to tell the browser it meant to come back. */
+  function openUpi(target) {
+    var a = document.createElement('a');
+    a.href = target;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+
+    /* Nothing opened the link: no UPI app installed, or the browser ignored the
+     * scheme. The page is still in front a moment later, so say what to do
+     * instead of leaving a button that looks broken. */
+    setTimeout(function () {
+      if (document.visibilityState !== 'hidden') {
+        toast('No UPI app opened. Ask the customer to scan the printed QR, ' +
+          'or pay to ' + state.shop.upiId + '.', 'error');
+      }
+    }, 1500);
+
+    setTimeout(function () {
+      if (a.parentNode) a.parentNode.removeChild(a);
+    }, 100);
+  }
+
+  function payNow(billId) {
+    var bill = state.bills.filter(function (b) { return b.id === billId; })[0];
+    var target = bill ? payLink(bill) : '';
+
+    if (!target) {
+      toast(state.shop.upiId
+        ? 'There is nothing left to pay on this bill.'
+        : 'No UPI ID is set yet. Add it in Settings.', 'error');
+      return;
+    }
+
+    openUpi(target);
+  }
+
   /* Wiring --------------------------------------------------------------- */
 
   function wire() {
@@ -1080,6 +1135,12 @@ window.ANT.bills = (function () {
     each('[data-bill-edit]', function (b) {
       b.addEventListener('click', function () {
         openEdit(b.getAttribute('data-bill-edit'));
+      });
+    });
+
+    each('[data-bill-pay]', function (b) {
+      b.addEventListener('click', function () {
+        payNow(b.getAttribute('data-bill-pay'));
       });
     });
 
