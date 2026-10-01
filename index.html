@@ -35,7 +35,11 @@
 
 <div class="login-screen" id="loginScreen" hidden>
   <div class="login-card">
-    <div class="login-mark" aria-hidden="true">AN</div>
+    <div class="login-mark" aria-hidden="true">
+      <span class="brand-fallback">AN</span>
+      <img class="brand-logo" src="assets/logo.png" alt=""
+        onload="this.parentNode.classList.add('has-logo')" onerror="this.remove()">
+    </div>
     <h1 class="login-name">AN TAILOR</h1>
     <p class="login-sub" id="loginSub">Sign in to continue</p>
 
@@ -65,7 +69,11 @@
 
   <header class="topbar">
     <div class="topbar-brand">
-      <span class="topbar-mark" aria-hidden="true">AN</span>
+      <span class="topbar-mark" aria-hidden="true">
+        <span class="brand-fallback">AN</span>
+        <img class="brand-logo" src="assets/logo.png" alt=""
+          onload="this.parentNode.classList.add('has-logo')" onerror="this.remove()">
+      </span>
       <span class="topbar-brand-text">
         <span class="topbar-brand-name">AN TAILOR</span>
         <span class="topbar-brand-tag" id="shopTagline">Professional Tailoring Services</span>

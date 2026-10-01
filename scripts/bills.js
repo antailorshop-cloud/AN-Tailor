@@ -270,19 +270,23 @@ window.ANT.bills = (function () {
 
   /* Shop settings --------------------------------------------------------- */
 
-  // The UPI id and payee name live in shop_settings, one row per key. They are
-  // read here rather than copied onto the bill, so changing the id in Settings
-  // changes the next bill printed with no re-save of anything. A missing row is
-  // no UPI, and the bill prints without a code.
+  // The shop's details live in shop_settings, one row per key. They are read here
+  // rather than copied onto the bill, so changing the shop in Settings changes the
+  // next bill printed with no re-save of anything. A missing row is simply blank
+  // and the bill prints without that part of the letterhead.
   function loadShop() {
     return sb().from('shop_settings')
       .select('key,value')
       .then(function (res) {
-        var shop = { name: '', upiId: '', payee: '', waBillMessage: '', waReminderMessage: '', printSize: '' };
+        var shop = { name: '', address: '', phone: '', instagram: '', upiId: '',
+          payee: '', waBillMessage: '', waReminderMessage: '', printSize: '' };
 
         if (!res.error && res.data) {
           res.data.forEach(function (row) {
             if (row.key === 'shop_name') shop.name = row.value || '';
+            else if (row.key === 'shop_address') shop.address = row.value || '';
+            else if (row.key === 'shop_phone') shop.phone = row.value || '';
+            else if (row.key === 'shop_instagram') shop.instagram = row.value || '';
             else if (row.key === 'upi_id') shop.upiId = row.value || '';
             else if (row.key === 'upi_payee_name') shop.payee = row.value || '';
             else if (row.key === 'wa_bill_message') shop.waBillMessage = row.value || '';
@@ -1012,6 +1016,37 @@ window.ANT.bills = (function () {
       });
   }
 
+  /* Garments for the printed bill.
+   *
+   * A bill that names only order codes is not much use to the customer holding
+   * it: "ORD-14" says nothing about the two shirts they are being charged for.
+   * So the items are read and listed under their order.
+   *
+   * They are decoration, never the bill. If this read fails, is refused, or comes
+   * back empty, the order lines print on their own with their own totals. A bill
+   * missing a line is worse than one that is less detailed, so nothing here is
+   * allowed to hold up or alter the document. */
+  function itemsForPrint(ids) {
+    if (!ids.length) return Promise.resolve({});
+
+    return sb().from('order_items')
+      .select('order_id,category,dress_type,service,variant,lining,quantity,line_total')
+      .in('order_id', ids)
+      .then(function (res) {
+        if (res.error || !res.data) return {};
+
+        var byOrder = {};
+        res.data.forEach(function (it) {
+          var list = byOrder[it.order_id] || (byOrder[it.order_id] = []);
+          list.push(it);
+        });
+        return byOrder;
+      })
+      .catch(function () {
+        return {};
+      });
+  }
+
   function ordersForPrint(ids) {
     if (!ids.length) return Promise.resolve([]);
 
@@ -1027,19 +1062,226 @@ window.ANT.bills = (function () {
       else missing.push(id);
     });
 
-    if (!missing.length) {
-      return Promise.resolve(ids.map(function (id) { return byId2[id]; }).filter(Boolean));
+    // The orders are resolved first, because the item read needs their ids and a
+    // folded-in order may not have been loaded. An order on the bill may also no
+    // longer be in the loaded list - one cancelled after the bill was raised, say
+    // - and the bill still has to print, so a failed order read is not fatal
+    // either.
+    var ordersReady = missing.length
+      ? sb().from('orders')
+          .select('id,code,order_date,delivery_date,total,discount,advance')
+          .in('id', missing)
+          .then(function (res) {
+            (res.data || []).forEach(function (o) { byId2[o.id] = o; });
+          })
+          .catch(function () { return; })
+      : Promise.resolve();
+
+    return ordersReady
+      .then(function () {
+        return ids.map(function (id) { return byId2[id]; }).filter(Boolean);
+      })
+      .then(function (list) {
+        // The items are attached when they can be read and left empty when they
+        // cannot. Either way the list comes back, so the caller never has to
+        // decide whether a failure here should stop a bill from printing.
+        return itemsForPrint(list.map(function (o) { return o.id; })).then(function (byOrder) {
+          list.forEach(function (o) {
+            o.items = byOrder[o.id] || [];
+          });
+          return list;
+        });
+      });
+  }
+
+  /* The printed bill -------------------------------------------------------
+   *
+   * A bill is the shop's invoice, and it is usually kept: filed, photographed,
+   * sent on WhatsApp, or handed over with the garment. So it is laid out to be
+   * read once and filed, not skimmed at the counter.
+   *
+   * What a customer of a tailoring shop actually needs from it:
+   *
+   *   - to recognise it as the shop's, at a glance, in a pile of paperwork
+   *   - to find it again later by the bill number and the date
+   *   - to see WHAT was made for them, not just which order codes went on it
+   *   - to see what is still owed, unambiguously
+   *   - to have somewhere to sign
+   *
+   * The order codes alone did not answer the third of those. A bill reading
+   * "ORD-14, 1,200" tells the customer nothing about the two shirts and the
+   * blouse they are being charged for, and it is the single most common question
+   * at the counter. So the garment lines are listed under each order, when the
+   * items can be read, and the order code stays as the heading that ties the
+   * bill to the shop's records.
+   *
+    * If an item cannot be read the order still prints, with its own total,
+    * because a bill short of a row is worse than one that is less detailed.
+    */
+
+  // One line of CSS, joined with a space. The printed document has no external
+  // stylesheet to link, so every rule it needs is written here.
+  //
+  // The palette is the app's own: the deep ink and navy of the topbar with the
+  // muted gold rule. A bill is kept and photographed, so it should look like the
+  // shop, not like a spreadsheet. Gold is used only for rules, labels and the
+  // balance - never behind a figure, so the numbers stay the darkest thing on the
+  // page.
+  var PRINT_CSS = [
+    '*{box-sizing:border-box}',
+    'body{font:12.5px/1.5 "Segoe UI",system-ui,-apple-system,Arial,sans-serif;color:#1f2937;margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}',
+    '.bill{max-width:190mm;margin:0 auto}',
+
+    /* The letterhead. A shop's name is the one thing that makes a document
+     * recognisable months later in a folder, so it is the largest thing on the
+     * page, set in a serif and closed with a double gold rule. */
+    '.head{display:flex;justify-content:space-between;align-items:flex-start;gap:10mm;padding-bottom:4mm;border-bottom:3px double #b08d3f}',
+    '.brand{display:flex;align-items:center;gap:5mm;min-width:0}',
+    '.shop-logo{width:24mm;height:24mm;object-fit:contain;flex:0 0 auto}',
+    '.shop-name{font-family:Georgia,"Times New Roman",serif;font-size:23px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;line-height:1.15;color:#1a1a2e}',
+    '.shop-sub{font-size:10px;color:#6b7280;margin-top:1.6mm;letter-spacing:.03em}',
+    '.doc{text-align:right;flex:0 0 auto}',
+    '.doc-title{font-family:Georgia,"Times New Roman",serif;font-size:16px;font-weight:700;letter-spacing:.34em;text-transform:uppercase;color:#b08d3f;margin-right:-.34em}',
+    '.doc-meta{font-size:10px;color:#6b7280;margin-top:1.6mm;letter-spacing:.03em}',
+    '.doc-meta b{color:#16213e;font-weight:600;letter-spacing:.05em}',
+
+    /* Who it is for, and which bill it is. Two columns so the customer block and
+     * the bill details do not compete for the same line. */
+    '.parties{display:flex;gap:10mm;margin:6mm 0 5mm}',
+    '.party{flex:1 1 0;min-width:0}',
+    '.party-label{font-size:8.5px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:#b08d3f;padding-bottom:1.2mm;margin-bottom:2.4mm;border-bottom:1px solid #e8e0c8}',
+    '.party-name{font-family:Georgia,"Times New Roman",serif;font-size:15px;font-weight:600;color:#1a1a2e}',
+    '.party-line{font-size:11px;color:#374151;margin-top:1.2mm;word-break:break-word}',
+
+    /* The figures. Right-aligned numbers, because a column of rupees is read by
+     * its decimal places and anything else makes that impossible. */
+    'table{width:100%;border-collapse:collapse;margin:2mm 0 0}',
+    'th{font-size:8.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#16213e;text-align:left;padding:2.2mm 2mm;background:#fdf8ed;border-bottom:1px solid #b08d3f;white-space:nowrap}',
+    'td{font-size:11.5px;padding:2mm;border-bottom:1px solid #eee7d6;vertical-align:top}',
+    'th.r,td.r{text-align:right;white-space:nowrap}',
+    '.ord-head td{background:#f7f4ea;font-weight:600;font-size:10.5px;letter-spacing:.05em;color:#16213e;border-bottom:1px solid #d4c9a8;padding:1.7mm 2mm}',
+    '.item-name{font-weight:500;color:#1f2937}',
+    '.item-note{font-size:9.5px;color:#6b7280;margin-top:.5mm;letter-spacing:.02em}',
+    '.item-qty{text-align:right;white-space:nowrap;color:#374151}',
+
+    /* The totals sit under the money columns, on the same right edge, so the eye
+     * can run down one line to the balance. */
+    '.totals{margin:5mm 0 0 auto;width:80mm}',
+    '.totals div{display:flex;justify-content:space-between;gap:6mm;padding:1.6mm 2mm;font-size:11.5px}',
+    '.totals .label{color:#374151}',
+    '.totals .val{font-variant-numeric:tabular-nums;white-space:nowrap;color:#16213e}',
+    '.totals .sub{border-top:1px solid #d4c9a8;margin-top:1mm;padding-top:2.2mm;font-weight:600}',
+    '.totals .due{border-top:2px solid #b08d3f;border-bottom:2px solid #b08d3f;background:#fdf8ed;margin-top:1.8mm;padding:2.8mm 2mm;font-size:13.5px;font-weight:700}',
+    '.totals .due .label{color:#1a1a2e;font-weight:700;letter-spacing:.03em}',
+    '.totals .due .val{color:#1a1a2e}',
+
+    /* A bill that is settled should look settled from across the counter. The
+     * stamp is gold for the state that gets chased, green for the one that is
+     * finished. */
+    '.stamp{display:inline-block;border:1.5px solid #166534;color:#166534;font-size:10px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;padding:1.2mm 3mm;border-radius:2px;transform:rotate(-2deg)}',
+    '.stamp.partial{border-color:#b08d3f;color:#96762f}',
+
+    '.words{font-size:10.5px;margin:5mm 0 0;padding:2.4mm 0 0;border-top:1px solid #eee7d6;color:#374151;letter-spacing:.01em}',
+    '.words b{font-weight:600;color:#1a1a2e}',
+
+    /* Paying and following sit side by side, so the QR a customer scans to pay
+     * and the one they scan to come back are in the same place on every bill. */
+    '.blocks{display:flex;flex-wrap:wrap;gap:5mm;align-items:stretch;margin-top:6mm}',
+    '.pay{display:flex;gap:4mm;align-items:center;border:1px solid #e8e0c8;border-left:3px solid #b08d3f;border-radius:3px;padding:3mm 4mm;flex:1 1 auto;min-width:0;page-break-inside:avoid;break-inside:avoid}',
+    '.qr{width:30mm;height:30mm;flex:0 0 auto}',
+    '.pay-text{font-size:11px;min-width:0}',
+    '.pay-head{font-family:Georgia,"Times New Roman",serif;font-weight:700;font-size:12px;margin-bottom:1mm;color:#1a1a2e}',
+    '.pay-link{display:inline-block;margin:1mm 0;color:#0f3460;font-weight:600;word-break:break-all}',
+    '.pay-id{color:#6b7280;font-size:10.5px;letter-spacing:.02em}',
+    '.follow{flex:0 0 auto;display:flex;gap:3.5mm;align-items:center;border:1px solid #e8e0c8;border-radius:3px;padding:3mm 4mm;page-break-inside:avoid;break-inside:avoid}',
+    '.follow .qr{width:22mm;height:22mm}',
+    '.follow-head{font-family:Georgia,"Times New Roman",serif;font-weight:700;font-size:12px;color:#1a1a2e}',
+    '.follow-id{font-size:10.5px;color:#6b7280;margin-top:.6mm}',
+
+    /* Signature lines. A bill is acknowledged by both sides, and without a line
+     * to sign on there is nowhere for the customer to say they received it. */
+    '.signs{display:flex;gap:14mm;margin-top:10mm}',
+    '.sign{flex:1 1 0;border-top:1px solid #1a1a2e;padding-top:1.6mm;font-size:9.5px;color:#6b7280;letter-spacing:.04em}',
+
+    'footer{margin-top:6mm;padding-top:2.6mm;border-top:3px double #d4c9a8;font-size:9px;color:#6b7280;letter-spacing:.02em}',
+    '.notes{margin:4mm 0 0;font-size:11px;padding:2.6mm 3mm;background:#f7f4ea;border-left:2px solid #b08d3f;color:#374151}',
+
+    /* Printed body margin is zeroed because @page already sets the page margin,
+     * and the two would otherwise stack into a double margin. */
+    '@media print{body{margin:0;padding:0}}',
+    'thead{display:table-header-group}',
+    'tr{page-break-inside:avoid;break-inside:avoid}'
+  ].join('');
+
+  // Indian numbering reads in thousands, lakhs and crores, not millions and
+  // billions, so the total is written the way the shop's customer reads it.
+  var WORD_ONES = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight',
+    'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen',
+    'Seventeen', 'Eighteen', 'Nineteen'];
+  var WORD_TENS = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy',
+    'Eighty', 'Ninety'];
+
+  function twoDigits(n) {
+    if (n < 20) return WORD_ONES[n];
+    return WORD_TENS[Math.floor(n / 10)] +
+      (n % 10 ? ' ' + WORD_ONES[n % 10] : '');
+  }
+
+  function threeDigits(n) {
+    var h = Math.floor(n / 100);
+    var rest = n % 100;
+    return (h ? WORD_ONES[h] + ' Hundred' : '') + (rest ? (h ? ' ' : '') + twoDigits(rest) : '');
+  }
+
+  /* The bill amount in words, because an Indian invoice is expected to carry one
+   * and a crossed-out cheque is written on it. Only whole rupees are worded;
+   * paise are named in figures underneath, which is what a shop does in
+   * practice and avoids the awkwardness of "and Fifty Paise Only" on every bill
+   * that happens to end in 50p.
+   *
+   * Every part is asserted in the harness. A wrong word here is worse than no
+   * word at all, because it is read as a statement of fact. */
+  function amountInWords(value) {
+    var paise = Math.round((num(value) - Math.floor(num(value))) * 100);
+    // The whole-rupee total, kept as its own variable. The decomposition below
+    // reduces its working copy to the part under a thousand, so reading "how many
+    // rupees" off that copy later would mistake 1,001 for a single rupee.
+    var totalRupees = Math.floor(num(value));
+
+    if (totalRupees <= 0 && paise <= 0) return 'Zero Rupees Only';
+
+    var parts = [];
+
+    function upto(n, name) {
+      var text = threeDigits(n);
+      if (text) parts.push(text + ' ' + name);
     }
 
-    // An order on the bill may no longer be in the loaded list, for instance one
-    // that was cancelled after the bill was raised. The bill still has to print.
-    return sb().from('orders')
-      .select('id,code,order_date,delivery_date,total,discount,advance')
-      .in('id', missing)
-      .then(function (res) {
-        (res.data || []).forEach(function (o) { byId2[o.id] = o; });
-        return ids.map(function (id) { return byId2[id]; }).filter(Boolean);
-      });
+    var rest = totalRupees;
+    var crore = Math.floor(rest / 10000000);
+    rest %= 10000000;
+    var lakh = Math.floor(rest / 100000);
+    rest %= 100000;
+    var thousand = Math.floor(rest / 1000);
+    rest %= 1000;
+
+    upto(crore, 'Crore');
+    upto(lakh, 'Lakh');
+    upto(thousand, 'Thousand');
+    upto(rest, '');
+
+    var words = parts.join(' ').replace(/\s+/g, ' ').trim();
+    // One rupee is "One Rupee". A bill that says "One Rupees Only" is a small
+    // thing, but it is a document somebody writes a payment amount from.
+    return words + (totalRupees === 1 ? ' Rupee Only' : ' Rupees Only');
+  }
+
+  // The paise, named in figures, because that is where a shop puts them rather
+  // than trying to word a decimal. 0 is blank so a whole-rupee bill has nothing
+  // trailing after "Rupees Only".
+  function paiseOf(value) {
+    var p = Math.round((num(value) - Math.floor(num(value))) * 100);
+    return p > 0 ? String(p) : '';
   }
 
   function openPrintWindow(bill, list) {
@@ -1052,14 +1294,57 @@ window.ANT.bills = (function () {
     // The size only lays the page out; it never touches a figure on it.
     var size = window.ANT.printsize.normalize(state.shop.printSize);
 
+    var shopName = state.shop.name || 'AN TAILOR';
+    var due = Math.max(0, num(bill.balance));
+    var settled = due <= 0;
+    // Part-paid is its own state because it is the one that needs chasing, and a
+    // stamp that only distinguishes paid from unpaid would call it settled.
+    var partial = !settled && num(bill.advance) > 0;
+
+    // The items are optional decoration, so a bill never waits on them and a read
+    // that failed simply leaves the order to print on its own.
     var rows = list.map(function (o) {
-      return '<tr><td>' + esc(o.code) + '</td>' +
-        '<td>' + esc(dateLabel(o.order_date)) + '</td>' +
-        '<td>' + esc(dateLabel(o.delivery_date)) + '</td>' +
+      var items = (o.items || []).map(function (it) {
+        var note = [];
+        if (it.variant) note.push(it.variant);
+        if (it.lining) note.push(it.lining + ' lining');
+        // "Tailoring" is the default and naming it on every line is noise, but a
+        // line that is NOT tailoring - ready stock, for instance - has to say so,
+        // or the bill reads as though the shop made it.
+        if (it.service && it.service !== 'Tailoring') note.push(it.service);
+
+        return '<tr>' +
+          '<td class="item">' +
+            '<div class="item-name">' +
+              esc(it.dress_type || it.category || 'Garment') + '</div>' +
+            (note.length ? '<div class="item-note">' + esc(note.join(' · ')) + '</div>' : '') +
+          '</td>' +
+          '<td class="r item-qty">' + esc(String(it.quantity == null ? '' : it.quantity)) + '</td>' +
+          '<td class="r">' + money(it.line_total) + '</td>' +
+        '</tr>';
+      }).join('');
+
+      // An order heading with nothing under it reads as a printing fault, so when
+      // there are no garment lines the bill says so rather than leaving the
+      // customer to wonder whether a line was dropped.
+      if (!items) {
+        items = '<tr><td colspan="3" class="item-note">' +
+          'No garments are listed for this order.' +
+          (o.code ? ' (Order ' + esc(o.code) + '.)' : '') +
+        '</td></tr>';
+      }
+
+      return '<tr class="ord-head"><td colspan="3">Order ' + esc(o.code) +
+          (o.delivery_date ? ' &middot; due ' + esc(dateLabel(o.delivery_date)) : '') +
+        '</td>' +
         '<td class="r">' + money(o.total) + '</td>' +
         '<td class="r">' + (num(o.discount) ? '- ' + money(o.discount) : money(0)) + '</td>' +
-        '<td class="r">' + money(o.advance) + '</td></tr>';
+        '<td class="r">' + money(o.advance) + '</td></tr>' + items;
     }).join('');
+
+    if (!list.length) {
+      rows = '<tr><td colspan="6" class="item-note">No orders are recorded on this bill.</td></tr>';
+    }
 
     // A UPI code is drawn only when a real amount is still owed and the shop
     // has a valid id configured. payLink() is the same builder the on-screen Pay
@@ -1089,59 +1374,151 @@ window.ANT.bills = (function () {
       '</div>';
     }
 
+    // The Instagram QR is off by default: it prints only when the shop has put a
+    // handle in Settings. Like the pay code, the URL is rebuilt from the stored
+    // username so the code and the printed handle can never point at different
+    // profiles.
+    var igTarget = instagramUrl();
+    var followBlock = '';
+
+    if (igTarget && window.ANT.qr) {
+      followBlock = '<div class="follow">' +
+        window.ANT.qr.svg(igTarget, {
+          className: 'qr',
+          border: 1,
+          dark: '#000000',
+          light: '#ffffff',
+          label: 'Scan to follow @' + state.shop.instagram + ' on Instagram'
+        }) +
+        '<div class="pay-text">' +
+          '<div class="follow-head">Follow us</div>' +
+          '<a class="pay-link" href="' + esc(igTarget) + '">@' +
+            esc(state.shop.instagram) + '</a>' +
+          '<div class="follow-id">on Instagram</div>' +
+        '</div>' +
+      '</div>';
+    }
+
+    var blocks = (payBlock || followBlock)
+      ? '<div class="blocks">' + payBlock + followBlock + '</div>'
+      : '';
+
     var html = '<!doctype html><html><head><meta charset="utf-8"><title>' +
-      esc(bill.code) + '</title><style>' +
-      'body{font:14px/1.5 system-ui,"Segoe UI",Arial,sans-serif;color:#111;margin:24px}' +
-      'h1{font-size:20px;margin:0 0 4px}' +
-      '.sub{color:#555;margin:0 0 18px}' +
-      'table{width:100%;border-collapse:collapse;margin-bottom:18px}' +
-      'th,td{border:1px solid #ccc;padding:6px 8px;text-align:left}' +
-      'th{background:#f2f2f2;font-size:12px;text-transform:uppercase}' +
-      '.r{text-align:right;white-space:nowrap}' +
-      '.totals{margin-left:auto;width:300px}' +
-      '.totals div{display:flex;justify-content:space-between;padding:4px 0}' +
-      '.totals .due{font-weight:700;border-top:1px solid #111}' +
-      '.pay{display:flex;gap:14px;align-items:center;border:1px solid #ccc;' +
-        'border-radius:6px;padding:10px 12px;margin-top:18px;width:fit-content}' +
-      '.qr{width:34mm;height:34mm;flex:0 0 auto}' +
-      '.pay-text{font-size:13px}' +
-      '.pay-head{font-weight:700;margin-bottom:2px}' +
-      '.pay-link{display:inline-block;margin:2px 0;color:#0f2239;font-weight:600}' +
-      '.pay-id{color:#555;margin-top:2px}' +
-      'footer{margin-top:28px;font-size:12px;color:#555}' +
-      // The link is left in the printed bill rather than hidden at print time.
-      // Paper cannot be tapped, but the bill is very often sent on as a PDF, and
-      // some viewers - WhatsApp among them - do make a link live there. Hiding it
-      // would throw that away for the sake of a print preview nobody keeps.
-      // The page margin comes from @page now, so the printed body margin is
-      // zeroed rather than left at 12mm, which would double it.
-      '@media print{body{margin:0}}' +
+      esc(bill.code) + ' ' + esc(shopName) + '</title><style>' +
+      PRINT_CSS +
       window.ANT.printsize.pageCss(size) +
       window.ANT.printsize.layoutCss(size) +
       '</style></head><body>' +
       '<div class="bill' + (size === 'A4HALF' ? ' bill-half' : '') + '">' +
-      '<h1>Bill ' + esc(bill.code) + '</h1>' +
-      '<p class="sub">' + esc(c.name) + ' &middot; ' + esc(c.mobile) +
-      (c.address ? ' &middot; ' + esc(c.address) : '') + '</p>' +
-      '<table><thead><tr><th>Order</th><th>Order date</th><th>Delivery</th>' +
-      '<th class="r">Total</th><th class="r">Discount</th><th class="r">Paid</th>' +
-      '</tr></thead><tbody>' + rows + '</tbody></table>' +
-      '<div class="totals">' +
-      '<div><span>Total</span><span>' + money(bill.total) + '</span></div>' +
-      '<div><span>Discount</span><span>- ' + money(bill.discount) + '</span></div>' +
-      '<div><span>Bill amount</span><span>' + money(bill.bill_amount) + '</span></div>' +
-      '<div><span>Paid</span><span>' + money(bill.advance) + '</span></div>' +
-      '<div class="due"><span>Balance due</span><span>' +
-        money(Math.max(0, num(bill.balance))) + '</span></div>' +
+
+      // The letterhead. The shop's name is the largest thing on the page, because
+      // the first job of a filed bill is to be recognisable as this shop's. The
+      // address and phone go under it so a bill that gets separated from the
+      // garment bag still says where it came from. Both are optional: a shop that
+      // has not filled them in simply prints a name.
+      '<div class="head">' +
+        '<div class="brand">' +
+          // The shop's own logo, if a logo.png has been dropped into assets/. The
+          // printed window is a blank document, so the path is made absolute; if
+          // the file is not there the image removes itself and the shop name
+          // carries the header on its own.
+          '<img class="shop-logo" src="' + esc(logoUrl()) + '" alt="" ' +
+            'onerror="this.remove()">' +
+          '<div>' +
+            '<div class="shop-name">' + esc(shopName) + '</div>' +
+            (state.shop.address
+              ? '<div class="shop-sub">' + esc(state.shop.address) + '</div>'
+              : '') +
+            (state.shop.phone
+              ? '<div class="shop-sub">' + esc(state.shop.phone) + '</div>'
+              : '') +
+          '</div>' +
+        '</div>' +
+        '<div class="doc">' +
+          // "Bill" rather than "Tax Invoice". This document carries no tax
+          // breakdown and no tax registration number, so calling it a tax invoice
+          // would claim something the bill does not actually show.
+          '<div class="doc-title">Bill</div>' +
+          '<div class="doc-meta">No. <b>' + esc(bill.code) + '</b></div>' +
+          '<div class="doc-meta">Date <b>' + esc(dateLabel(bill.bill_date)) + '</b></div>' +
+          '<div class="doc-meta">' +
+            (settled
+              ? '<span class="stamp">Paid</span>'
+              : (partial
+                ? '<span class="stamp partial">Part paid</span>'
+                : '<span class="stamp partial">Payment due</span>')) +
+          '</div>' +
+        '</div>' +
       '</div>' +
-      (bill.method
-        ? '<p class="sub">Paid by ' + esc(bill.method) +
-          (bill.paid_on ? ' on ' + esc(dateLabel(bill.paid_on)) : '') + '</p>'
-        : '') +
-      (bill.notes ? '<p class="sub">' + esc(bill.notes) + '</p>' : '') +
-      payBlock +
-      '<footer>Printed ' + esc(dateLabel(today())) + ' from ' +
-        esc(state.shop.name || 'AN TAILOR') + '.</footer>' +
+
+      // Who it is for, next to which bill it is. The customer block is the part
+      // that is read aloud at the counter, so the name is the largest thing in it.
+      '<div class="parties">' +
+        '<div class="party">' +
+          '<div class="party-label">Billed to</div>' +
+          '<div class="party-name">' + esc(c.name) + '</div>' +
+          (c.code ? '<div class="party-line">Customer ' + esc(c.code) + '</div>' : '') +
+          (c.mobile ? '<div class="party-line">' + esc(c.mobile) + '</div>' : '') +
+          (c.address ? '<div class="party-line">' + esc(c.address) + '</div>' : '') +
+        '</div>' +
+        '<div class="party">' +
+          '<div class="party-label">Bill summary</div>' +
+          '<div class="party-line">Orders on this bill: <b>' + esc(String(list.length)) + '</b></div>' +
+          (list.length === 1 && list[0].delivery_date
+            ? '<div class="party-line">Delivery due: <b>' +
+              esc(dateLabel(list[0].delivery_date)) + '</b></div>'
+            : '') +
+          (bill.method
+            ? '<div class="party-line">Method: <b>' + esc(bill.method) + '</b>' +
+              (bill.paid_on ? ' on ' + esc(dateLabel(bill.paid_on)) : '') + '</div>'
+            : '') +
+          '<div class="party-line">Amount due: <b>' + money(due) + '</b></div>' +
+        '</div>' +
+      '</div>' +
+
+      // The garments. Each order is a heading row carrying its own totals, with
+      // the items under it, so the customer can see what they are being charged
+      // for and the shop's order code is still on the page.
+      '<table><thead><tr>' +
+        '<th>Description</th><th class="r">Qty</th><th class="r">Amount</th>' +
+        '<th class="r">Order total</th><th class="r">Discount</th><th class="r">Paid</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table>' +
+
+      '<div class="totals">' +
+        '<div><span class="label">Total</span><span class="val">' + money(bill.total) + '</span></div>' +
+        (num(bill.discount)
+          ? '<div><span class="label">Discount</span><span class="val">- ' +
+            money(bill.discount) + '</span></div>'
+          : '') +
+        '<div class="sub"><span class="label">Bill amount</span><span class="val">' +
+          money(bill.bill_amount) + '</span></div>' +
+        '<div><span class="label">Paid</span><span class="val">' + money(bill.advance) + '</span></div>' +
+        '<div class="due"><span class="label">Balance due</span><span class="val">' +
+          money(due) + '</span></div>' +
+      '</div>' +
+
+      // The amount in words. A crossed cheque or a bank transfer is written on a
+      // line like this, and a bill without one looks unfinished to the eye used
+      // to them. The function already ends in "Rupees Only", so the label here
+      // must not repeat the word.
+      '<div class="words"><b>' + esc(amountInWords(bill.bill_amount)) + '</b>' +
+        (paiseOf(bill.bill_amount) ? ' &middot; including ' + esc(paiseOf(bill.bill_amount)) + ' paise' : '') +
+      '</div>' +
+
+      (bill.notes ? '<div class="notes">' + esc(bill.notes) + '</div>' : '') +
+      blocks +
+      '<div class="signs">' +
+        '<div class="sign">Customer signature</div>' +
+        '<div class="sign">For ' + esc(shopName) + '</div>' +
+      '</div>' +
+      '<footer>Printed ' + esc(dateLabel(today())) + ' &middot; ' +
+        esc(shopName) +
+        // The bill is a statement of what is owed, not a demand for payment
+        // through this link, but the UPI id is often the only place it appears
+        // and it is what a customer reads when they want to check they are paying
+        // into the right account. It is already on the QR above when one prints.
+        (state.shop.upiId && settled ? ' &middot; UPI: ' + esc(state.shop.upiId) : '') +
+        '. Garments remain the property of the shop until paid in full.</footer>' +
       '</div>' +
       '</body></html>';
 
@@ -1174,6 +1551,27 @@ window.ANT.bills = (function () {
    * can never disagree about the account or the amount. Returns '' when there is
    * nothing owed or no usable id, which is also how the Pay button knows to stay
    * off the row. */
+  // The shop logo, as a URL the printed window can resolve. The print view is
+  // written into a blank document, where a relative "assets/logo.png" would be
+  // resolved against about:blank and come back broken, so the path is made
+  // absolute here. The image removes itself if the file is not there, leaving the
+  // shop name as the letterhead.
+  function logoUrl() {
+    try {
+      return new URL('assets/logo.png', window.location.href).href;
+    } catch (e) {
+      return 'assets/logo.png';
+    }
+  }
+
+  // The profile the QR opens. Built from the bare username so that whatever the
+  // shop typed in Settings - an @handle or a pasted link - ends at the same URL.
+  function instagramUrl() {
+    return state.shop.instagram
+      ? 'https://www.instagram.com/' + encodeURIComponent(state.shop.instagram)
+      : '';
+  }
+
   function payLink(bill) {
     if (!window.ANT.upi) return '';
 
@@ -1430,5 +1828,12 @@ window.ANT.bills = (function () {
     loadShop();
   }
 
-  return { mount: mount, render: render };
+  return {
+    mount: mount,
+    render: render,
+    // Exposed so the harness can assert the wording of every part of the amount
+    // in words. A wrong word there is read as a statement of fact by whoever signs
+    // a crossed cheque against the line, so it is tested rather than trusted.
+    __amountInWords: amountInWords
+  };
 })();

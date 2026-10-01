@@ -6,7 +6,7 @@
 // network-first falls back to the cache, and the cache still holds the old
 // copy. That is how a "Save order" fix reached the server and never reached
 // the shop phone.
-var CACHE = 'an-tailor-v24';
+var CACHE = 'an-tailor-v25';
 
 // Every module index.html loads, so a first visit that is online and then goes
 // offline still has the whole app rather than a shell that cannot open Bills.
@@ -32,13 +32,22 @@ var SHELL = [
   './scripts/bills.js',
   './scripts/settings.js',
   './scripts/app.js',
-  './assets/icon.svg'
+  './assets/icon.svg',
+  // The shop's own logo. Optional: a shop with no logo file yet still installs.
+  './assets/logo.png'
 ];
 
 self.addEventListener('install', function (event) {
   event.waitUntil(
     caches.open(CACHE).then(function (cache) {
-      return cache.addAll(SHELL);
+      // Each shell file is cached on its own rather than with cache.addAll(),
+      // which rejects the entire install if a single URL is missing. logo.png is
+      // optional, so a shop that has not been given one must still install and
+      // run offline. Anything that fails here is skipped and picked up on first
+      // online use by the fetch handler instead.
+      return Promise.all(SHELL.map(function (entry) {
+        return cache.add(entry).catch(function () { return null; });
+      }));
     }).then(function () {
       return self.skipWaiting();
     })

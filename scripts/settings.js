@@ -33,17 +33,21 @@ window.ANT.settings = (function () {
   // The two print sizes are paper choices for two different documents, and they
   // are kept apart because a shop that prints receipts two-to-a-sheet almost
   // always still wants a full A4 bill.
-  var SHOP_KEYS = ['shop_name', 'upi_id', 'upi_payee_name', 'wa_bill_message',
-    'wa_reminder_message', 'wa_ready_message', 'bill_print_size',
-    'receipt_print_size'];
+  // shop_address and shop_phone are the letterhead of the printed bill. They are
+  // optional on purpose: a shop that has not filled them in still gets a bill that
+  // prints, and a bill separated from its garment bag still names the shop.
+  var SHOP_KEYS = ['shop_name', 'shop_address', 'shop_phone', 'shop_instagram',
+    'upi_id', 'upi_payee_name', 'wa_bill_message', 'wa_reminder_message',
+    'wa_ready_message', 'bill_print_size', 'receipt_print_size'];
 
   var state = {
     tab: 'dress',
     search: '',
     dressRows: [],
     priceRows: [],
-    shop: { shop_name: '', upi_id: '', upi_payee_name: '', wa_bill_message: '',
-      wa_reminder_message: '', wa_ready_message: '', bill_print_size: '', receipt_print_size: '' },
+    shop: { shop_name: '', shop_address: '', shop_phone: '', shop_instagram: '',
+      upi_id: '', upi_payee_name: '', wa_bill_message: '', wa_reminder_message: '',
+      wa_ready_message: '', bill_print_size: '', receipt_print_size: '' },
     staff: { rows: [], access: {}, loading: false, error: null },
     loading: false,
     error: null,
@@ -109,8 +113,9 @@ window.ANT.settings = (function () {
   // shop_settings is a key/value table. Only the keys the bill uses are kept;
   // anything else a hand-edit left in the table is ignored rather than shown.
   function applyShop(rows) {
-    var shop = { shop_name: '', upi_id: '', upi_payee_name: '', wa_bill_message: '',
-      wa_reminder_message: '', wa_ready_message: '', bill_print_size: '', receipt_print_size: '' };
+    var shop = { shop_name: '', shop_address: '', shop_phone: '', shop_instagram: '',
+      upi_id: '', upi_payee_name: '', wa_bill_message: '', wa_reminder_message: '',
+      wa_ready_message: '', bill_print_size: '', receipt_print_size: '' };
     rows.forEach(function (row) {
       if (SHOP_KEYS.indexOf(row.key) !== -1) {
         shop[row.key] = String(row.value == null ? '' : row.value);
@@ -385,6 +390,9 @@ window.ANT.settings = (function () {
       '<form id="shopForm" novalidate>' +
         '<div class="form-grid">' +
           shopField('shopName', 'Shop name', s.shop_name, 'Shown on the bill and used as the UPI payee when no payee name is set.') +
+          shopField('shopAddress', 'Address', s.shop_address, 'Printed under the shop name on the bill. Optional, but it is how a bill separated from its garment bag is traced back.') +
+          shopField('shopPhone', 'Phone', s.shop_phone, 'Printed under the shop name on the bill. Optional.') +
+          shopField('shopInstagram', 'Instagram', s.shop_instagram, 'Your username. Printed as a QR on the bill so a customer can follow the shop and reorder. Just the handle, or paste the profile link.') +
           shopField('shopUpi', 'UPI ID', upi, 'Like antailor@okhdfcbank. Printed as a QR on any bill with money still due.') +
           shopField('shopPayee', 'UPI payee name', s.upi_payee_name, 'The name the customer sees in their UPI app.') +
           shopField('shopConfirm', 'Confirm UPI ID', '', 'Type the new UPI ID again, but only when you change an existing one.') +
@@ -403,8 +411,30 @@ window.ANT.settings = (function () {
     '</div>';
   }
 
+  // Instagram is typed three ways in practice: "@shop", "shop", or the whole
+  // profile link pasted from the app. All three mean the same profile, so they are
+  // reduced to the bare username and the link is rebuilt from it. A wrong handle
+  // would print a QR that opens somebody else's page, so it is normalised here
+  // rather than trusted.
+  function normalizeInstagram(value) {
+    var s = String(value == null ? '' : value).trim();
+    if (!s) return '';
+    var fromUrl = /instagram\.com\/([^\/?#\s]+)/i.exec(s);
+    if (fromUrl) s = fromUrl[1];
+    // Instagram usernames are handled case-insensitively and stored lowercase, so
+    // the value is lowercased here too: otherwise two rows that name the same
+    // profile would print two different QRs.
+    return s.replace(/^@+/, '').replace(/[\/?#].*$/, '').trim().toLowerCase();
+  }
+
   function saveShop() {
     var name = byId('shopName').value.trim();
+    // Newlines in the address would print as a blank line in the letterhead box,
+    // so the field is flattened to a single line rather than trusted to be typed
+    // that way.
+    var address = byId('shopAddress').value.replace(/\s+/g, ' ').trim();
+    var phone = byId('shopPhone').value.replace(/\s+/g, ' ').trim();
+    var instagram = normalizeInstagram(byId('shopInstagram').value);
     var upiIn = window.ANT.upi.normalizeVpa(byId('shopUpi').value);
     var payee = byId('shopPayee').value.trim();
     var confirm = window.ANT.upi.normalizeVpa(byId('shopConfirm').value);
@@ -433,6 +463,9 @@ window.ANT.settings = (function () {
 
     Promise.all([
       putSetting('shop_name', name),
+      putSetting('shop_address', address),
+      putSetting('shop_phone', phone),
+      putSetting('shop_instagram', instagram),
       putSetting('upi_id', upiIn),
       putSetting('upi_payee_name', payee),
       putSetting('bill_print_size', printSize),
