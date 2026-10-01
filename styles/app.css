@@ -181,7 +181,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   overflow: hidden;
 }
 
-/* The shop's own logo, from assets/logo.png. It is optional: if the file is not
+/* The shop's own logo, from assets/ANTailor.png. It is optional: if the file is not
    there the image removes itself and the "AN" monogram stays, so the bar never
    shows a broken image. The chip turns white behind the logo so a dark or
    full-colour mark reads on the navy bar. */

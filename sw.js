@@ -34,14 +34,14 @@ var SHELL = [
   './scripts/app.js',
   './assets/icon.svg',
   // The shop's own logo. Optional: a shop with no logo file yet still installs.
-  './assets/logo.png'
+  './assets/ANTailor.png'
 ];
 
 self.addEventListener('install', function (event) {
   event.waitUntil(
     caches.open(CACHE).then(function (cache) {
       // Each shell file is cached on its own rather than with cache.addAll(),
-      // which rejects the entire install if a single URL is missing. logo.png is
+      // which rejects the entire install if a single URL is missing. ANTailor.png is
       // optional, so a shop that has not been given one must still install and
       // run offline. Anything that fails here is skipped and picked up on first
       // online use by the fetch handler instead.

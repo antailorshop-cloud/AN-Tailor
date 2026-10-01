@@ -1418,7 +1418,7 @@ window.ANT.bills = (function () {
       // has not filled them in simply prints a name.
       '<div class="head">' +
         '<div class="brand">' +
-          // The shop's own logo, if a logo.png has been dropped into assets/. The
+          // The shop's own logo, if ANTailor.png has been dropped into assets/. The
           // printed window is a blank document, so the path is made absolute; if
           // the file is not there the image removes itself and the shop name
           // carries the header on its own.
@@ -1552,15 +1552,15 @@ window.ANT.bills = (function () {
    * nothing owed or no usable id, which is also how the Pay button knows to stay
    * off the row. */
   // The shop logo, as a URL the printed window can resolve. The print view is
-  // written into a blank document, where a relative "assets/logo.png" would be
-  // resolved against about:blank and come back broken, so the path is made
+  // written into a blank document, where a relative "assets/ANTailor.png" would
+  // be resolved against about:blank and come back broken, so the path is made
   // absolute here. The image removes itself if the file is not there, leaving the
   // shop name as the letterhead.
   function logoUrl() {
     try {
-      return new URL('assets/logo.png', window.location.href).href;
+      return new URL('assets/ANTailor.png', window.location.href).href;
     } catch (e) {
-      return 'assets/logo.png';
+      return 'assets/ANTailor.png';
     }
   }
 
