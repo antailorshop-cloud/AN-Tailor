@@ -1119,117 +1119,81 @@ window.ANT.bills = (function () {
     * because a bill short of a row is worse than one that is less detailed.
     */
 
-  // One line of CSS, joined with a space. The printed document has no external
-  // stylesheet to link, so every rule it needs is written here.
-  //
-  // The palette is the app's own: the deep ink and navy of the topbar with the
-  // muted gold rule. A bill is kept and photographed, so it should look like the
-  // shop, not like a spreadsheet. Gold is used only for rules, labels and the
-  // balance - never behind a figure, so the numbers stay the darkest thing on the
-  // page.
   var PRINT_CSS = [
     '*{box-sizing:border-box}',
     'body{font:12.5px/1.5 "Segoe UI",system-ui,-apple-system,Arial,sans-serif;color:#1f2937;margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}',
     '.bill{max-width:190mm;margin:0 auto}',
 
-    /* The letterhead. A shop's name is the one thing that makes a document
-     * recognisable months later in a folder, so it is the largest thing on the
-     * page, set in a serif and closed with a double gold rule. */
-    '.head{display:flex;justify-content:space-between;align-items:flex-start;gap:10mm;padding-bottom:4mm;border-bottom:3px double #b08d3f}',
+    '.head{display:flex;justify-content:space-between;align-items:flex-start;gap:10mm;padding-bottom:3mm;border-bottom:2px solid #0f2239}',
     '.brand{display:flex;align-items:center;gap:5mm;min-width:0}',
-    '.shop-logo{width:36mm;height:36mm;object-fit:contain;flex:0 0 auto}',
-    '.shop-name{font-family:Georgia,"Times New Roman",serif;font-size:23px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;line-height:1.15;color:#1a1a2e}',
-    '.shop-sub{font-size:10px;color:#6b7280;margin-top:1.6mm;letter-spacing:.03em}',
+    '.shop-logo{width:32mm;height:32mm;object-fit:contain;flex:0 0 auto}',
+    '.shop-name{font-family:Georgia,"Times New Roman",serif;font-size:28px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;line-height:1.1;color:#0f2239}',
+    '.shop-sub{font-size:10px;color:#5c4821;margin-top:1.4mm;letter-spacing:.04em;font-weight:600}',
     '.doc{text-align:right;flex:0 0 auto}',
-    '.doc-title{font-family:Georgia,"Times New Roman",serif;font-size:16px;font-weight:700;letter-spacing:.34em;text-transform:uppercase;color:#b08d3f;margin-right:-.34em}',
-    '.doc-meta{font-size:10px;color:#6b7280;margin-top:1.6mm;letter-spacing:.03em}',
-    '.doc-meta b{color:#16213e;font-weight:600;letter-spacing:.05em}',
+    '.doc-title{font-family:Georgia,"Times New Roman",serif;font-size:14px;font-weight:700;letter-spacing:.3em;text-transform:uppercase;color:#b08d3f;margin-right:-.3em}',
+    '.doc-meta{font-size:10px;color:#6b7280;margin-top:1.4mm;letter-spacing:.03em}',
+    '.doc-meta b{color:#0f2239;font-weight:600;letter-spacing:.04em}',
 
-    /* Who it is for, and which bill it is. Two columns so the customer block and
-     * the bill details do not compete for the same line. */
-    '.parties{display:flex;gap:10mm;margin:6mm 0 5mm}',
-    '.party{flex:1 1 0;min-width:0}',
-    '.party-label{font-size:8.5px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:#b08d3f;padding-bottom:1.2mm;margin-bottom:2.4mm;border-bottom:1px solid #e8e0c8}',
-    '.party-name{font-family:Georgia,"Times New Roman",serif;font-size:15px;font-weight:600;color:#1a1a2e}',
-    '.party-line{font-size:11px;color:#374151;margin-top:1.2mm;word-break:break-word}',
+    '.bill-bar{display:flex;gap:0;margin:0 -2mm;padding:2.5mm 2mm;background:#0f2239;border-radius:2px}',
+    '.bill-bar-item{flex:1 1 0;min-width:0;text-align:center}',
+    '.bill-bar-label{font-size:7.5px;font-weight:700;letter-spacing:.22em;text-transform:uppercase;color:#d8c293}',
+    '.bill-bar-val{font-size:11px;font-weight:600;color:#ffffff;margin-top:.6mm;letter-spacing:.04em}',
 
-    /* The figures. Right-aligned numbers, because a column of rupees is read by
-     * its decimal places and anything else makes that impossible. */
+    '.parties{display:flex;gap:8mm;margin:5mm 0 4mm}',
+    '.party{flex:1 1 0;min-width:0;border:1px solid #d4c9a8;border-radius:2px;padding:2.5mm 3mm;background:#fffdf7}',
+    '.party-label{font-size:8px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:#b08d3f;padding-bottom:1mm;margin-bottom:1.8mm;border-bottom:1px solid #e8e0c8}',
+    '.party-name{font-family:Georgia,"Times New Roman",serif;font-size:14px;font-weight:600;color:#0f2239}',
+    '.party-line{font-size:10.5px;color:#374151;margin-top:1mm;word-break:break-word}',
+
     'table{width:100%;border-collapse:collapse;margin:2mm 0 0}',
-    'th{font-size:8.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#16213e;text-align:left;padding:2.2mm 2mm;background:#fdf8ed;border-bottom:1px solid #b08d3f;white-space:nowrap}',
-    'td{font-size:11.5px;padding:2mm;border-bottom:1px solid #eee7d6;vertical-align:top}',
+    'th{font-size:8px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#ffffff;text-align:left;padding:2mm 1.8mm;background:#0f2239;white-space:nowrap}',
+    'td{font-size:11px;padding:1.8mm;border-bottom:1px solid #e8e0c8;vertical-align:top}',
     'th.r,td.r{text-align:right;white-space:nowrap}',
-    '.ord-head td{background:#f7f4ea;font-weight:600;font-size:10.5px;letter-spacing:.05em;color:#16213e;border-bottom:1px solid #d4c9a8;padding:1.7mm 2mm}',
+    '.ord-head td{background:#f7f4ea;font-weight:600;font-size:10px;letter-spacing:.04em;color:#0f2239;border-bottom:1px solid #d4c9a8;padding:1.5mm 1.8mm}',
     '.item-name{font-weight:500;color:#1f2937}',
-    '.item-note{font-size:9.5px;color:#6b7280;margin-top:.5mm;letter-spacing:.02em}',
-    '.item-qty{text-align:right;white-space:nowrap;color:#374151}',
+    '.item-note{font-size:9px;color:#6b7280;margin-top:.4mm;letter-spacing:.02em}',
 
-    /* The totals sit under the money columns, on the same right edge, so the eye
-     * can run down one line to the balance. */
-    '.totals{margin:5mm 0 0 auto;width:80mm}',
-    '.totals div{display:flex;justify-content:space-between;gap:6mm;padding:1.6mm 2mm;font-size:11.5px}',
+    '.totals{margin:4mm 0 0 auto;width:75mm}',
+    '.totals div{display:flex;justify-content:space-between;gap:5mm;padding:1.4mm 1.8mm;font-size:11px}',
     '.totals .label{color:#374151}',
-    '.totals .val{font-variant-numeric:tabular-nums;white-space:nowrap;color:#16213e}',
-    '.totals .sub{border-top:1px solid #d4c9a8;margin-top:1mm;padding-top:2.2mm;font-weight:600}',
-    '.totals .due{border-top:2px solid #b08d3f;border-bottom:2px solid #b08d3f;background:#fdf8ed;margin-top:1.8mm;padding:2.8mm 2mm;font-size:13.5px;font-weight:700}',
-    '.totals .due .label{color:#1a1a2e;font-weight:700;letter-spacing:.03em}',
-    '.totals .due .val{color:#1a1a2e}',
+    '.totals .val{font-variant-numeric:tabular-nums;white-space:nowrap;color:#0f2239}',
+    '.totals .sub{border-top:1px solid #d4c9a8;margin-top:.8mm;padding-top:1.8mm;font-weight:600}',
+    '.totals .due{border-top:2px solid #b08d3f;border-bottom:2px solid #b08d3f;background:#fdf8ed;margin-top:1.4mm;padding:2.4mm 1.8mm;font-size:13px;font-weight:700}',
+    '.totals .due .label{color:#0f2239;font-weight:700;letter-spacing:.02em}',
+    '.totals .due .val{color:#0f2239}',
 
-    /* A bill that is settled should look settled from across the counter. The
-     * stamp is gold for the state that gets chased, green for the one that is
-     * finished. */
-    '.stamp{display:inline-block;border:1.5px solid #166534;color:#166534;font-size:10px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;padding:1.2mm 3mm;border-radius:2px;transform:rotate(-2deg)}',
+    '.stamp{display:inline-block;border:1.5px solid #166534;color:#166534;font-size:9px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;padding:1mm 2.5mm;border-radius:2px;transform:rotate(-2deg)}',
     '.stamp.partial{border-color:#b08d3f;color:#96762f}',
 
-    '.words{font-size:10.5px;margin:5mm 0 0;padding:2.4mm 0 0;border-top:1px solid #eee7d6;color:#374151;letter-spacing:.01em}',
-    '.words b{font-weight:600;color:#1a1a2e}',
+    '.words{font-size:10px;margin:4mm 0 0;padding:2mm 0 0;border-top:1px solid #e8e0c8;color:#374151;letter-spacing:.01em}',
+    '.words b{font-weight:600;color:#0f2239}',
 
-    /* Paying and following sit side by side, so the QR a customer scans to pay
-     * and the one they scan to come back are in the same place on every bill.
-     *
-     * The two are told apart at a glance rather than being two grey boxes: the
-     * payment code is gold and squared off, which is what a till looks like, and
-     * the follow code is the deep navy of the app icon with a camera glyph in it.
-     * The code itself always sits on a white plate with its quiet zone intact -
-     * a camera given a coloured background to look at cannot read the code, and a
-     * bill that cannot be scanned is worse than a plain one. */
-    '.blocks{display:flex;flex-wrap:wrap;gap:5mm;align-items:stretch;margin-top:6mm}',
-    '.pay{position:relative;display:flex;gap:4mm;align-items:center;background:#fffdf7;border:1px solid #d4c9a8;border-left:3.5mm solid #b08d3f;border-radius:2px;padding:3.5mm 4mm 3.5mm 5mm;flex:1 1 auto;min-width:0;page-break-inside:avoid;break-inside:avoid}',
-    '.pay-ribbon{position:absolute;top:-2.6mm;left:5mm;background:#b08d3f;color:#fff8e8;font-size:7.5px;font-weight:700;letter-spacing:.24em;text-transform:uppercase;padding:.8mm 2.2mm;border-radius:1px}',
-    '.qr-plate{background:#ffffff;border:1px solid #e8e0c8;border-radius:2px;padding:1.6mm;flex:0 0 auto;display:block}',
-    '.qr{width:27mm;height:27mm;display:block}',
-    '.pay-text{font-size:11px;min-width:0}',
-    '.pay-head{font-family:Georgia,"Times New Roman",serif;font-weight:700;font-size:12.5px;margin-bottom:.6mm;color:#1a1a2e}',
-    '.pay-amt{font-family:Georgia,"Times New Roman",serif;font-size:15px;font-weight:700;color:#b08d3f;letter-spacing:.02em;margin:.4mm 0 1mm}',
-    '.pay-link{display:inline-block;margin:0 0 1mm;color:#0f3460;font-weight:600;word-break:break-all;text-decoration:none;border-bottom:.4mm solid #d4c9a8}',
-    '.pay-id{color:#6b7280;font-size:10.5px;letter-spacing:.02em}',
-    '.follow{position:relative;flex:0 0 auto;display:flex;gap:3.5mm;align-items:center;background:#16213e;color:#f4f1e8;border-radius:3px;padding:4mm 4.5mm;page-break-inside:avoid;break-inside:avoid}',
+    '.blocks{display:flex;flex-wrap:wrap;gap:4mm;align-items:stretch;margin-top:5mm}',
+    '.pay{position:relative;display:flex;gap:3.5mm;align-items:center;background:#fffdf7;border:1px solid #d4c9a8;border-left:3mm solid #b08d3f;border-radius:2px;padding:3mm 3.5mm 3mm 4mm;flex:1 1 auto;min-width:0;page-break-inside:avoid;break-inside:avoid}',
+    '.pay-ribbon{position:absolute;top:-2.4mm;left:4mm;background:#b08d3f;color:#fff8e8;font-size:7px;font-weight:700;letter-spacing:.22em;text-transform:uppercase;padding:.7mm 2mm;border-radius:1px}',
+    '.qr-plate{background:#ffffff;border:1px solid #e8e0c8;border-radius:2px;padding:1.4mm;flex:0 0 auto;display:block}',
+    '.qr{width:25mm;height:25mm;display:block}',
+    '.pay-text{font-size:10.5px;min-width:0}',
+    '.pay-head{font-family:Georgia,"Times New Roman",serif;font-weight:700;font-size:12px;margin-bottom:.5mm;color:#0f2239}',
+    '.pay-amt{font-family:Georgia,"Times New Roman",serif;font-size:14px;font-weight:700;color:#b08d3f;letter-spacing:.02em;margin:.3mm 0 .8mm}',
+    '.pay-link{display:inline-block;margin:0 0 .8mm;color:#0f3460;font-weight:600;word-break:break-all;text-decoration:none;border-bottom:.4mm solid #d4c9a8}',
+    '.pay-id{color:#6b7280;font-size:10px;letter-spacing:.02em}',
+    '.follow{position:relative;flex:0 0 auto;display:flex;gap:3mm;align-items:center;background:#0f2239;color:#f4f1e8;border-radius:3px;padding:3.5mm 4mm;page-break-inside:avoid;break-inside:avoid}',
     '.follow .qr-plate{border-color:#3a4a6e;background:#ffffff}',
-    '.follow .qr{width:21mm;height:21mm}',
+    '.follow .qr{width:20mm;height:20mm}',
     '.follow-text{min-width:0}',
-    '.follow-head{font-family:Georgia,"Times New Roman",serif;font-weight:700;font-size:12px;color:#ffffff;display:flex;align-items:center;gap:1.6mm}',
+    '.follow-head{font-family:Georgia,"Times New Roman",serif;font-weight:700;font-size:11px;color:#ffffff;display:flex;align-items:center;gap:1.4mm}',
     '.follow-glyph{flex:0 0 auto;display:block}',
-    '.follow-link{display:inline-block;margin:.8mm 0 .4mm;color:#f0d9a0;font-weight:600;word-break:break-all;text-decoration:none;border-bottom:.4mm solid #4a5a80}',
-    '.follow-id{font-size:9.5px;color:#a9b4c9;letter-spacing:.1em;text-transform:uppercase}',
+    '.follow-link{display:inline-block;margin:.7mm 0 .3mm;color:#f0d9a0;font-weight:600;word-break:break-all;text-decoration:none;border-bottom:.4mm solid #4a5a80}',
+    '.follow-id{font-size:9px;color:#a9b4c9;letter-spacing:.08em;text-transform:uppercase}',
 
-    /* Signature lines. A bill is acknowledged by both sides, and without a line
-     * to sign on there is nowhere for the customer to say they received it. */
-    '.signs{display:flex;gap:14mm;margin-top:10mm}',
-    '.sign{flex:1 1 0;border-top:1px solid #1a1a2e;padding-top:1.6mm;font-size:9.5px;color:#6b7280;letter-spacing:.04em}',
+    '.signs{display:flex;gap:12mm;margin-top:8mm}',
+    '.sign{flex:1 1 0;border-top:1px solid #0f2239;padding-top:1.4mm;font-size:9px;color:#6b7280;letter-spacing:.03em}',
 
-    'footer{margin-top:6mm;padding-top:2.6mm;border-top:3px double #d4c9a8;font-size:9px;color:#6b7280;letter-spacing:.02em}',
-    '.notes{margin:4mm 0 0;font-size:11px;padding:2.6mm 3mm;background:#f7f4ea;border-left:2px solid #b08d3f;color:#374151}',
+    'footer{margin-top:5mm;padding-top:2.2mm;border-top:2px solid #0f2239;font-size:8.5px;color:#6b7280;letter-spacing:.02em}',
+    '.notes{margin:3.5mm 0 0;font-size:10.5px;padding:2.2mm 2.5mm;background:#f7f4ea;border-left:2px solid #b08d3f;color:#374151}',
 
-    /* Printed body margin is zeroed because @page already sets the page margin,
-     * and the two would otherwise stack into a double margin. */
     '@media print{body{margin:0;padding:0}',
-
-    /* The one-page fit. zoom is set on the .bill element by fitToOnePage() in the
-     * print window once the document has been laid out and measured, so there is
-     * no rule here that scales anything by itself - only the guarantee that the
-     * scale is a real layout zoom rather than a paint-only transform. A transform
-     * would shrink the pixels but leave the element's height alone, and the
-     * browser would still break the document across two pages. */
     '.bill{transform-origin:top left}',
 
     '}',
@@ -1327,47 +1291,41 @@ window.ANT.bills = (function () {
 
     // The items are optional decoration, so a bill never waits on them and a read
     // that failed simply leaves the order to print on its own.
-    var rows = list.map(function (o) {
-      var items = (o.items || []).map(function (it) {
+    var rows = list.map(function (o, oi) {
+      var items = (o.items || []).map(function (it, idx) {
         var note = [];
         if (it.variant) note.push(it.variant);
         if (it.lining) note.push(it.lining + ' lining');
-        // "Tailoring" is the default and naming it on every line is noise, but a
-        // line that is NOT tailoring - ready stock, for instance - has to say so,
-        // or the bill reads as though the shop made it.
         if (it.service && it.service !== 'Tailoring') note.push(it.service);
 
         return '<tr>' +
+          '<td class="r">' + esc(String(idx + 1)) + '</td>' +
+          '<td class="r">' + esc(o.code) + '</td>' +
           '<td class="item">' +
             '<div class="item-name">' +
               esc(it.dress_type || it.category || 'Garment') + '</div>' +
             (note.length ? '<div class="item-note">' + esc(note.join(' · ')) + '</div>' : '') +
           '</td>' +
-          '<td class="r item-qty">' + esc(String(it.quantity == null ? '' : it.quantity)) + '</td>' +
+          '<td class="r">' + esc(dateLabel(o.delivery_date)) + '</td>' +
+          '<td class="r">' + esc(String(it.quantity == null ? '' : it.quantity)) + '</td>' +
+          '<td class="r">' + money(it.line_total) + '</td>' +
+          '<td class="r">' + money(0) + '</td>' +
           '<td class="r">' + money(it.line_total) + '</td>' +
         '</tr>';
       }).join('');
 
-      // An order heading with nothing under it reads as a printing fault, so when
-      // there are no garment lines the bill says so rather than leaving the
-      // customer to wonder whether a line was dropped.
       if (!items) {
-        items = '<tr><td colspan="3" class="item-note">' +
+        items = '<tr><td colspan="8" class="item-note">' +
           'No garments are listed for this order.' +
           (o.code ? ' (Order ' + esc(o.code) + '.)' : '') +
         '</td></tr>';
       }
 
-      return '<tr class="ord-head"><td colspan="3">Order ' + esc(o.code) +
-          (o.delivery_date ? ' &middot; due ' + esc(dateLabel(o.delivery_date)) : '') +
-        '</td>' +
-        '<td class="r">' + money(o.total) + '</td>' +
-        '<td class="r">' + (num(o.discount) ? '- ' + money(o.discount) : money(0)) + '</td>' +
-        '<td class="r">' + money(o.advance) + '</td></tr>' + items;
+      return items;
     }).join('');
 
     if (!list.length) {
-      rows = '<tr><td colspan="6" class="item-note">No orders are recorded on this bill.</td></tr>';
+      rows = '<tr><td colspan="8" class="item-note">No orders are recorded on this bill.</td></tr>';
     }
 
     // A UPI code is drawn only when a real amount is still owed and the shop
@@ -1381,7 +1339,7 @@ window.ANT.bills = (function () {
       var dueLabel = money(window.ANT.upi.balanceDue(bill));
 
       payBlock = '<div class="pay">' +
-        '<span class="pay-ribbon">Scan to Pay</span>' +
+        '<span class="pay-ribbon">Scan &amp; Pay</span>' +
         '<span class="qr-plate">' +
           window.ANT.qr.svg(target, {
             className: 'qr',
@@ -1393,14 +1351,10 @@ window.ANT.bills = (function () {
         '</span>' +
         '<div class="pay-text">' +
           '<div class="pay-head">Pay by UPI</div>' +
-          // The amount is set on its own line in the accent colour: it is the one
-          // figure a customer checks the code against before scanning, and beside
-          // the words it is too easy to read past.
-          '<div class="pay-amt">' + esc(dueLabel) + ' due now</div>' +
-          // Kept in the printed bill as well as on screen, because a bill sent
-          // on as a PDF can still carry a link some viewers will open.
+          '<div class="pay-amt">Pay ' + esc(dueLabel) + '</div>' +
           '<a class="pay-link" href="' + esc(target) + '">Tap to Pay ' + esc(dueLabel) + '</a>' +
           '<div class="pay-id">UPI ID: ' + esc(state.shop.upiId) + '</div>' +
+          '<div class="pay-id">Any UPI app</div>' +
         '</div>' +
       '</div>';
     }
@@ -1424,10 +1378,6 @@ window.ANT.bills = (function () {
           }) +
         '</span>' +
         '<div class="follow-text">' +
-          // The camera glyph is drawn rather than typed: an emoji or a small
-          // bitmap of the Instagram mark would print inconsistently across
-          // printers, and this is the only place on the bill the shop's social
-          // presence is named.
           '<div class="follow-head">' +
             '<svg class="follow-glyph" width="13" height="13" viewBox="0 0 24 24" ' +
               'fill="none" stroke="#f0d9a0" stroke-width="2" aria-hidden="true">' +
@@ -1435,18 +1385,14 @@ window.ANT.bills = (function () {
               '<circle cx="12" cy="12" r="4.2"/>' +
               '<circle cx="17.6" cy="6.4" r="1.15" fill="#f0d9a0" stroke="none"/>' +
             '</svg>' +
-            'Follow us' +
+            'Follow Us' +
           '</div>' +
           '<a class="follow-link" href="' + esc(igTarget) + '">@' +
             esc(state.shop.instagram) + '</a>' +
-          '<div class="follow-id">New designs on Instagram</div>' +
+          '<div class="follow-id">Scan to connect</div>' +
         '</div>' +
       '</div>';
     }
-
-    var blocks = (payBlock || followBlock)
-      ? '<div class="blocks">' + payBlock + followBlock + '</div>'
-      : '';
 
     var html = '<!doctype html><html><head><meta charset="utf-8"><title>' +
       esc(bill.code) + ' ' + esc(shopName) + '</title><style>' +
@@ -1456,114 +1402,95 @@ window.ANT.bills = (function () {
       '</style></head><body>' +
       '<div class="bill' + (size === 'A4HALF' ? ' bill-half' : '') + '">' +
 
-      // The letterhead. The shop's name is the largest thing on the page, because
-      // the first job of a filed bill is to be recognisable as this shop's. The
-      // address and phone go under it so a bill that gets separated from the
-      // garment bag still says where it came from. Both are optional: a shop that
-      // has not filled them in simply prints a name.
       '<div class="head">' +
         '<div class="brand">' +
-          // The shop's own logo, if ANTailor.png has been dropped into assets/. The
-          // printed window is a blank document, so the path is made absolute; if
-          // the file is not there the image removes itself and the shop name
-          // carries the header on its own.
           '<img class="shop-logo" src="' + esc(logoUrl()) + '" alt="" ' +
             'onerror="this.remove()">' +
           '<div>' +
             '<div class="shop-name">' + esc(shopName) + '</div>' +
-            (state.shop.address
-              ? '<div class="shop-sub">' + esc(state.shop.address) + '</div>'
-              : '') +
-            (state.shop.phone
-              ? '<div class="shop-sub">' + esc(state.shop.phone) + '</div>'
-              : '') +
+            '<div class="shop-sub">Professional Tailoring Services</div>' +
           '</div>' +
         '</div>' +
-        '<div class="doc">' +
-          // "Bill" rather than "Tax Invoice". This document carries no tax
-          // breakdown and no tax registration number, so calling it a tax invoice
-          // would claim something the bill does not actually show.
-          '<div class="doc-title">Bill</div>' +
-          '<div class="doc-meta">No. <b>' + esc(bill.code) + '</b></div>' +
-          '<div class="doc-meta">Date <b>' + esc(dateLabel(bill.bill_date)) + '</b></div>' +
-          '<div class="doc-meta">' +
-            (settled
-              ? '<span class="stamp">Paid</span>'
-              : (partial
-                ? '<span class="stamp partial">Part paid</span>'
-                : '<span class="stamp partial">Payment due</span>')) +
+        followBlock +
+      '</div>' +
+
+      '<div class="bill-bar">' +
+        '<div class="bill-bar-item">' +
+          '<div class="bill-bar-label">Bill No</div>' +
+          '<div class="bill-bar-val">' + esc(bill.code) + '</div>' +
+        '</div>' +
+        '<div class="bill-bar-item">' +
+          '<div class="bill-bar-label">Bill Date</div>' +
+          '<div class="bill-bar-val">' + esc(dateLabel(bill.bill_date)) + '</div>' +
+        '</div>' +
+        '<div class="bill-bar-item">' +
+          '<div class="bill-bar-label">Delivery Date</div>' +
+          '<div class="bill-bar-val">' + esc(dateLabel(list[0] && list[0].delivery_date)) + '</div>' +
+        '</div>' +
+        '<div class="bill-bar-item">' +
+          '<div class="bill-bar-label">Status</div>' +
+          '<div class="bill-bar-val">' +
+            (settled ? 'Paid' : (partial ? 'Part paid' : 'Payment due')) +
           '</div>' +
         '</div>' +
       '</div>' +
 
-      // Who it is for, next to which bill it is. The customer block is the part
-      // that is read aloud at the counter, so the name is the largest thing in it.
       '<div class="parties">' +
         '<div class="party">' +
-          '<div class="party-label">Billed to</div>' +
-          '<div class="party-name">' + esc(c.name) + '</div>' +
-          (c.code ? '<div class="party-line">Customer ' + esc(c.code) + '</div>' : '') +
-          (c.mobile ? '<div class="party-line">' + esc(c.mobile) + '</div>' : '') +
-          (c.address ? '<div class="party-line">' + esc(c.address) + '</div>' : '') +
+          '<div class="party-label">Customer Details</div>' +
+          '<div class="party-line">Customer ID: <b>' + esc(c.code || '-') + '</b></div>' +
+          '<div class="party-line">Customer Name: <b>' + esc(c.name) + '</b></div>' +
+          '<div class="party-line">Mobile No: <b>' + esc(c.mobile || '-') + '</b></div>' +
+          (c.address ? '<div class="party-line">Address: <b>' + esc(c.address) + '</b></div>' : '') +
         '</div>' +
         '<div class="party">' +
-          '<div class="party-label">Bill summary</div>' +
+          '<div class="party-label">Bill Summary</div>' +
           '<div class="party-line">Orders on this bill: <b>' + esc(String(list.length)) + '</b></div>' +
-          (list.length === 1 && list[0].delivery_date
-            ? '<div class="party-line">Delivery due: <b>' +
-              esc(dateLabel(list[0].delivery_date)) + '</b></div>'
-            : '') +
           (bill.method
-            ? '<div class="party-line">Method: <b>' + esc(bill.method) + '</b>' +
-              (bill.paid_on ? ' on ' + esc(dateLabel(bill.paid_on)) : '') + '</div>'
+            ? '<div class="party-line">Payment Method: <b>' + esc(bill.method) + '</b></div>'
             : '') +
           '<div class="party-line">Amount due: <b>' + money(due) + '</b></div>' +
         '</div>' +
       '</div>' +
 
-      // The garments. Each order is a heading row carrying its own totals, with
-      // the items under it, so the customer can see what they are being charged
-      // for and the shop's order code is still on the page.
       '<table><thead><tr>' +
-        '<th>Description</th><th class="r">Qty</th><th class="r">Amount</th>' +
-        '<th class="r">Order total</th><th class="r">Discount</th><th class="r">Paid</th>' +
+        '<th>S.No</th><th>Order ID</th><th>Dress Type</th><th>Delivery Date</th>' +
+        '<th class="r">Qty</th><th class="r">Rate</th><th class="r">Disc</th><th class="r">Amount</th>' +
       '</tr></thead><tbody>' + rows + '</tbody></table>' +
 
       '<div class="totals">' +
-        '<div><span class="label">Total</span><span class="val">' + money(bill.total) + '</span></div>' +
+        '<div><span class="label">Sub Total</span><span class="val">' + money(bill.total) + '</span></div>' +
         (num(bill.discount)
           ? '<div><span class="label">Discount</span><span class="val">- ' +
             money(bill.discount) + '</span></div>'
           : '') +
-        '<div class="sub"><span class="label">Bill amount</span><span class="val">' +
+        '<div class="sub"><span class="label">Total Amount</span><span class="val">' +
           money(bill.bill_amount) + '</span></div>' +
-        '<div><span class="label">Paid</span><span class="val">' + money(bill.advance) + '</span></div>' +
-        '<div class="due"><span class="label">Balance due</span><span class="val">' +
+        '<div><span class="label">Total Paid</span><span class="val">' + money(bill.advance) + '</span></div>' +
+        '<div class="due"><span class="label">Balance Amount</span><span class="val">' +
           money(due) + '</span></div>' +
       '</div>' +
 
-      // The amount in words. A crossed cheque or a bank transfer is written on a
-      // line like this, and a bill without one looks unfinished to the eye used
-      // to them. The function already ends in "Rupees Only", so the label here
-      // must not repeat the word.
       '<div class="words"><b>' + esc(amountInWords(bill.bill_amount)) + '</b>' +
         (paiseOf(bill.bill_amount) ? ' &middot; including ' + esc(paiseOf(bill.bill_amount)) + ' paise' : '') +
       '</div>' +
 
       (bill.notes ? '<div class="notes">' + esc(bill.notes) + '</div>' : '') +
-      blocks +
+      payBlock +
       '<div class="signs">' +
         '<div class="sign">Customer signature</div>' +
         '<div class="sign">For ' + esc(shopName) + '</div>' +
       '</div>' +
-      '<footer>Printed ' + esc(dateLabel(today())) + ' &middot; ' +
-        esc(shopName) +
-        // The bill is a statement of what is owed, not a demand for payment
-        // through this link, but the UPI id is often the only place it appears
-        // and it is what a customer reads when they want to check they are paying
-        // into the right account. It is already on the QR above when one prints.
-        (state.shop.upiId && settled ? ' &middot; UPI: ' + esc(state.shop.upiId) : '') +
-        '. Garments remain the property of the shop until paid in full.</footer>' +
+      '<footer>' +
+        '<div style="font-family:Georgia,serif;font-size:16px;font-weight:700;color:#0f2239;letter-spacing:.1em;text-transform:uppercase">' + esc(shopName) + '</div>' +
+        '<div style="font-size:10px;color:#5c4821;margin-top:.8mm;font-weight:600">Perfect Fit, Perfect Style</div>' +
+        '<div style="font-size:9.5px;color:#374151;margin-top:1.2mm">' +
+          (state.shop.address ? esc(state.shop.address) + ' &middot; ' : '') +
+          (state.shop.phone ? 'Mobile: ' + esc(state.shop.phone) + ' &middot; ' : '') +
+          esc(state.shop.upiId || '') +
+        '</div>' +
+        '<div style="font-size:9px;color:#0f2239;margin-top:1.6mm;font-weight:600;letter-spacing:.06em">We Stitch Your Style &nbsp;&middot;&nbsp; We Deliver Your Satisfaction</div>' +
+      '</footer>' +
       '</div>' +
       '</body></html>';
 
