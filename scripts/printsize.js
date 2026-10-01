@@ -88,6 +88,45 @@ window.ANT.printsize = (function () {
     return '@page{size:A4 portrait;margin:10mm}';
   }
 
+  /* How tall the printable area of each sheet is, in millimetres: the paper height
+   * less the margin pageCss() just set. This is what the auto-fit on the bill
+   * measures itself against, so a bill with four garments and one with nine are
+   * both told the same target.
+   *
+   *   A4      297mm paper, 10mm margins  -> 277mm
+   *   A5      210mm paper, 8mm margins   -> 194mm
+   *   A4HALF  A4 turned sideways, 8mm    -> 194mm, same as A5
+   *
+   * It is exported rather than kept private so the bill can ask for it and the
+   * harness can check the arithmetic, which is the kind of number that is easy to
+   * get subtly wrong and hard to see on paper. */
+  function pageHeightMm(value) {
+    var key = normalize(value);
+    if (key === 'A5') return 194;
+    if (key === 'A4HALF') return 194;
+    return 277;
+  }
+
+  /* How wide the bill is laid out, in millimetres. The auto-fit on the bill sets
+   * the measuring window to this before it measures anything, because a bill
+   * measured on a wide screen wraps its garment names differently than the same
+   * bill on a 190mm sheet - so without it the fit would be calculated against a
+   * layout the printer never uses.
+   *
+   *   A4      210mm paper, 10mm margins -> 190mm
+   *   A5      210mm paper, 8mm margins  -> 194mm, but the bill is capped at 132
+   *   A4HALF  the left half of a landscape A4 -> 140mm
+   *
+   * These are the same numbers layoutCss() puts in the stylesheet, kept here as
+   * values so a change to the layout and a change to the measurement cannot drift
+   * apart unnoticed. */
+  function billWidthMm(value) {
+    var key = normalize(value);
+    if (key === 'A5') return 132;
+    if (key === 'A4HALF') return 140;
+    return 190;
+  }
+
   /* The layout rule for the printed body, given its own class so nothing else on
    * the page is narrowed by a print size. The class defaults to the bill's, so
    * bills.js is unaffected, and a receipt passes its own. */
@@ -115,6 +154,8 @@ window.ANT.printsize = (function () {
     normalize: normalize,
     label: label,
     pageCss: pageCss,
+    pageHeightMm: pageHeightMm,
+    billWidthMm: billWidthMm,
     layoutCss: layoutCss
   };
 })();

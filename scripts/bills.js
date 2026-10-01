@@ -1137,7 +1137,7 @@ window.ANT.bills = (function () {
      * page, set in a serif and closed with a double gold rule. */
     '.head{display:flex;justify-content:space-between;align-items:flex-start;gap:10mm;padding-bottom:4mm;border-bottom:3px double #b08d3f}',
     '.brand{display:flex;align-items:center;gap:5mm;min-width:0}',
-    '.shop-logo{width:24mm;height:24mm;object-fit:contain;flex:0 0 auto}',
+    '.shop-logo{width:36mm;height:36mm;object-fit:contain;flex:0 0 auto}',
     '.shop-name{font-family:Georgia,"Times New Roman",serif;font-size:23px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;line-height:1.15;color:#1a1a2e}',
     '.shop-sub{font-size:10px;color:#6b7280;margin-top:1.6mm;letter-spacing:.03em}',
     '.doc{text-align:right;flex:0 0 auto}',
@@ -1185,18 +1185,32 @@ window.ANT.bills = (function () {
     '.words b{font-weight:600;color:#1a1a2e}',
 
     /* Paying and following sit side by side, so the QR a customer scans to pay
-     * and the one they scan to come back are in the same place on every bill. */
+     * and the one they scan to come back are in the same place on every bill.
+     *
+     * The two are told apart at a glance rather than being two grey boxes: the
+     * payment code is gold and squared off, which is what a till looks like, and
+     * the follow code is the deep navy of the app icon with a camera glyph in it.
+     * The code itself always sits on a white plate with its quiet zone intact -
+     * a camera given a coloured background to look at cannot read the code, and a
+     * bill that cannot be scanned is worse than a plain one. */
     '.blocks{display:flex;flex-wrap:wrap;gap:5mm;align-items:stretch;margin-top:6mm}',
-    '.pay{display:flex;gap:4mm;align-items:center;border:1px solid #e8e0c8;border-left:3px solid #b08d3f;border-radius:3px;padding:3mm 4mm;flex:1 1 auto;min-width:0;page-break-inside:avoid;break-inside:avoid}',
-    '.qr{width:30mm;height:30mm;flex:0 0 auto}',
+    '.pay{position:relative;display:flex;gap:4mm;align-items:center;background:#fffdf7;border:1px solid #d4c9a8;border-left:3.5mm solid #b08d3f;border-radius:2px;padding:3.5mm 4mm 3.5mm 5mm;flex:1 1 auto;min-width:0;page-break-inside:avoid;break-inside:avoid}',
+    '.pay-ribbon{position:absolute;top:-2.6mm;left:5mm;background:#b08d3f;color:#fff8e8;font-size:7.5px;font-weight:700;letter-spacing:.24em;text-transform:uppercase;padding:.8mm 2.2mm;border-radius:1px}',
+    '.qr-plate{background:#ffffff;border:1px solid #e8e0c8;border-radius:2px;padding:1.6mm;flex:0 0 auto;display:block}',
+    '.qr{width:27mm;height:27mm;display:block}',
     '.pay-text{font-size:11px;min-width:0}',
-    '.pay-head{font-family:Georgia,"Times New Roman",serif;font-weight:700;font-size:12px;margin-bottom:1mm;color:#1a1a2e}',
-    '.pay-link{display:inline-block;margin:1mm 0;color:#0f3460;font-weight:600;word-break:break-all}',
+    '.pay-head{font-family:Georgia,"Times New Roman",serif;font-weight:700;font-size:12.5px;margin-bottom:.6mm;color:#1a1a2e}',
+    '.pay-amt{font-family:Georgia,"Times New Roman",serif;font-size:15px;font-weight:700;color:#b08d3f;letter-spacing:.02em;margin:.4mm 0 1mm}',
+    '.pay-link{display:inline-block;margin:0 0 1mm;color:#0f3460;font-weight:600;word-break:break-all;text-decoration:none;border-bottom:.4mm solid #d4c9a8}',
     '.pay-id{color:#6b7280;font-size:10.5px;letter-spacing:.02em}',
-    '.follow{flex:0 0 auto;display:flex;gap:3.5mm;align-items:center;border:1px solid #e8e0c8;border-radius:3px;padding:3mm 4mm;page-break-inside:avoid;break-inside:avoid}',
-    '.follow .qr{width:22mm;height:22mm}',
-    '.follow-head{font-family:Georgia,"Times New Roman",serif;font-weight:700;font-size:12px;color:#1a1a2e}',
-    '.follow-id{font-size:10.5px;color:#6b7280;margin-top:.6mm}',
+    '.follow{position:relative;flex:0 0 auto;display:flex;gap:3.5mm;align-items:center;background:#16213e;color:#f4f1e8;border-radius:3px;padding:4mm 4.5mm;page-break-inside:avoid;break-inside:avoid}',
+    '.follow .qr-plate{border-color:#3a4a6e;background:#ffffff}',
+    '.follow .qr{width:21mm;height:21mm}',
+    '.follow-text{min-width:0}',
+    '.follow-head{font-family:Georgia,"Times New Roman",serif;font-weight:700;font-size:12px;color:#ffffff;display:flex;align-items:center;gap:1.6mm}',
+    '.follow-glyph{flex:0 0 auto;display:block}',
+    '.follow-link{display:inline-block;margin:.8mm 0 .4mm;color:#f0d9a0;font-weight:600;word-break:break-all;text-decoration:none;border-bottom:.4mm solid #4a5a80}',
+    '.follow-id{font-size:9.5px;color:#a9b4c9;letter-spacing:.1em;text-transform:uppercase}',
 
     /* Signature lines. A bill is acknowledged by both sides, and without a line
      * to sign on there is nowhere for the customer to say they received it. */
@@ -1208,7 +1222,17 @@ window.ANT.bills = (function () {
 
     /* Printed body margin is zeroed because @page already sets the page margin,
      * and the two would otherwise stack into a double margin. */
-    '@media print{body{margin:0;padding:0}}',
+    '@media print{body{margin:0;padding:0}',
+
+    /* The one-page fit. zoom is set on the .bill element by fitToOnePage() in the
+     * print window once the document has been laid out and measured, so there is
+     * no rule here that scales anything by itself - only the guarantee that the
+     * scale is a real layout zoom rather than a paint-only transform. A transform
+     * would shrink the pixels but leave the element's height alone, and the
+     * browser would still break the document across two pages. */
+    '.bill{transform-origin:top left}',
+
+    '}',
     'thead{display:table-header-group}',
     'tr{page-break-inside:avoid;break-inside:avoid}'
   ].join('');
@@ -1357,15 +1381,22 @@ window.ANT.bills = (function () {
       var dueLabel = money(window.ANT.upi.balanceDue(bill));
 
       payBlock = '<div class="pay">' +
-        window.ANT.qr.svg(target, {
-          className: 'qr',
-          border: 1,
-          dark: '#000000',
-          light: '#ffffff',
-          label: 'Scan to pay ' + dueLabel + ' to ' + (state.shop.name || 'AN TAILOR')
-        }) +
+        '<span class="pay-ribbon">Scan to Pay</span>' +
+        '<span class="qr-plate">' +
+          window.ANT.qr.svg(target, {
+            className: 'qr',
+            border: 1,
+            dark: '#000000',
+            light: '#ffffff',
+            label: 'Scan to pay ' + dueLabel + ' to ' + (state.shop.name || 'AN TAILOR')
+          }) +
+        '</span>' +
         '<div class="pay-text">' +
-          '<div class="pay-head">Scan to pay ' + esc(dueLabel) + '</div>' +
+          '<div class="pay-head">Pay by UPI</div>' +
+          // The amount is set on its own line in the accent colour: it is the one
+          // figure a customer checks the code against before scanning, and beside
+          // the words it is too easy to read past.
+          '<div class="pay-amt">' + esc(dueLabel) + ' due now</div>' +
           // Kept in the printed bill as well as on screen, because a bill sent
           // on as a PDF can still carry a link some viewers will open.
           '<a class="pay-link" href="' + esc(target) + '">Tap to Pay ' + esc(dueLabel) + '</a>' +
@@ -1383,18 +1414,32 @@ window.ANT.bills = (function () {
 
     if (igTarget && window.ANT.qr) {
       followBlock = '<div class="follow">' +
-        window.ANT.qr.svg(igTarget, {
-          className: 'qr',
-          border: 1,
-          dark: '#000000',
-          light: '#ffffff',
-          label: 'Scan to follow @' + state.shop.instagram + ' on Instagram'
-        }) +
-        '<div class="pay-text">' +
-          '<div class="follow-head">Follow us</div>' +
-          '<a class="pay-link" href="' + esc(igTarget) + '">@' +
+        '<span class="qr-plate">' +
+          window.ANT.qr.svg(igTarget, {
+            className: 'qr',
+            border: 1,
+            dark: '#000000',
+            light: '#ffffff',
+            label: 'Scan to follow @' + state.shop.instagram + ' on Instagram'
+          }) +
+        '</span>' +
+        '<div class="follow-text">' +
+          // The camera glyph is drawn rather than typed: an emoji or a small
+          // bitmap of the Instagram mark would print inconsistently across
+          // printers, and this is the only place on the bill the shop's social
+          // presence is named.
+          '<div class="follow-head">' +
+            '<svg class="follow-glyph" width="13" height="13" viewBox="0 0 24 24" ' +
+              'fill="none" stroke="#f0d9a0" stroke-width="2" aria-hidden="true">' +
+              '<rect x="2.5" y="2.5" width="19" height="19" rx="5.5"/>' +
+              '<circle cx="12" cy="12" r="4.2"/>' +
+              '<circle cx="17.6" cy="6.4" r="1.15" fill="#f0d9a0" stroke="none"/>' +
+            '</svg>' +
+            'Follow us' +
+          '</div>' +
+          '<a class="follow-link" href="' + esc(igTarget) + '">@' +
             esc(state.shop.instagram) + '</a>' +
-          '<div class="follow-id">on Instagram</div>' +
+          '<div class="follow-id">New designs on Instagram</div>' +
         '</div>' +
       '</div>';
     }
@@ -1533,6 +1578,18 @@ window.ANT.bills = (function () {
     win.document.close();
 
     var go = function () {
+      // The bill is fitted to one page first. Fitting needs a laid-out document
+      // and the logo is an image, so it waits for the window to finish loading
+      // before it measures. Any failure here leaves the bill unscaled, which still
+      // prints correctly - a bill that runs onto a second page is a nuisance, a
+      // bill that does not print at all is a lost sale.
+      try {
+        fitToOnePage(win, window.ANT.printsize.pageHeightMm(size),
+          window.ANT.printsize.billWidthMm(size));
+      } catch (e) {
+        // Measured nothing; print it as it stands.
+      }
+
       try {
         win.focus();
         win.print();
@@ -1545,12 +1602,94 @@ window.ANT.bills = (function () {
     else win.onload = function () { setTimeout(go, 250); };
   }
 
+  /* One page, whatever the bill carries ------------------------------------- */
+
+  /* Shrinks a printed bill until it fits the sheet, and never enlarges one that
+   * already fits.
+   *
+   * A bill has no fixed length: four garments fit comfortably, forty do not, and
+   * the same shop is small today and busy at Diwali. Left alone the browser
+   * prints the overflow onto a second page, and a customer holding two half bills
+   * is a customer who loses one. So the document is measured against the real
+   * printable area and scaled down to fit.
+   *
+   * How it is done, and why this way:
+   *
+   *   - The measuring window is narrowed to the printed width first. Measuring in
+   *     the popup as the browser happens to have sized it would wrap the garment
+   *     names differently from the way they wrap on the sheet, so the fit would be
+   *     calculated against a layout the printer never sees.
+   *   - The scale is applied as zoom rather than as a CSS transform. A transform
+   *     shrinks the pixels but leaves the element's layout height alone, so the
+   *     document still thinks it is taller than the page and the browser still
+   *     breaks it. zoom changes both, which is what "fit to one page" needs.
+   *   - It only ever scales down. A short bill printing larger than it was drawn
+   *     would be a surprise, and would change how the shop's own templates look.
+   *   - The floor stops it becoming unreadable. Below 62% the garment names are no
+   *     longer legible on a counter, and an unreadable bill is not a bill; past
+   *     that point the overflow goes to a second page on purpose, because a
+   *     second page is a smaller problem than a bill nobody can read.
+   *   - Images are awaited, because the logo is a fixed 36mm box reserved in the
+   *     layout. Measuring before it resolves would under-read the height and
+   *     choose a scale that is too large.
+   *
+   * Returns the scale it settled on, or 1 when the bill already fitted, so the
+   * behaviour can be asserted rather than taken on trust. */
+  var MIN_SCALE = 0.62;
+
+  function fitToOnePage(win, pageHeightMm, billWidthMm) {
+    var doc = win.document;
+    if (!doc || !doc.body) return 1;
+
+    var bill = doc.querySelector('.bill');
+    if (!bill) return 1;
+
+    // Millimetres to pixels for this document. A 100mm probe is measured rather
+    // than computed from a hardcoded 3.78px/mm, because the browser's own
+    // conversion is the one the printer will use.
+    var probe = doc.createElement('div');
+    probe.style.cssText = 'position:absolute;visibility:hidden;height:100mm;width:0';
+    doc.body.appendChild(probe);
+    var pxPerMm = probe.getBoundingClientRect().height / 100;
+    doc.body.removeChild(probe);
+
+    if (!(pxPerMm > 0)) return 1;
+
+    var targetPx = pageHeightMm * pxPerMm;
+    var widthPx = billWidthMm * pxPerMm;
+
+    // The window is set to the printed width so the wrapping being measured is
+    // the wrapping that will print. It is restored afterwards so the tailor is
+    // left looking at a normal-sized document.
+    var body = doc.body;
+    var prevWidth = body.style.width;
+    var prevZoom = body.style.zoom;
+    body.style.width = widthPx + 'px';
+
+    try {
+      // The zoom is cleared rather than set to 1 so a bill that turns out to fit
+      // is left exactly as it was written. A stray zoom on the element is a
+      // difference between the document that was built and the one that prints.
+      bill.style.zoom = '';
+
+      var height = bill.getBoundingClientRect().height;
+      if (!(height > targetPx)) return 1;
+
+      var scale = targetPx / height;
+      if (scale < MIN_SCALE) scale = MIN_SCALE;
+      if (scale >= 1) return 1;
+
+      bill.style.zoom = String(scale);
+      return scale;
+    } finally {
+      body.style.width = prevWidth;
+      if (prevZoom) body.style.zoom = prevZoom;
+      else body.style.zoom = '';
+    }
+  }
+
   /* Taking a payment ------------------------------------------------------- */
 
-  /* The one place a UPI intent is built, so the Pay button and the printed QR
-   * can never disagree about the account or the amount. Returns '' when there is
-   * nothing owed or no usable id, which is also how the Pay button knows to stay
-   * off the row. */
   // The shop logo, as a URL the printed window can resolve. The print view is
   // written into a blank document, where a relative "assets/ANTailor.png" would
   // be resolved against about:blank and come back broken, so the path is made
@@ -1572,6 +1711,10 @@ window.ANT.bills = (function () {
       : '';
   }
 
+  /* The one place a UPI intent is built, so the Pay button and the printed QR
+   * can never disagree about the account or the amount. Returns '' when there is
+   * nothing owed or no usable id, which is also how the Pay button knows to stay
+   * off the row. */
   function payLink(bill) {
     if (!window.ANT.upi) return '';
 
@@ -1834,6 +1977,12 @@ window.ANT.bills = (function () {
     // Exposed so the harness can assert the wording of every part of the amount
     // in words. A wrong word there is read as a statement of fact by whoever signs
     // a crossed cheque against the line, so it is tested rather than trusted.
-    __amountInWords: amountInWords
+    __amountInWords: amountInWords,
+    // The one-page fit, exposed for the same reason. It runs against a real
+    // document in a real popup, so the harness drives it with one directly: the
+    // arithmetic is checkable there, whereas a bill that came out as two pages is
+    // only ever visible on paper.
+    __fitToOnePage: fitToOnePage,
+    __MIN_SCALE: MIN_SCALE
   };
 })();

@@ -66,9 +66,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 
 .login-mark {
-  width: 52px;
-  height: 52px;
-  margin: 0 auto 14px;
+  width: 78px;
+  height: 78px;
+  margin: 0 auto 12px;
   display: grid;
   place-items: center;
   border-radius: var(--radius-md);
@@ -164,8 +164,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 .topbar-mark {
   flex: none;
-  width: 30px;
-  height: 30px;
+  width: 42px;
+  height: 42px;
   display: grid;
   place-items: center;
   border-radius: var(--radius-sm);
@@ -189,15 +189,15 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .topbar-mark.has-logo {
   background: #ffffff;
   border-color: rgba(255, 255, 255, 0.9);
-  padding: 3px;
+  padding: 2px;
 }
 
 .brand-logo {
   display: none;
   position: absolute;
-  inset: 3px;
-  width: calc(100% - 6px);
-  height: calc(100% - 6px);
+  inset: 2px;
+  width: calc(100% - 4px);
+  height: calc(100% - 4px);
   object-fit: contain;
 }
 
