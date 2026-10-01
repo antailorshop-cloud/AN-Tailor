@@ -122,7 +122,7 @@ window.ANT.printsize = (function () {
    * apart unnoticed. */
   function billWidthMm(value) {
     var key = normalize(value);
-    if (key === 'A5') return 132;
+    if (key === 'A5') return 194;
     if (key === 'A4HALF') return 140;
     return 190;
   }
@@ -134,17 +134,13 @@ window.ANT.printsize = (function () {
     var key = normalize(value);
     var base = className || 'bill';
 
-    // Half of a landscape A4's printable width (281mm / 2 = 140.5mm), so the
-    // dashed cut line lands on the true centre of the sheet.
     if (key === 'A4HALF') {
       return '.' + base + '-half{width:140mm;min-height:194mm;' +
         'border-right:1px dashed #999;padding-right:6mm}';
     }
 
-    // A5 and A4 both print at their natural width; A5 is the narrower sheet, so
-    // the body is capped to keep it off the edges.
-    if (key === 'A5') return '.' + base + '{max-width:132mm}';
-    return '.' + base + '{max-width:190mm}';
+    if (key === 'A5') return '.' + base + '{width:194mm;max-width:194mm}';
+    return '.' + base + '{width:190mm;max-width:190mm}';
   }
 
   return {
