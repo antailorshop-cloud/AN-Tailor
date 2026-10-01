@@ -52,8 +52,12 @@ window.ANT.bills = (function () {
 
   var PAGE_SIZE = 25;
 
+  // How many customers a name search will offer to pick from. A list long enough
+  // to scroll past its own end is a list nobody reads, and the number of matches
+  // is shown so the tailor knows to narrow it down.
+  var MATCH_LIMIT = 8;
+
   var state = {
-    mobile: '',
     customer: null,
     orders: [],
     bills: [],
@@ -65,6 +69,12 @@ window.ANT.bills = (function () {
     loading: false,
     busy: false,
     error: null,
+    // What the tailor typed, and who it matched. A search that lands on more
+    // than one customer is a list to choose from, never a guess at which one
+    // was meant, because the wrong customer's bill cannot be taken back.
+    term: '',
+    matches: [],
+    matchTotal: 0,
     // Shop details for the printed bill. Read once from shop_settings; a
     // missing or unreadable row simply means no UPI code is drawn.
     shop: { name: '', upiId: '', payee: '' }
@@ -104,11 +114,23 @@ window.ANT.bills = (function () {
     return (res && res.error && res.error.message) || 'the request was rejected.';
   }
 
-  // Ten digits and nothing else. The legacy page refused anything shorter or
-  // longer, because a partial number matches the wrong customer and a bill shown
-  // to the wrong person cannot be taken back.
-  function cleanMobile(value) {
-    return String(value == null ? '' : value).replace(/\D/g, '');
+  // Ten digits and nothing else, used only to recognise a mobile number. A
+  // partial number matches the wrong customer, and a bill shown to the wrong
+  // person cannot be taken back.
+  function isMobileTerm(term) {
+    return /^\d{10}$/.test(term);
+  }
+
+  // What the tailor typed: a mobile number, part of a name, or a customer code.
+  function cleanTerm(value) {
+    return String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
+  }
+
+  // PostgREST reads , ( ) and % inside a filter as structure, and a stray one
+  // from a pasted value turns into a query error rather than a search. The
+  // characters are dropped, which only ever widens the search.
+  function likeTerm(term) {
+    return '*' + term.replace(/[*%,()]/g, ' ') + '*';
   }
 
   /* Totals ---------------------------------------------------------------- */
@@ -155,44 +177,80 @@ window.ANT.bills = (function () {
 
   /* Loading --------------------------------------------------------------- */
 
-  function searchCustomer(mobile) {
-    var clean = cleanMobile(mobile);
-    if (clean.length !== 10) {
-      toast('Enter a valid 10-digit mobile number.', 'error');
-      return;
+  function searchCustomer(term) {
+    var clean = cleanTerm(term);
+
+    state.matches = [];
+    state.matchTotal = 0;
+    state.term = clean;
+
+    if (!clean) {
+      resetFor();
+      state.matches = [];
+      paint();
+      return Promise.resolve();
     }
 
-    resetFor(clean);
+    resetFor();
     paint();
 
-    sb().from('customers')
-      .select('id,code,name,mobile,address')
-      .eq('mobile', clean)
+    var q = sb().from('customers')
+      .select('id,code,name,mobile,address', { count: true })
       .is('archived_at', null)
-      .limit(1)
-      .then(function (res) {
-        if (res.error) {
-          state.loading = false;
-          state.error = 'The customer could not be searched: ' + reason(res);
-          paint();
-          return;
-        }
+      .order('name', true);
 
-        var hit = (res.data || [])[0];
-        if (!hit) {
-          state.loading = false;
-          state.error = 'No customer with that mobile number.';
-          paint();
-          return;
-        }
+    // A full ten digit number is a lookup, not a search: exactly one customer can
+    // hold it, and matching on the column keeps the result to that one row
+    // instead of trusting an ilike to exclude a longer number elsewhere.
+    if (isMobileTerm(clean)) q = q.eq('mobile', clean);
+    else {
+      var wild = likeTerm(clean);
+      q = q.or('name.ilike.' + wild + ',mobile.ilike.' + wild + ',code.ilike.' + wild);
+    }
 
-        state.customer = hit;
-        return loadOrders().then(loadBills);
-      });
+    // A name is rarely unique, so a name that lands on one customer opens their
+    // bills, while anything wider is offered as a list to pick from. Reading that
+    // list is not a guess: the owner clicks the row they meant.
+    return q.limit(MATCH_LIMIT).then(function (res) {
+      if (res.error) {
+        state.loading = false;
+        state.error = 'The customer could not be searched: ' + reason(res);
+        paint();
+        return;
+      }
+
+      var hits = res.data || [];
+      state.matchTotal = res.count == null ? hits.length : res.count;
+
+      if (state.matchTotal === 1) {
+        return openCustomer(hits[0]);
+      }
+
+      state.matches = hits;
+      state.loading = false;
+
+      if (!hits.length) {
+        state.error = 'No customer matches "' + clean + '".';
+      } else if (state.matchTotal > hits.length) {
+        state.error = hits.length + ' of ' + state.matchTotal +
+          ' customers match "' + clean + '". Showing the first ' + hits.length + '.';
+      }
+
+      paint();
+    });
   }
 
-  function resetFor(mobile) {
-    state.mobile = mobile;
+  function openCustomer(customer) {
+    state.customer = customer;
+    state.matches = [];
+    state.matchTotal = 0;
+    // The box keeps the customer's own number rather than the name that was
+    // typed, so it reads back as an exact reference to who is on screen.
+    state.term = customer.mobile || '';
+    return loadOrders().then(loadBills);
+  }
+
+  function resetFor() {
     state.customer = null;
     state.orders = [];
     state.bills = [];
@@ -204,6 +262,8 @@ window.ANT.bills = (function () {
     state.loading = true;
     state.busy = false;
     state.error = null;
+    // Left as typed, because a repaint mid-search would otherwise empty the box
+    // under the tailor's caret.
   }
 
   /* Shop settings --------------------------------------------------------- */
@@ -376,7 +436,8 @@ window.ANT.bills = (function () {
     // the caret in the notes box mid-sentence.
     var noteHadFocus = !!byId('billNotes') && document.activeElement === byId('billNotes');
 
-    host.innerHTML = head() + searchCard() + (state.customer ? customerSection() : '');
+    host.innerHTML = head() + searchCard() +
+      (state.customer ? customerSection() : matchPanel());
     wire();
 
     if (noteHadFocus) {
@@ -398,15 +459,42 @@ window.ANT.bills = (function () {
 
   function searchCard() {
     return '<div class="ui-card"><div class="ui-field">' +
-      '<label class="ui-label" for="billMobile">Mobile number</label>' +
-      '<input class="ui-input" id="billMobile" inputmode="numeric" ' +
-      'value="' + esc(state.mobile) + '" placeholder="Enter 10-digit mobile number">' +
-      '<p class="ui-hint">Type all 10 digits and the customer loads by itself.</p>' +
+      '<label class="ui-label" for="billMobile">Customer</label>' +
+      '<input class="ui-input" id="billMobile" type="search" autocomplete="off" ' +
+      'value="' + esc(state.term) + '" ' +
+      'placeholder="Mobile number, name or customer code">' +
+      '<p class="ui-hint">Search by mobile number, name or customer code. ' +
+        'A full 10-digit number opens that customer straight away; a name that ' +
+        'matches more than one person gives you a list to pick from.</p>' +
       '</div>' +
       (state.error
         ? '<div class="ord-err"><p class="ui-card-sub">' + esc(state.error) + '</p></div>'
         : '') +
       '</div>';
+  }
+
+  // Shown when a search did not settle on one customer. Picking a row is a
+  // deliberate act, so a bill is never built for someone the tailor did not mean.
+  function matchPanel() {
+    if (state.loading || !state.matches.length) return '';
+
+    return '<div class="ui-card"><h2 class="ui-card-title">Matching customers</h2>' +
+      '<p class="ui-card-sub">Pick the customer to bill.</p>' +
+      '<table class="ui-table"><thead><tr>' +
+      '<th>Name</th><th>Code</th><th>Mobile</th><th></th>' +
+      '</tr></thead><tbody>' + state.matches.map(function (m) {
+        return '<tr>' +
+          '<td><span class="ord-sub-strong">' + esc(m.name) + '</span>' +
+            (m.address ? '<br><span class="ord-sub">' + esc(m.address) + '</span>' : '') +
+          '</td>' +
+          '<td>' + esc(m.code) + '</td>' +
+          '<td>' + esc(m.mobile) + '</td>' +
+          '<td class="ord-row-actions">' +
+            '<button class="btn btn-sm btn-primary" data-bill-pick="' +
+              esc(m.id) + '">Open</button>' +
+          '</td>' +
+        '</tr>';
+      }).join('') + '</tbody></table></div>';
   }
 
   function customerSection() {
@@ -971,8 +1059,8 @@ window.ANT.bills = (function () {
         }) +
         '<div class="pay-text">' +
           '<div class="pay-head">Scan to pay ' + esc(dueLabel) + '</div>' +
-          // This link is for the bill on a screen. Paper cannot be tapped, so it
-          // is dropped at print time and the QR plus the id below carry the job.
+          // Kept in the printed bill as well as on screen, because a bill sent
+          // on as a PDF can still carry a link some viewers will open.
           '<a class="pay-link" href="' + esc(target) + '">Tap to Pay ' + esc(dueLabel) + '</a>' +
           '<div class="pay-id">UPI ID: ' + esc(state.shop.upiId) + '</div>' +
         '</div>' +
@@ -999,7 +1087,11 @@ window.ANT.bills = (function () {
       '.pay-link{display:inline-block;margin:2px 0;color:#0f2239;font-weight:600}' +
       '.pay-id{color:#555;margin-top:2px}' +
       'footer{margin-top:28px;font-size:12px;color:#555}' +
-      '@media print{body{margin:12mm}.pay-link{display:none}}' +
+      // The link is left in the printed bill rather than hidden at print time.
+      // Paper cannot be tapped, but the bill is very often sent on as a PDF, and
+      // some viewers - WhatsApp among them - do make a link live there. Hiding it
+      // would throw that away for the sake of a print preview nobody keeps.
+      '@media print{body{margin:12mm}}' +
       '</style></head><body>' +
       '<h1>Bill ' + esc(bill.code) + '</h1>' +
       '<p class="sub">' + esc(c.name) + ' &middot; ' + esc(c.mobile) +
@@ -1110,21 +1202,34 @@ window.ANT.bills = (function () {
   function wire() {
     var mobile = byId('billMobile');
     if (mobile) {
+      // Searching on every keystroke would fire a query per letter and race the
+      // replies, so a full mobile number goes the moment it is ten digits and
+      // anything else waits for a pause in typing.
+      var searchTimer = null;
+
       mobile.addEventListener('input', function () {
-        // maxlength is not set on this box, because it counts letters as well
-        // as digits: a 10-character limit would let one mistyped letter leave
-        // the field stuck a digit short of the ten needed, with no way to tell
-        // why. The digits are counted here instead and the field is corrected
-        // to match, so a stray character cannot wedge it.
-        var clean = cleanMobile(mobile.value).slice(0, 10);
-        if (clean !== mobile.value) mobile.value = clean;
+        var term = cleanTerm(mobile.value);
+        if (searchTimer) window.clearTimeout(searchTimer);
 
         // Searching again for the customer already on screen would throw away
-        // the ticks, so the same number is left alone.
-        var shown = state.customer ? state.customer.mobile : '';
-        if (clean.length === 10 && clean !== shown) searchCustomer(clean);
+        // the ticks, so the same term is left alone - but only while there is a
+        // customer on screen whose ticks are worth protecting.
+        if (state.customer && term === state.term) return;
+
+        if (isMobileTerm(term)) searchCustomer(term);
+        else searchTimer = window.setTimeout(function () { searchCustomer(term); }, 300);
       });
     }
+
+    each('[data-bill-pick]', function (b) {
+      b.addEventListener('click', function () {
+        var pick = state.matches.filter(function (m) {
+          return m.id === b.getAttribute('data-bill-pick');
+        })[0];
+
+        if (pick) openCustomer(pick);
+      });
+    });
 
     each('[data-bill-order]', function (box) {
       box.addEventListener('change', function () {
@@ -1191,7 +1296,7 @@ window.ANT.bills = (function () {
   }
 
   function render() {
-    resetFor('');
+    resetFor();
     paint();
     loadShop();
   }
