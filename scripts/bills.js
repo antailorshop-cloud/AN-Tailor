@@ -79,7 +79,7 @@ window.ANT.bills = (function () {
     // Shop details for the printed bill and the WhatsApp message. Read once
     // from shop_settings; a missing or unreadable row simply means no UPI code
     // is drawn and the WhatsApp message falls back to the standard wording.
-    shop: { name: '', upiId: '', payee: '', waBillMessage: '', printSize: '' }
+    shop: { name: '', upiId: '', payee: '', waBillMessage: '', waReminderMessage: '', printSize: '' }
   };
 
   function byId(id) { return document.getElementById(id); }
@@ -278,7 +278,7 @@ window.ANT.bills = (function () {
     return sb().from('shop_settings')
       .select('key,value')
       .then(function (res) {
-        var shop = { name: '', upiId: '', payee: '', waBillMessage: '', printSize: '' };
+        var shop = { name: '', upiId: '', payee: '', waBillMessage: '', waReminderMessage: '', printSize: '' };
 
         if (!res.error && res.data) {
           res.data.forEach(function (row) {
@@ -286,6 +286,7 @@ window.ANT.bills = (function () {
             else if (row.key === 'upi_id') shop.upiId = row.value || '';
             else if (row.key === 'upi_payee_name') shop.payee = row.value || '';
             else if (row.key === 'wa_bill_message') shop.waBillMessage = row.value || '';
+            else if (row.key === 'wa_reminder_message') shop.waReminderMessage = row.value || '';
             else if (row.key === 'bill_print_size') shop.printSize = row.value || '';
           });
         }
@@ -635,6 +636,9 @@ window.ANT.bills = (function () {
     // button that can only apologise is worse than no button.
     var canShare = !!(window.ANT.whatsapp && state.customer &&
       window.ANT.whatsapp.canSend(state.customer.mobile));
+    // A reminder only makes sense on a bill that still owes something. A
+    // settled bill would produce a message asking for money already received.
+    var canRemind = canShare && num(b.balance) > 0;
 
     return '<tr>' +
       '<td><span class="ord-sub-strong">' + esc(b.code) + '</span></td>' +
@@ -649,6 +653,9 @@ window.ANT.bills = (function () {
         : '') +
       (canShare
         ? '<button class="btn btn-sm btn-secondary" data-bill-share="' + esc(b.id) + '">WhatsApp</button> '
+        : '') +
+      (canRemind
+        ? '<button class="btn btn-sm btn-secondary" data-bill-remind="' + esc(b.id) + '">Remind</button> '
         : '') +
       '<button class="btn btn-sm btn-secondary" data-bill-print="' + esc(b.id) + '">Print</button>' +
       (owner
@@ -1242,8 +1249,12 @@ window.ANT.bills = (function () {
   /* The message is built from the same bill the Print button draws, so the two
    * can never quote different orders or a different balance. The orders are
    * read fresh from bill_orders, exactly as printing does, because a bill's
-   * orders are the record and the loaded order list may not hold them all. */
-  function shareBill(billId) {
+   * orders are the record and the loaded order list may not hold them all.
+   *
+   * The bill and the reminder share this one path on purpose. Two copies of
+   * this code would eventually quote different figures for the same bill, and
+   * the customer would be the one to notice. */
+  function sendBillMessage(billId, kind) {
     if (!window.ANT.whatsapp) return;
 
     var c = state.customer;
@@ -1277,12 +1288,11 @@ window.ANT.bills = (function () {
 
         return ordersForPrint((res.data || []).map(function (r) { return r.order_id; }))
           .then(function (list) {
-            var message = window.ANT.whatsapp.billMessage({
-              shop: state.shop,
-              customer: c,
-              bill: bill,
-              orders: list
-            });
+            var args = { shop: state.shop, customer: c, bill: bill, orders: list };
+
+            var message = kind === 'reminder'
+              ? window.ANT.whatsapp.reminderMessage(args)
+              : window.ANT.whatsapp.billMessage(args);
 
             var url = window.ANT.whatsapp.link(c.mobile, message);
             if (!url) {
@@ -1294,6 +1304,14 @@ window.ANT.bills = (function () {
             toast('Opening WhatsApp for ' + (c.name || 'this customer') + '.', 'success');
           });
       });
+  }
+
+  function shareBill(billId) {
+    sendBillMessage(billId, 'bill');
+  }
+
+  function remindBill(billId) {
+    sendBillMessage(billId, 'reminder');
   }
 
   /* Wiring --------------------------------------------------------------- */
@@ -1357,6 +1375,12 @@ window.ANT.bills = (function () {
     each('[data-bill-share]', function (b) {
       b.addEventListener('click', function () {
         shareBill(b.getAttribute('data-bill-share'));
+      });
+    });
+
+    each('[data-bill-remind]', function (b) {
+      b.addEventListener('click', function () {
+        remindBill(b.getAttribute('data-bill-remind'));
       });
     });
 

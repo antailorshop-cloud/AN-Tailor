@@ -90,6 +90,10 @@ window.ANT.orders = (function () {
     prices: [],
     resale: [],
     measurements: [],
+    // The shop name and the ready-message wording, so the WhatsApp button says
+    // the shop's own name and the owner's own words. Kept apart from state.form
+    // because it belongs to the list as well as the order.
+    waShop: { name: '', waReadyMessage: '' },
     saving: false,
     saveError: ''
   };
@@ -298,6 +302,27 @@ window.ANT.orders = (function () {
       .order('created_at', false)
       .then(function (res) {
         state.measurements = (res && !res.error && res.data) || [];
+      });
+  }
+
+  /* The shop name and the owner's ready-message wording, read once for the page.
+   * A failure here only costs the WhatsApp button its custom wording, so it is
+   * logged rather than thrown: a tailor should still be able to open an order
+   * when the settings table is unhappy. */
+  function loadWaShop() {
+    return sb().from('shop_settings')
+      .select('key,value')
+      .then(function (res) {
+        if (res && res.error) {
+          console.warn('Orders: the shop WhatsApp wording could not be read; the default message will be used.', res.error);
+          return;
+        }
+        var shop = { name: '', waReadyMessage: '' };
+        ((res && res.data) || []).forEach(function (row) {
+          if (row.key === 'shop_name') shop.name = row.value || '';
+          else if (row.key === 'wa_ready_message') shop.waReadyMessage = row.value || '';
+        });
+        state.waShop = shop;
       });
   }
 
@@ -542,8 +567,74 @@ window.ANT.orders = (function () {
       '<td>' + statusChip(o.status) + '</td>' +
       '<td class="ord-row-actions">' +
         '<button class="btn btn-sm btn-secondary" data-ord-open="' + esc(o.id) + '">Open</button>' +
+        (canTell(o)
+          ? ' <button class="btn btn-sm btn-secondary" data-ord-tell="' + esc(o.id) + '">Tell customer</button>'
+          : '') +
       '</td>' +
     '</tr>';
+  }
+
+  /* The "your order is ready" message is only offered on an order that is
+   * actually ready and has a mobile to send to. Telling a customer an order is
+   * ready when it is still being stitched would be worse than not offering the
+   * button at all. */
+  function canTell(o) {
+    return !!(window.ANT.whatsapp &&
+      o.status === 'Ready' &&
+      o.customer && window.ANT.whatsapp.canSend(o.customer.mobile));
+  }
+
+  /* The ready message is built from the order row itself, which already holds
+   * the order number, the delivery date, the balance and the customer's mobile.
+   * No extra query is needed and nothing can be retyped wrongly. */
+  function tellReady(orderId) {
+    if (!window.ANT.whatsapp) return;
+
+    var order = null;
+    state.orders.forEach(function (o) { if (o.id === orderId) order = o; });
+
+    if (!order) {
+      toast('That order is not on this page.', 'error');
+      return;
+    }
+    if (!order.customer || !window.ANT.whatsapp.canSend(order.customer.mobile)) {
+      toast('This customer has no mobile number to send WhatsApp to. ' +
+        'Add one on the Customers page.', 'error');
+      return;
+    }
+
+    var message = window.ANT.whatsapp.readyMessage({
+      shop: state.waShop,
+      customer: order.customer,
+      order: order
+    });
+
+    var url = window.ANT.whatsapp.link(order.customer.mobile, message);
+    if (!url) {
+      toast('That mobile number is not one WhatsApp can use.', 'error');
+      return;
+    }
+
+    openChat(url);
+    toast('Opening WhatsApp for ' + (order.customer.name || 'this customer') + '.', 'success');
+  }
+
+  /* wa.me is handed to the phone by clicking a real anchor, in a new tab, so the
+   * app is not navigated away from and the tailor comes back to the same list.
+   * Assigning the link to location instead would either leave the shop staring
+   * at a "no WhatsApp" page or unload the app. */
+  function openChat(url) {
+    var a = document.createElement('a');
+    a.href = url;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+
+    setTimeout(function () {
+      if (a.parentNode) a.parentNode.removeChild(a);
+    }, 100);
   }
 
   function customerName(o) {
@@ -1593,6 +1684,12 @@ window.ANT.orders = (function () {
         openOrder(btn.getAttribute('data-ord-open'));
       });
     });
+
+    Array.prototype.forEach.call(document.querySelectorAll('[data-ord-tell]'), function (btn) {
+      btn.addEventListener('click', function () {
+        tellReady(btn.getAttribute('data-ord-tell'));
+      });
+    });
   }
 
   function wireEdit() {
@@ -1816,8 +1913,9 @@ window.ANT.orders = (function () {
       state.dressTypes = [];
       state.prices = [];
       state.resale = [];
+      state.waShop = { name: '', waReadyMessage: '' };
       paint();
-      loadReference().then(loadPrices).then(loadResale).then(function () {
+      loadReference().then(loadPrices).then(loadResale).then(loadWaShop).then(function () {
         return loadOrders();
       });
     }

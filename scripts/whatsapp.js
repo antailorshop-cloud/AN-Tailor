@@ -1,22 +1,21 @@
-/* AN TAILOR - WhatsApp bill messages.
+/* AN TAILOR - WhatsApp messages.
  *
- * A bill is very often not handed over on paper. The customer is somewhere
- * else - at work, out of town - and the shop sends them the bill on WhatsApp.
- * The message is built here rather than typed out each time, so every customer
- * gets the same wording, the same figures and the same shop name, and the
- * tailor does not have to read a total off one screen and retype it into
- * another. A retyped number is a number that can disagree with the bill.
+ * There are three moments the shop wants to speak to a customer: sending the
+ * bill, chasing a balance that is still due, and saying an order is ready to
+ * collect. Each is built here from the record itself rather than typed out,
+ * so every customer gets the same wording, the same figures and the same shop
+ * name, and the tailor never has to read a total off one screen and retype it
+ * into another. A retyped number is a number that can disagree with the bill.
  *
- * There is deliberately no link into the app in the message. A public bill
+ * There is deliberately no link into the app in any message. A public bill
  * page would publish a customer's name and what they owe to anyone who held
- * the link, and the shop decided that cost was not worth paying. The message
- * carries the figures themselves, which is the whole of what the customer is
- * being told.
+ * the link, and the shop decided that cost was not worth paying. The messages
+ * carry the figures themselves, which is the whole of what is being said.
  *
- * The wording lives in shop_settings under wa_bill_message, so the owner can
- * say it in their own voice. An empty or missing row falls back to the default
- * below, so a fresh shop still sends a complete message and a cleared box
- * never sends a half-written one.
+ * Each wording lives in shop_settings - wa_bill_message, wa_reminder_message,
+ * wa_ready_message - so the owner can say it in their own voice. An empty or
+ * missing row falls back to the default for that message, so a fresh shop
+ * still sends a complete message and a cleared box never sends a half one.
  */
 
 window.ANT = window.ANT || {};
@@ -36,6 +35,26 @@ window.ANT.whatsapp = (function () {
     'Paid: {paid}\n' +
     'Balance Due: {balance}\n' +
     'Delivery Date: {delivery}\n\n' +
+    'Thank you for choosing {shop}.';
+
+  /* Sent when a balance is still outstanding. It names the delivery date and
+   * the amount so the customer can place the reminder against a real order. */
+  var DEFAULT_REMINDER =
+    'Hello {customer}, gentle reminder from {shop}.\n\n' +
+    'Your order {orders} is due for delivery on {delivery}.\n' +
+    'Total: {amount}\n\n' +
+    '{balanceBlock}\n\n' +
+    'Thank you,\n{shop}';
+
+  /* Sent when an order is ready. balanceBlock is used rather than the balance
+   * token on its own, so an order already paid for is told it is paid in full
+   * instead of being asked for money it does not owe. */
+  var DEFAULT_READY =
+    'Hello {customer}, good news from {shop}!\n\n' +
+    'Your order {orders} is ready.\n' +
+    'Delivery Date: {delivery}\n\n' +
+    '{balanceBlock}\n\n' +
+    'Please collect it from our shop.\n\n' +
     'Thank you for choosing {shop}.';
 
   /* What the owner may type into the template, and what the reader sees it as.
@@ -101,8 +120,8 @@ window.ANT.whatsapp = (function () {
     return normalizeMobile(mobile).ok;
   }
 
-  function template(raw) {
-    return String(raw == null ? '' : raw).trim() || DEFAULT_BILL;
+  function template(raw, fallback) {
+    return String(raw == null ? '' : raw).trim() || fallback || DEFAULT_BILL;
   }
 
   /* The plain text for the balance, as a whole sentence rather than a number
@@ -158,6 +177,32 @@ window.ANT.whatsapp = (function () {
     };
   }
 
+  /* The values for a single order, used by the ready message. There is no bill
+   * number here on purpose: an order can be ready before it is billed, and a
+   * "Bill No:" line with nothing after it is worse than no line at all. A
+   * template that asks for {billNo} anyway gets it scrubbed. */
+  function orderTokens(opts) {
+    var o = opts || {};
+    var shop = o.shop || {};
+    var customer = o.customer || {};
+    var order = o.order || {};
+
+    var due = Math.max(0, num(order.balance));
+
+    return {
+      shop: String(shop.name || 'AN TAILOR'),
+      customer: String(customer.name || 'Customer'),
+      billNo: '',
+      orders: String(order.code || '-'),
+      amount: money(order.total),
+      paid: money(order.advance),
+      balance: money(due),
+      due: money(due),
+      balanceBlock: balanceBlock(due),
+      delivery: dateText(order.delivery_date) || '-'
+    };
+  }
+
   /* The one place replacements happen.
    *
    * A placeholder typed with spaces inside it - "{ billLink }" - is the same
@@ -202,7 +247,23 @@ window.ANT.whatsapp = (function () {
   function billMessage(opts) {
     var o = opts || {};
     var shop = o.shop || {};
-    return fill(template(shop.waBillMessage), billTokens(o));
+    return fill(template(shop.waBillMessage, DEFAULT_BILL), billTokens(o));
+  }
+
+  /* A bill the customer has not paid yet. Reads from the same bill record the
+   * bill message does, so the two can never disagree on the balance. */
+  function reminderMessage(opts) {
+    var o = opts || {};
+    var shop = o.shop || {};
+    return fill(template(shop.waReminderMessage, DEFAULT_REMINDER), billTokens(o));
+  }
+
+  /* An order that is ready to collect. Built from the order, not a bill, because
+   * an order can be ready long before anyone has billed it. */
+  function readyMessage(opts) {
+    var o = opts || {};
+    var shop = o.shop || {};
+    return fill(template(shop.waReadyMessage, DEFAULT_READY), orderTokens(o));
   }
 
   /* The wa.me link. Returns '' when there is no usable number, so a caller can
@@ -215,13 +276,18 @@ window.ANT.whatsapp = (function () {
 
   return {
     DEFAULT_BILL: DEFAULT_BILL,
+    DEFAULT_REMINDER: DEFAULT_REMINDER,
+    DEFAULT_READY: DEFAULT_READY,
     TOKENS: TOKENS,
     normalizeMobile: normalizeMobile,
     canSend: canSend,
     template: template,
     fill: fill,
     billTokens: billTokens,
+    orderTokens: orderTokens,
     billMessage: billMessage,
+    reminderMessage: reminderMessage,
+    readyMessage: readyMessage,
     link: link
   };
 })();

@@ -30,14 +30,16 @@ window.ANT.settings = (function () {
   // Bill payment uses the first three. The last is the wording of the WhatsApp
   // bill message; an empty value means the standard wording, which is why it is
   // kept here beside the UPI id rather than hardcoded in the message builder.
-  var SHOP_KEYS = ['shop_name', 'upi_id', 'upi_payee_name', 'wa_bill_message', 'bill_print_size'];
+  var SHOP_KEYS = ['shop_name', 'upi_id', 'upi_payee_name', 'wa_bill_message',
+    'wa_reminder_message', 'wa_ready_message', 'bill_print_size'];
 
   var state = {
     tab: 'dress',
     search: '',
     dressRows: [],
     priceRows: [],
-    shop: { shop_name: '', upi_id: '', upi_payee_name: '', wa_bill_message: '', bill_print_size: '' },
+    shop: { shop_name: '', upi_id: '', upi_payee_name: '', wa_bill_message: '',
+      wa_reminder_message: '', wa_ready_message: '', bill_print_size: '' },
     loading: false,
     error: null,
     form: null   // null = closed, {kind:'dress'|'price', row:{}|null}
@@ -93,7 +95,8 @@ window.ANT.settings = (function () {
   // shop_settings is a key/value table. Only the keys the bill uses are kept;
   // anything else a hand-edit left in the table is ignored rather than shown.
   function applyShop(rows) {
-    var shop = { shop_name: '', upi_id: '', upi_payee_name: '', wa_bill_message: '', bill_print_size: '' };
+    var shop = { shop_name: '', upi_id: '', upi_payee_name: '', wa_bill_message: '',
+      wa_reminder_message: '', wa_ready_message: '', bill_print_size: '' };
     rows.forEach(function (row) {
       if (SHOP_KEYS.indexOf(row.key) !== -1) {
         shop[row.key] = String(row.value == null ? '' : row.value);
@@ -446,46 +449,63 @@ window.ANT.settings = (function () {
     }).join('') + '</ul>';
   }
 
+  /* One message box, with the same save-and-clear-back-to-default rule for
+   * each: the box always shows what the customer will actually read, and
+   * clearing it is the way back to the standard wording. */
+  function waBox(id, label, savedKey, fallback, hint) {
+    var standard = (window.ANT.whatsapp && window.ANT.whatsapp[fallback]) || '';
+    var saved = String(state.shop[savedKey] || '').trim();
+
+    return '<div class="ui-field">' +
+      '<label class="ui-label" for="' + id + '">' + esc(label) + '</label>' +
+      '<textarea class="ui-textarea" id="' + id + '" rows="8" spellcheck="false">' +
+        esc(saved || standard) + '</textarea>' +
+      '<p class="ui-hint">' + esc(hint) + ' Clear the box and save to go back to the standard wording.</p>' +
+    '</div>';
+  }
+
   function whatsappPanel() {
     if (state.loading) {
       return '<div class="ui-card"><div class="empty"><div class="empty-title">Loading...</div></div></div>';
     }
 
     // An unset template shows the standard wording in the box rather than a
-    // blank one. The owner edits real text and the box always says what the
-    // customer will actually read; saving an emptied box stores nothing and the
-    // standard wording returns, which is the way back.
-    var standard = (window.ANT.whatsapp && window.ANT.whatsapp.DEFAULT_BILL) || '';
-    var saved = String(state.shop.wa_bill_message || '').trim();
-
+    // blank one, for the same reason on all three.
     return '<div class="ui-card cust-form">' +
-      '<h2 class="ui-card-title">WhatsApp bill message</h2>' +
-      '<p class="ui-hint">This is the message the Bills page sends a customer. ' +
-        'Placeholders in curly brackets are filled in from the bill; everything else is sent as typed.</p>' +
+      '<h2 class="ui-card-title">WhatsApp messages</h2>' +
+      '<p class="ui-hint">These are the messages the shop sends. Placeholders in curly ' +
+        'brackets are filled in from the record; everything else is sent as typed.</p>' +
       '<form id="waForm" novalidate>' +
-        '<div class="ui-field">' +
-          '<label class="ui-label" for="waBillMessage">Message</label>' +
-          '<textarea class="ui-textarea" id="waBillMessage" rows="10" spellcheck="false">' +
-            esc(saved || standard) + '</textarea>' +
-          '<p class="ui-hint">Clear the box and save to go back to the standard wording.</p>' +
-        '</div>' +
+        waBox('waBillMessage', 'Bill message', 'wa_bill_message', 'DEFAULT_BILL',
+          'Sent from the Bills page.') +
+        waBox('waReminderMessage', 'Payment reminder', 'wa_reminder_message', 'DEFAULT_REMINDER',
+          'Sent from a bill that still owes money.') +
+        waBox('waReadyMessage', 'Order ready', 'wa_ready_message', 'DEFAULT_READY',
+          'Sent from an order that is marked Ready.') +
         tokenLegend() +
         '<div class="form-actions">' +
-          '<button type="submit" class="btn btn-primary">Save WhatsApp message</button>' +
+          '<button type="submit" class="btn btn-primary">Save WhatsApp messages</button>' +
         '</div>' +
       '</form>' +
     '</div>';
   }
 
   function saveWhatsApp() {
-    var value = byId('waBillMessage').value.trim();
+    var bill = byId('waBillMessage').value.trim();
+    var reminder = byId('waReminderMessage').value.trim();
+    var ready = byId('waReadyMessage').value.trim();
 
-    putSetting('wa_bill_message', value).then(function (res) {
-      if (res && res.error) {
-        toast(res.error.message, 'error');
+    Promise.all([
+      putSetting('wa_bill_message', bill),
+      putSetting('wa_reminder_message', reminder),
+      putSetting('wa_ready_message', ready)
+    ]).then(function (results) {
+      var bad = results.filter(function (r) { return r && r.error; })[0];
+      if (bad) {
+        toast(bad.error.message, 'error');
         return;
       }
-      toast('WhatsApp message saved', 'success');
+      toast('WhatsApp messages saved', 'success');
       load();
     });
   }

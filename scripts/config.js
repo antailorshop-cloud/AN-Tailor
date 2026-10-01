@@ -6,7 +6,7 @@ window.ANT = window.ANT || {};
 // hard-refresh. Hash routing means clicking around the app never causes a
 // page load, so without this check a running tab can stay on old code
 // indefinitely.
-var BUILD = '2026-10-01-19';
+var BUILD = '2026-10-01-20';
 
 // config.local.js is loaded first and is gitignored. It exists so keys can be
 // rotated, or a second project tried, without editing tracked code. The values
