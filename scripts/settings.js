@@ -27,16 +27,17 @@ window.ANT.settings = (function () {
   var CATEGORIES = ['Gents', 'Ladies'];
   var GROUPS = ['TAILORING', 'SERVICE', 'RESALE'];
 
-  // Bill payment uses these three keys. Everything else a bill needs is on the
-  // order and the customer, so this is the whole of the shop's own details.
-  var SHOP_KEYS = ['shop_name', 'upi_id', 'upi_payee_name'];
+  // Bill payment uses the first three. The last is the wording of the WhatsApp
+  // bill message; an empty value means the standard wording, which is why it is
+  // kept here beside the UPI id rather than hardcoded in the message builder.
+  var SHOP_KEYS = ['shop_name', 'upi_id', 'upi_payee_name', 'wa_bill_message'];
 
   var state = {
     tab: 'dress',
     search: '',
     dressRows: [],
     priceRows: [],
-    shop: { shop_name: '', upi_id: '', upi_payee_name: '' },
+    shop: { shop_name: '', upi_id: '', upi_payee_name: '', wa_bill_message: '' },
     loading: false,
     error: null,
     form: null   // null = closed, {kind:'dress'|'price', row:{}|null}
@@ -92,7 +93,7 @@ window.ANT.settings = (function () {
   // shop_settings is a key/value table. Only the keys the bill uses are kept;
   // anything else a hand-edit left in the table is ignored rather than shown.
   function applyShop(rows) {
-    var shop = { shop_name: '', upi_id: '', upi_payee_name: '' };
+    var shop = { shop_name: '', upi_id: '', upi_payee_name: '', wa_bill_message: '' };
     rows.forEach(function (row) {
       if (SHOP_KEYS.indexOf(row.key) !== -1) {
         shop[row.key] = String(row.value == null ? '' : row.value);
@@ -138,7 +139,8 @@ window.ANT.settings = (function () {
     return '<div class="page-head">' +
       '<div>' +
         '<h1 class="page-head-title">Settings</h1>' +
-        '<p class="page-head-sub">Dress types, prices and the shop UPI ID. Staff can read these; only the Owner can change them.</p>' +
+        '<p class="page-head-sub">Dress types, prices, the shop UPI ID and the WhatsApp wording. ' +
+          'Staff can read these; only the Owner can change them.</p>' +
       '</div>' +
     '</div>';
   }
@@ -148,6 +150,7 @@ window.ANT.settings = (function () {
       '<button class="set-tab' + (state.tab === 'dress' ? ' is-active' : '') + '" data-set-tab="dress">Dress types</button>' +
       '<button class="set-tab' + (state.tab === 'price' ? ' is-active' : '') + '" data-set-tab="price">Prices</button>' +
       '<button class="set-tab' + (state.tab === 'shop' ? ' is-active' : '') + '" data-set-tab="shop">Shop &amp; UPI</button>' +
+      '<button class="set-tab' + (state.tab === 'whatsapp' ? ' is-active' : '') + '" data-set-tab="whatsapp">WhatsApp</button>' +
     '</div>';
   }
 
@@ -197,6 +200,7 @@ window.ANT.settings = (function () {
       '</div></div>';
     }
     if (state.tab === 'shop') return shopPanel();
+    if (state.tab === 'whatsapp') return whatsappPanel();
     return state.tab === 'dress' ? dressPanel() : pricePanel();
   }
 
@@ -407,6 +411,63 @@ window.ANT.settings = (function () {
         if (res.data && res.data.length) return res;
         return sb().from('shop_settings').insert({ key: key, value: value }).select('key');
       });
+  }
+
+  /* WhatsApp ------------------------------------------------------------ */
+
+  // The tokens the message builder understands, written out so the owner can
+  // see what they may type. The list comes from the module that does the
+  // replacing, so a token can never be advertised here and unknown there.
+  function tokenLegend() {
+    var tokens = (window.ANT.whatsapp && window.ANT.whatsapp.TOKENS) || [];
+
+    return '<ul class="wa-tokens">' + tokens.map(function (t) {
+      return '<li><code>' + esc(t[0]) + '</code> ' + esc(t[1]) + '</li>';
+    }).join('') + '</ul>';
+  }
+
+  function whatsappPanel() {
+    if (state.loading) {
+      return '<div class="ui-card"><div class="empty"><div class="empty-title">Loading...</div></div></div>';
+    }
+
+    // An unset template shows the standard wording in the box rather than a
+    // blank one. The owner edits real text and the box always says what the
+    // customer will actually read; saving an emptied box stores nothing and the
+    // standard wording returns, which is the way back.
+    var standard = (window.ANT.whatsapp && window.ANT.whatsapp.DEFAULT_BILL) || '';
+    var saved = String(state.shop.wa_bill_message || '').trim();
+
+    return '<div class="ui-card cust-form">' +
+      '<h2 class="ui-card-title">WhatsApp bill message</h2>' +
+      '<p class="ui-hint">This is the message the Bills page sends a customer. ' +
+        'Placeholders in curly brackets are filled in from the bill; everything else is sent as typed.</p>' +
+      '<form id="waForm" novalidate>' +
+        '<div class="ui-field">' +
+          '<label class="ui-label" for="waBillMessage">Message</label>' +
+          '<textarea class="ui-textarea" id="waBillMessage" rows="10" spellcheck="false">' +
+            esc(saved || standard) + '</textarea>' +
+          '<p class="ui-hint">Clear the box and save to go back to the standard wording.</p>' +
+        '</div>' +
+        tokenLegend() +
+        '<div class="form-actions">' +
+          '<button type="submit" class="btn btn-primary">Save WhatsApp message</button>' +
+        '</div>' +
+      '</form>' +
+    '</div>';
+  }
+
+  function saveWhatsApp() {
+    var value = byId('waBillMessage').value.trim();
+
+    putSetting('wa_bill_message', value).then(function (res) {
+      if (res && res.error) {
+        toast(res.error.message, 'error');
+        return;
+      }
+      toast('WhatsApp message saved', 'success');
+      load();
+    });
   }
 
   /* Form --------------------------------------------------------------- */
@@ -709,6 +770,14 @@ window.ANT.settings = (function () {
       shop.addEventListener('submit', function (e) {
         e.preventDefault();
         saveShop();
+      });
+    }
+
+    var wa = byId('waForm');
+    if (wa) {
+      wa.addEventListener('submit', function (e) {
+        e.preventDefault();
+        saveWhatsApp();
       });
     }
 

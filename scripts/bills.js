@@ -36,10 +36,11 @@
  * that cannot finish, the button is only drawn for the Owner. Staff can still
  * create and print bills.
  *
- * PDF storage and WhatsApp delivery were Google Drive features in the legacy
- * system. bills.pdf_path is left for when a file store is decided on, and the
- * print view is built in the browser instead, so a bill prints with no server
- * round trip and no Drive account.
+ * PDF storage was a Google Drive feature in the legacy system. bills.pdf_path
+ * is left for when a file store is decided on, and the print view is built in
+ * the browser instead, so a bill prints with no server round trip and no Drive
+ * account. WhatsApp is a text message built by scripts/whatsapp.js and sent
+ * through wa.me, so it needs no file store either.
  */
 
 window.ANT = window.ANT || {};
@@ -75,9 +76,10 @@ window.ANT.bills = (function () {
     term: '',
     matches: [],
     matchTotal: 0,
-    // Shop details for the printed bill. Read once from shop_settings; a
-    // missing or unreadable row simply means no UPI code is drawn.
-    shop: { name: '', upiId: '', payee: '' }
+    // Shop details for the printed bill and the WhatsApp message. Read once
+    // from shop_settings; a missing or unreadable row simply means no UPI code
+    // is drawn and the WhatsApp message falls back to the standard wording.
+    shop: { name: '', upiId: '', payee: '', waBillMessage: '' }
   };
 
   function byId(id) { return document.getElementById(id); }
@@ -276,13 +278,14 @@ window.ANT.bills = (function () {
     return sb().from('shop_settings')
       .select('key,value')
       .then(function (res) {
-        var shop = { name: '', upiId: '', payee: '' };
+        var shop = { name: '', upiId: '', payee: '', waBillMessage: '' };
 
         if (!res.error && res.data) {
           res.data.forEach(function (row) {
             if (row.key === 'shop_name') shop.name = row.value || '';
             else if (row.key === 'upi_id') shop.upiId = row.value || '';
             else if (row.key === 'upi_payee_name') shop.payee = row.value || '';
+            else if (row.key === 'wa_bill_message') shop.waBillMessage = row.value || '';
           });
         }
 
@@ -627,6 +630,11 @@ window.ANT.bills = (function () {
 
   function historyRow(b) {
     var owner = isOwner();
+    // WhatsApp is offered only when there is a real mobile to send to; a
+    // button that can only apologise is worse than no button.
+    var canShare = !!(window.ANT.whatsapp && state.customer &&
+      window.ANT.whatsapp.canSend(state.customer.mobile));
+
     return '<tr>' +
       '<td><span class="ord-sub-strong">' + esc(b.code) + '</span></td>' +
       '<td>' + esc(dateLabel(b.bill_date)) + '</td>' +
@@ -637,6 +645,9 @@ window.ANT.bills = (function () {
       '<td class="ord-row-actions">' +
       (payLink(b)
         ? '<button class="btn btn-sm btn-primary" data-bill-pay="' + esc(b.id) + '">Pay</button> '
+        : '') +
+      (canShare
+        ? '<button class="btn btn-sm btn-secondary" data-bill-share="' + esc(b.id) + '">WhatsApp</button> '
         : '') +
       '<button class="btn btn-sm btn-secondary" data-bill-print="' + esc(b.id) + '">Print</button>' +
       (owner
@@ -1197,6 +1208,84 @@ window.ANT.bills = (function () {
     openUpi(target);
   }
 
+  /* Sending a bill on WhatsApp ---------------------------------------------- */
+
+  /* wa.me with the message already filled in. Handed over by clicking a real
+   * anchor rather than assigning to location, so the app is not navigated away
+   * from and the tailor comes back to the same screen. Opened in a new tab,
+   * because on a computer wa.me is WhatsApp Web and the bill should not take
+   * the shop's own screen with it. */
+  function openChat(url) {
+    var a = document.createElement('a');
+    a.href = url;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+
+    setTimeout(function () {
+      if (a.parentNode) a.parentNode.removeChild(a);
+    }, 100);
+  }
+
+  /* The message is built from the same bill the Print button draws, so the two
+   * can never quote different orders or a different balance. The orders are
+   * read fresh from bill_orders, exactly as printing does, because a bill's
+   * orders are the record and the loaded order list may not hold them all. */
+  function shareBill(billId) {
+    if (!window.ANT.whatsapp) return;
+
+    var c = state.customer;
+    if (!c) {
+      toast('Open a customer first, then send a bill.', 'error');
+      return;
+    }
+    if (!window.ANT.whatsapp.canSend(c.mobile)) {
+      toast('This customer has no mobile number to send WhatsApp to. ' +
+        'Add one on the Customers page.', 'error');
+      return;
+    }
+
+    var bill = null;
+    for (var i = 0; i < state.bills.length; i++) {
+      if (state.bills[i].id === billId) bill = state.bills[i];
+    }
+    if (!bill) {
+      toast('That bill is not on this page.', 'error');
+      return;
+    }
+
+    sb().from('bill_orders')
+      .select('order_id')
+      .eq('bill_id', billId)
+      .then(function (res) {
+        if (res.error) {
+          toast('The orders on that bill could not be read: ' + reason(res), 'error');
+          return;
+        }
+
+        return ordersForPrint((res.data || []).map(function (r) { return r.order_id; }))
+          .then(function (list) {
+            var message = window.ANT.whatsapp.billMessage({
+              shop: state.shop,
+              customer: c,
+              bill: bill,
+              orders: list
+            });
+
+            var url = window.ANT.whatsapp.link(c.mobile, message);
+            if (!url) {
+              toast('That mobile number is not one WhatsApp can use.', 'error');
+              return;
+            }
+
+            openChat(url);
+            toast('Opening WhatsApp for ' + (c.name || 'this customer') + '.', 'success');
+          });
+      });
+  }
+
   /* Wiring --------------------------------------------------------------- */
 
   function wire() {
@@ -1252,6 +1341,12 @@ window.ANT.bills = (function () {
     each('[data-bill-print]', function (b) {
       b.addEventListener('click', function () {
         printBill(b.getAttribute('data-bill-print'));
+      });
+    });
+
+    each('[data-bill-share]', function (b) {
+      b.addEventListener('click', function () {
+        shareBill(b.getAttribute('data-bill-share'));
       });
     });
 
