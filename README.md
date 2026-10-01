@@ -89,8 +89,28 @@ scripts/app.js          theme, router, pages
     supabase/rls.sql        role helpers, policies, signup trigger
     supabase/tests/         browser security gate
 
-## Roles
+## Roles and area access
 
-`owner` sees every area. `staff` sees everything except Settings. The block is
-enforced in the database, not only in the menu. The frontend hides what the
-role cannot do; the database is what actually refuses.
+`owner` sees every area. `staff` sees everything except Settings.
+
+The role is the security boundary and it is enforced in the database: the RLS
+policies admit `is_member()` (any active profile) on the day-to-day tables and
+reserve `is_owner()` for master data, Settings, `staff_access` and the real
+deletes. A staff member cannot reach the price list even by calling the REST API
+directly, whatever the menu shows.
+
+Per-area access is the second layer, and it is weaker than the role. Rows in
+`staff_access` narrow one tailor to the counters they work. Those rows are read
+in `scripts/auth.js` and used to build the menu and gate the router, but no
+policy on the data tables consults them and no data table carries an area
+column. So a per-area grant controls where someone can navigate, not which rows
+they can read: someone narrowed to a single area still has a valid session and a
+public anon key, and can read every row through the API. Treat per-area grants
+as a way of keeping the menu honest, not as a way of keeping customer data
+private. Making them real means area-aware policies on the data tables, which is
+its own piece of work.
+
+A grant can only ever subtract from a role, never widen it. No rows at all means
+"leave them to their role", which is why an account created before this feature
+existed keeps working; a tailor deliberately locked down gets a `NONE` row so
+the empty case is not mistaken for "no narrowing".

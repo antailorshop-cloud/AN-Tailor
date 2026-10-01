@@ -17,7 +17,26 @@ window.ANT.auth = (function () {
   var cfg = window.ANT.config;
   var CACHE_KEY = 'anTailorCurrentUser';
 
-  /* Access rules - the menu. The database is the real enforcement.
+  /* Access rules - the menu, and the router behind it.
+   *
+   * Read this before trusting it with anything sensitive.
+   *
+   * What the database enforces, in RLS, is the ROLE: `is_member()` admits any
+   * active profile, and `is_owner()` is reserved for master data, Settings and
+   * the staff_access table itself. That part is real and it is the security
+   * boundary. A staff member cannot reach Settings or the price list even by
+   * bypassing this file.
+   *
+   * What is decided HERE, and only here, is the narrower per-area grant: the
+   * rows in staff_access that limit one tailor to the counters they actually
+   * work. Those rows are not consulted by any policy on the data tables, and
+   * no data table carries an area column for them to filter on. So a per-area
+   * grant is a routing and menu convenience, NOT a data boundary. Someone
+   * narrowed to a single area still has a valid session and a public anon key,
+   * and can read every row through the REST API regardless of what the nav bar
+   * shows them. Enforcing the grants for real means area-aware RLS policies on
+   * the data tables; that is a deliberate, separate piece of work, not something
+   * this file quietly achieves.
    *
    * Two things decide an area, and they can only ever subtract:
    *
@@ -55,6 +74,15 @@ window.ANT.auth = (function () {
   // The rows a person has been given. A read that fails or is filtered by RLS
   // yields an empty list, which means "leave them to their role" - never a
   // reason to keep a tailor out of the app.
+  //
+  // That is a deliberate choice with a known cost, and it is worth being precise
+  // about: an empty list is the SAME value as a real "no rows" answer, so a
+  // narrowed tailor whose grant read happens to fail is handed back their full
+  // role. Since the grants only steer the menu (see the note above), the cost is
+  // a wider nav bar for the length of one session, not data exposure. If the
+  // grants ever become a data boundary, this is the line that has to change: a
+  // failed read would have to deny, not default, and the two cases must be able
+  // to tell each other apart.
   function loadAreas(userId) {
     return window.ANT.sb.from('staff_access')
       .select('area')

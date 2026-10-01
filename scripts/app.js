@@ -133,7 +133,7 @@
       + '</div>'
       + '<div style="margin-top:var(--gap)">'
         + phaseNote(d[2], ownerOnly
-          ? 'Only the Owner role can open this area. Staff are blocked at the database level, not just hidden in the menu.'
+          ? 'Only the Owner role can open this area, and the database enforces that on the tables behind it - not just the menu.'
           : 'Available to both Owner and Staff roles.')
       + '</div>';
   }

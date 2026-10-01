@@ -580,16 +580,17 @@ window.ANT.settings = (function () {
     });
   }
 
-  // The areas a person can actually open, which is the role narrowed by their
-  // rows. It reads the same two rules auth.js does, so the boxes on this screen
-  // always show what the menu will actually offer.
+  // The areas a person can actually open: the role narrowed by their rows.
+  //
+  // This asks auth.js rather than repeating the rule. The two were written out
+  // separately and, while they agree for the two roles and eight areas that exist
+  // today, nothing kept them agreeing: this copy tested minRole against a
+  // hardcoded 'owner' and allowlisted 'owner'/'staff' by name instead of using the
+  // rank table, so a third role would have made this screen tick boxes the menu
+  // then refused. There is now one implementation of the rule and the Staff screen
+  // cannot disagree with the nav bar.
   function effectiveAreas(role, rows) {
-    return (window.ANT.config.areas || []).filter(function (a) {
-      if (a.minRole === 'owner') return role === 'owner';
-      if (role !== 'owner' && role !== 'staff') return false;
-      if (a.access && rows && rows.length) return rows.indexOf(a.access) !== -1;
-      return true;
-    }).map(function (a) { return a.access; });
+    return window.ANT.auth.areasFor(role, rows).map(function (a) { return a.access; });
   }
 
   function staffRow(r) {
@@ -772,7 +773,12 @@ window.ANT.settings = (function () {
     var rows = state.staff.access[id] || [];
     if ((rows.indexOf(area) !== -1) === on) return Promise.resolve();
 
-    var wanted = on ? rows.concat([area]) : rows.filter(function (a) { return a !== area; });
+    // The marker is a stand-in for an empty list, not a member of it. Carrying it
+    // forward would leave NONE sitting alongside a real area, so the next untick
+    // of that area would read as "still has one" and the marker's own guarantee -
+    // that an empty list is never stored - would quietly stop being true.
+    var real = rows.filter(function (a) { return a !== NO_AREA; });
+    var wanted = on ? real.concat([area]) : real.filter(function (a) { return a !== area; });
     var keep = wanted.length ? wanted : [NO_AREA];
     var toAdd = keep.filter(function (a) { return rows.indexOf(a) === -1; });
     var toDrop = rows.filter(function (a) { return keep.indexOf(a) === -1; });
@@ -1171,6 +1177,10 @@ window.ANT.settings = (function () {
       state.form = null;
       paint();
       load();
-    }
+    },
+
+    // Exposed so the harness can pin the tick boxes to the rule in auth.js
+    // without reaching inside the module. Nothing in the app calls it.
+    __effectiveAreas: effectiveAreas
   };
 })();
