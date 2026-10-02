@@ -1352,32 +1352,65 @@ window.ANT.bills = (function () {
   // through the Apps Script URL, rather than a local printout. It writes the
   // result back to window.__pdfResult because the popup that owns the HTML is a
   // different tab, so it cannot share variables directly.
+  //
+  // Apps Script web apps cannot be given CORS headers, so a normal fetch POST is
+  // rejected by the browser before it ever runs. The upload therefore goes out
+  // as a plain no-cors POST, which the browser sends without asking permission
+  // and whose answer cannot be read, and the link is collected afterwards by
+  // loading a JSONP script tag. A script tag is not subject to the same-origin
+  // rule, so that reply is readable from any site.
   function pdfUploadScript() {
     return '<script>' +
       '(function(){' +
+      '  var JOB = "job_" + Date.now() + "_" + Math.floor(Math.random() * 1e9);' +
+      '  function report(url, err) {' +
+      '    window.__pdfResult = { url: url || "", error: err || "" };' +
+      '    try { if (window.opener && !window.opener.closed) window.opener.postMessage({ type: "pdfReady", url: url || "", error: err || "", billId: window.__billId || "" }, "*"); } catch (e) {}' +
+      '  }' +
+      '  function poll(remaining) {' +
+      '    if (remaining <= 0) { report("", "upload timed out"); return; }' +
+      '    var cb = "__pdfcb" + remaining + "_" + Math.floor(Math.random() * 1e6);' +
+      '    var tag = document.createElement("script");' +
+      '    var settled = false;' +
+      '    window[cb] = function (res) {' +
+      '      if (settled) return; settled = true;' +
+      '      try { delete window[cb]; } catch (e) { window[cb] = undefined; }' +
+      '      try { if (tag.parentNode) tag.parentNode.removeChild(tag); } catch (e) {}' +
+      '      if (res && res.url) { report(res.url, ""); return; }' +
+      '      if (res && res.error) { report("", res.error); return; }' +
+      '      setTimeout(function () { poll(remaining - 1); }, 1000);' +
+      '    };' +
+      '    tag.onerror = function () {' +
+      '      if (settled) return; settled = true;' +
+      '      try { delete window[cb]; } catch (e) { window[cb] = undefined; }' +
+      '      report("", "could not reach the upload script");' +
+      '    };' +
+      '    tag.src = "' + PDF_UPLOAD_URL + '?job=' + JOB + '&callback=' + cb + '&_=' + Date.now() + '";' +
+      '    document.head.appendChild(tag);' +
+      '  }' +
       '  function complete(blob) {' +
       '    var fr = new FileReader();' +
       '    fr.onloadend = function(){' +
-      '      var base64 = fr.result.split(",")[1];' +
-      '      var ff = { filename: "Bill-"+document.title.replace(/[^a-zA-Z0-9]/g, "_")+".pdf", data: base64 };' +
-      '      fetch("' + PDF_UPLOAD_URL + '", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(ff) })' +
-      '      .then(function(r){ return r.text(); })' +
-      '      .then(function(url){ window.__pdfResult = { url: url }; try { if (window.opener && !window.opener.closed) window.opener.postMessage({ type: "pdfReady", url: url, billId: window.__billId || "" }, "*"); } catch (e) {} })' +
-      '      .catch(function(){ window.__pdfResult = { error: "upload failed" }; });' +
+      '      var base64 = String(fr.result).split(",")[1] || "";' +
+      '      if (!base64) { report("", "the pdf came back empty"); return; }' +
+      '      var payload = JSON.stringify({ job: JOB, filename: "Bill-" + document.title.replace(/[^a-zA-Z0-9]/g, "_") + ".pdf", data: base64 });' +
+      '      fetch("' + PDF_UPLOAD_URL + '", { method: "POST", mode: "no-cors", headers: { "Content-Type": "text/plain;charset=UTF-8" }, body: payload })' +
+      '      .then(function(){ poll(60); })' +
+      '      .catch(function(){ report("", "upload failed"); });' +
       '    };' +
       '    fr.readAsDataURL(blob);' +
       '  }' +
       '  function run() {' +
       '    if (typeof html2pdf === "undefined") { setTimeout(run, 200); return; }' +
       '    var el = document.querySelector(".bill");' +
-      '    if (!el) return;' +
+      '    if (!el) { report("", "no bill on the page"); return; }' +
       '    var opts = { html2canvas:{ scale:2, useCORS:true }, margin:0, filename:"bill.pdf", jsPDF:{ unit:"mm", format:"a4", orientation:"portrait" } };' +
       '    html2pdf().set(opts).from(el).toPdf().get("pdf").then(function(p){ complete(p.output("blob")); });' +
       '  }' +
       '  var script = document.createElement("script");' +
       '  script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";' +
       '  script.onload = function(){ setTimeout(run, 300); };' +
-      '  script.onerror = function(){ window.__pdfResult = { error: "library failed" }; };' +
+      '  script.onerror = function(){ report("", "library failed"); };' +
       '  document.head.appendChild(script);' +
       '})();' +
       '<' + '/script>';
@@ -1914,6 +1947,9 @@ window.ANT.bills = (function () {
               clearTimeout(timeoutId);
               try { window.removeEventListener('message', handler); } catch (e) {}
               try { pdfWindow.close(); } catch (e) {}
+              if (e.data.error) {
+                toast('That PDF could not be shared: ' + e.data.error + '. Sending the text on its own.', 'warning');
+              }
               if (e.data.url) {
                 message += '\n\nDownload PDF: ' + e.data.url;
               }
@@ -1936,7 +1972,7 @@ window.ANT.bills = (function () {
                 toast('PDF upload did not finish in time, sending text only.', 'warning');
                 sendWhatsApp(message);
               }
-            }, 30000);
+            }, 90000);
           });
       });
   }
