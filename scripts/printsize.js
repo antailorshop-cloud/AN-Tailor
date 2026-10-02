@@ -114,7 +114,7 @@ window.ANT.printsize = (function () {
    * layout the printer never uses.
    *
    *   A4      210mm paper, 10mm margins -> 190mm
-   *   A5      210mm paper, 8mm margins  -> 194mm, but the bill is capped at 132
+   *   A5      148mm paper, 8mm margins  -> 132mm
    *   A4HALF  the left half of a landscape A4 -> 140mm
    *
    * These are the same numbers layoutCss() puts in the stylesheet, kept here as
@@ -122,7 +122,7 @@ window.ANT.printsize = (function () {
    * apart unnoticed. */
   function billWidthMm(value) {
     var key = normalize(value);
-    if (key === 'A5') return 194;
+    if (key === 'A5') return 132;
     if (key === 'A4HALF') return 140;
     return 190;
   }
@@ -139,7 +139,7 @@ window.ANT.printsize = (function () {
         'border-right:1px dashed #999;padding-right:6mm}';
     }
 
-    if (key === 'A5') return '.' + base + '{width:194mm;max-width:194mm}';
+    if (key === 'A5') return '.' + base + '{width:132mm;max-width:132mm}';
     return '.' + base + '{width:190mm;max-width:190mm}';
   }
 

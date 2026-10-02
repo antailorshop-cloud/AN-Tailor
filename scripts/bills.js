@@ -1122,7 +1122,7 @@ window.ANT.bills = (function () {
   var PRINT_CSS = [
     '*{box-sizing:border-box}',
     'body{font:12.5px/1.5 "Segoe UI",system-ui,-apple-system,Arial,sans-serif;color:#1f2937;margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}',
-    '.bill{width:190mm;margin:0 auto}',
+    '.bill{width:190mm;margin:0;padding:0}',
 
     '.head{display:flex;justify-content:space-between;align-items:center;gap:10mm;padding-bottom:4mm;border-bottom:3px double #0f2239}',
     '.brand{display:flex;align-items:center;gap:6mm;min-width:0}',
