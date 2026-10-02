@@ -52,6 +52,8 @@ window.ANT.bills = (function () {
   var money = function (v) { return window.ANT.money(v); };
 
   var PAGE_SIZE = 25;
+  var PDF_UPLOAD_URL = window.__PDF_UPLOAD_URL__ !== undefined ? window.__PDF_UPLOAD_URL__ :
+    'https://script.google.com/macros/s/AKfycbxhxxkxaNI_vKefhLSI6n0FFkBAMy7tLnMW4briPL2_KTm_2D-xUJGcDOTNyLJPtRjF/exec';
 
   // How many customers a name search will offer to pick from. A list long enough
   // to scroll past its own end is a list nobody reads, and the number of matches
@@ -1346,7 +1348,42 @@ window.ANT.bills = (function () {
     return p > 0 ? String(p) : '';
   }
 
-  function openPrintWindow(bill, list) {
+  // Inline script the print popup runs when it is asked to produce a public PDF
+  // through the Apps Script URL, rather than a local printout. It writes the
+  // result back to window.__pdfResult because the popup that owns the HTML is a
+  // different tab, so it cannot share variables directly.
+  function pdfUploadScript() {
+    return '<script>' +
+      '(function(){' +
+      '  function complete(blob) {' +
+      '    var fr = new FileReader();' +
+      '    fr.onloadend = function(){' +
+      '      var base64 = fr.result.split(",")[1];' +
+      '      var ff = { filename: "Bill-"+document.title.replace(/[^a-zA-Z0-9]/g, "_")+".pdf", data: base64 };' +
+      '      fetch("' + PDF_UPLOAD_URL + '", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(ff) })' +
+      '      .then(function(r){ return r.text(); })' +
+      '      .then(function(url){ window.__pdfResult = { url: url }; })' +
+      '      .catch(function(){ window.__pdfResult = { error: "upload failed" }; });' +
+      '    };' +
+      '    fr.readAsDataURL(blob);' +
+      '  }' +
+      '  function run() {' +
+      '    if (typeof html2pdf === "undefined") { setTimeout(run, 200); return; }' +
+      '    var el = document.querySelector(".bill");' +
+      '    if (!el) return;' +
+      '    var opts = { html2canvas:{ scale:2, useCORS:true }, margin:0, filename:"bill.pdf", jsPDF:{ unit:"mm", format:"a4", orientation:"portrait" } };' +
+      '    html2pdf().set(opts).from(el).toPdf().get("pdf").then(function(p){ complete(p.output("blob")); });' +
+      '  }' +
+      '  var script = document.createElement("script");' +
+      '  script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";' +
+      '  script.onload = function(){ setTimeout(run, 300); };' +
+      '  script.onerror = function(){ window.__pdfResult = { error: "library failed" }; };' +
+      '  document.head.appendChild(script);' +
+      '})();' +
+      '<' + '/script>';
+  }
+
+  function openPrintWindow(bill, list, opts) {
     var c = state.customer;
     if (!c) {
       toast('Open a customer first, then print a bill.', 'error');
@@ -1570,6 +1607,14 @@ window.ANT.bills = (function () {
       '</div>' +
       '</body></html>';
 
+    // When the caller asks for a shared PDF, the popup itself uploads the PDF
+    // to the Apps Script endpoint. It sends the resulting URL back through a
+    // private window variable, which the caller polls and then opens WhatsApp
+    // with that URL in the text.
+    if (opts === 'pdf') {
+      html = html.replace('</body></html>', pdfUploadScript() + '</body></html>');
+    }
+
     var win = window.open('', '_blank');
     if (!win) {
       toast('Please allow pop-ups to print the bill.', 'error');
@@ -1579,6 +1624,12 @@ window.ANT.bills = (function () {
     win.document.open();
     win.document.write(html);
     win.document.close();
+
+    if (opts === 'pdf') {
+      // The popup is asked to upload the PDF via the inline script embedded
+      // in the HTML, not to open the print dialog.
+      return win;
+    }
 
     var go = function () {
       // The bill is fitted to one page first. Fitting needs a laid-out document
@@ -1603,6 +1654,7 @@ window.ANT.bills = (function () {
 
     if (win.document.readyState === 'complete') setTimeout(go, 250);
     else win.onload = function () { setTimeout(go, 250); };
+    return win;
   }
 
   /* One page, whatever the bill carries ------------------------------------- */
@@ -1838,14 +1890,49 @@ window.ANT.bills = (function () {
               ? window.ANT.whatsapp.reminderMessage(args)
               : window.ANT.whatsapp.billMessage(args);
 
-            var url = window.ANT.whatsapp.link(c.mobile, message);
-            if (!url) {
-              toast('That mobile number is not one WhatsApp can use.', 'error');
+            var sendWhatsApp = function (urlText) {
+              var url = window.ANT.whatsapp.link(c.mobile, urlText);
+              if (!url) {
+                toast('That mobile number is not one WhatsApp can use.', 'error');
+                return;
+              }
+              openChat(url);
+              toast('Opening WhatsApp for ' + (c.name || 'this customer') + '.', 'success');
+            };
+
+            // First try to generate a public Drive PDF and append it to the text.
+            // The inner tab uploads via the embedded script, then this tab
+            // polls its result until it is ready.
+            var pdfWindow = null;
+            if (PDF_UPLOAD_URL) {
+              pdfWindow = openPrintWindow(bill, list, 'pdf');
+            }
+            if (!pdfWindow) {
+              sendWhatsApp(message);
               return;
             }
 
-            openChat(url);
-            toast('Opening WhatsApp for ' + (c.name || 'this customer') + '.', 'success');
+            var attempts = 0;
+            var poll = setInterval(function () {
+              attempts++;
+              var result;
+              try { result = pdfWindow.__pdfResult; } catch (e) { result = null; }
+
+              if (result) {
+                clearInterval(poll);
+                try { pdfWindow.close(); } catch (e) {}
+                var linkText = result.url || '';
+                if (linkText) {
+                  message += '\n\nDownload PDF: ' + linkText;
+                }
+                sendWhatsApp(message);
+              } else if (attempts > 60) {
+                clearInterval(poll);
+                try { pdfWindow.close(); } catch (e) {}
+                toast('PDF upload did not finish in time, sending text only.', 'warning');
+                sendWhatsApp(message);
+              }
+            }, 500);
           });
       });
   }
