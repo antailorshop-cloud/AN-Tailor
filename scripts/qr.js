@@ -556,8 +556,14 @@ window.ANT.qr = (function () {
       }
     }
 
+    // width and height are given as well as viewBox. html2canvas, which the
+    // shared PDF is rendered with, cannot size an SVG from viewBox alone and
+    // draws nothing at all without them, so the code would vanish from the PDF
+    // while still showing on screen. The CSS width/height still decide how big
+    // it is drawn; these only give the element an intrinsic size.
     return '<svg class="' + (opts.className || 'qr-svg') + '"' +
       ' xmlns="http://www.w3.org/2000/svg"' +
+      ' width="' + side + '" height="' + side + '"' +
       ' viewBox="0 0 ' + side + ' ' + side + '"' +
       ' shape-rendering="crispEdges"' +
       ' preserveAspectRatio="xMidYMid meet"' +

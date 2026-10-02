@@ -1404,8 +1404,34 @@ window.ANT.bills = (function () {
       '    if (typeof html2pdf === "undefined") { setTimeout(run, 200); return; }' +
       '    var el = document.querySelector(".bill");' +
       '    if (!el) { report("", "no bill on the page"); return; }' +
+      '    fit();' +
       '    var opts = { html2canvas:{ scale:2, useCORS:true }, margin:0, filename:"bill.pdf", jsPDF:{ unit:"mm", format:"a4", orientation:"portrait" } };' +
       '    html2pdf().set(opts).from(el).toPdf().get("pdf").then(function(p){ complete(p.output("blob")); });' +
+      '  }' +
+      // The shared PDF is fitted to one page for the same reason the printout
+      // is: a bill that runs onto a second page is a nuisance. This runs in the
+      // popup, immediately before html2pdf reads the bill, so the scale is
+      // already applied when the pages are rendered.
+      '  function fit() {' +
+      '    var el = document.querySelector(".bill");' +
+      '    if (!el || !window.__fitH) return;' +
+      '    var probe = document.createElement("div");' +
+      '    probe.style.cssText = "position:absolute;visibility:hidden;height:100mm;width:0";' +
+      '    document.body.appendChild(probe);' +
+      '    var px = probe.getBoundingClientRect().height / 100;' +
+      '    document.body.removeChild(probe);' +
+      '    if (!(px > 0)) return;' +
+      '    var target = window.__fitH * px;' +
+      '    var body = document.body, prevW = body.style.width, prevZ = body.style.zoom;' +
+      '    body.style.width = (window.__fitW * px) + "px";' +
+      '    el.style.zoom = "";' +
+      '    var h = el.getBoundingClientRect().height;' +
+      '    body.style.width = prevW; body.style.zoom = prevZ;' +
+      '    if (!(h > target)) return;' +
+      '    var s = target / h;' +
+      '    if (s < 0.62) s = 0.62;' +
+      '    if (s >= 1) return;' +
+      '    el.style.zoom = String(s);' +
       '  }' +
       '  var script = document.createElement("script");' +
       '  script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";' +
@@ -1655,6 +1681,8 @@ window.ANT.bills = (function () {
     }
     if (opts === 'pdf') {
       win.__billId = bill.id || '';
+      win.__fitH = window.ANT.printsize.pageHeightMm(size);
+      win.__fitW = window.ANT.printsize.billWidthMm(size);
     }
 
     win.document.open();
