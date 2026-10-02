@@ -1388,6 +1388,32 @@ window.ANT.bills = (function () {
       '    tag.src = "' + PDF_UPLOAD_URL + '?job=" + JOB + "&callback=" + cb + "&_=" + Date.now();' +
       '    document.head.appendChild(tag);' +
       '  }' +
+      // Before spending time rendering a PDF, ask the script to introduce
+      // itself. An older deployment has no doGet at all, and the reply it sends
+      // back is not javascript, so the callback below would simply never fire
+      // and the popup would sit silent for a full minute. Asking first turns
+      // that into an immediate, readable reason.
+      '  function preflight() {' +
+      '    var cb = "__pdfok" + Date.now();' +
+      '    var done = false;' +
+      '    var tag = document.createElement("script");' +
+      '    window[cb] = function (res) {' +
+      '      if (done) return; done = true;' +
+      '      try { delete window[cb]; } catch (e) { window[cb] = undefined; }' +
+      '      if (res && res.ok) { start(); return; }' +
+      '      report("", "the upload script is out of date and has to be redeployed");' +
+      '    };' +
+      '    tag.onerror = function () {' +
+      '      if (done) return; done = true;' +
+      '      report("", "could not reach the upload script");' +
+      '    };' +
+      '    tag.src = "' + PDF_UPLOAD_URL + '?callback=" + cb + "&_=" + Date.now();' +
+      '    document.head.appendChild(tag);' +
+      '    setTimeout(function () {' +
+      '      if (done) return; done = true;' +
+      '      report("", "the upload script did not answer, so it has to be redeployed");' +
+      '    }, 8000);' +
+      '  }' +
       '  function complete(blob) {' +
       '    var fr = new FileReader();' +
       '    fr.onloadend = function(){' +
@@ -1433,11 +1459,14 @@ window.ANT.bills = (function () {
       '    if (s >= 1) return;' +
       '    el.style.zoom = String(s);' +
       '  }' +
-      '  var script = document.createElement("script");' +
-      '  script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";' +
-      '  script.onload = function(){ setTimeout(run, 300); };' +
-      '  script.onerror = function(){ report("", "library failed"); };' +
-      '  document.head.appendChild(script);' +
+'  function start() {' +
+      '    var script = document.createElement("script");' +
+      '    script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";' +
+      '    script.onload = function(){ setTimeout(run, 300); };' +
+      '    script.onerror = function(){ report("", "library failed"); };' +
+      '    document.head.appendChild(script);' +
+      '  }' +
+      '  preflight();' +
       '})();' +
       '<' + '/script>';
   }
