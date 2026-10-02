@@ -143,8 +143,10 @@ window.ANT.printsize = (function () {
         'border-right:2px dashed #0f2239;padding-right:6mm}';
     }
 
-    if (key === 'A5') return '.' + base + '{width:132mm;max-width:132mm}';
-    return '.' + base + '{width:190mm;max-width:190mm}';
+    if (key === 'A5') return '.' + base + '{width:132mm;max-width:132mm' +
+      (base === 'bill' ? ';min-height:194mm' : '') + '}';
+    return '.' + base + '{width:190mm;max-width:190mm' +
+      (base === 'bill' ? ';min-height:277mm' : '') + '}';
   }
 
   return {

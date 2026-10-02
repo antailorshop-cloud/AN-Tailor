@@ -1187,6 +1187,82 @@ window.ANT.bills = (function () {
 
     '.notes{margin:4mm 0 0;font-size:10.5px;padding:2.4mm 3mm;background:#f7f4ea;border-left:2px solid #b08d3f;color:#374151}',
 
+    /* Reference frame - ornate gold double border with corner flourishes --- */
+    '.bill{border:2px solid #b8934f;border-radius:2mm;padding:4.5mm;background:#fffdf7}',
+    '.bill::before{content:"";position:absolute;inset:1.6mm;border:1px solid #cdb894;pointer-events:none}',
+    '.bill::after{display:none}',
+    '.cnr{position:absolute;width:11mm;height:11mm;border:1.6px solid #b8934f;border-radius:50%;border-right:none;border-bottom:none;z-index:1}',
+    '.cnr.tl{top:1.6mm;left:1.6mm}',
+    '.cnr.tr{top:1.6mm;right:1.6mm;transform:rotate(90deg)}',
+    '.cnr.bl{bottom:1.6mm;left:1.6mm;transform:rotate(-90deg)}',
+    '.cnr.br{bottom:1.6mm;right:1.6mm;transform:rotate(180deg)}',
+
+    '.head{display:flex;align-items:flex-start;justify-content:space-between;gap:4mm;padding-bottom:3mm;border-bottom:none;flex-wrap:nowrap}',
+    '.mastlogo{flex:0 0 auto}',
+    '.mastcenter{flex:1 1 auto;min-width:0;text-align:center}',
+    '.shop-logo{width:18mm;height:18mm;border:2px solid #b8934f;padding:1mm;background:#fff}',
+    '.shop-name{font-size:19px;letter-spacing:.22em;color:#22314f}',
+    '.shop-sub{color:#b8934f;letter-spacing:.28em}',
+    '.shop-contact{font-size:9px;color:#5a5346;margin-top:1.2mm;letter-spacing:.03em;text-transform:none}',
+    '.orn{display:flex;align-items:center;justify-content:center;margin:2.8mm 0 0}',
+    '.orn::before,.orn::after{content:"";width:32mm;height:1px;background:#cdb894;flex:0 0 auto}',
+    '.orn span{width:4.4mm;height:4.4mm;border:1.3px solid #b8934f;border-radius:50%;margin:0 2.4mm;flex:0 0 auto}',
+
+    '.bill-bar{margin:3mm 0 2mm;padding:2.2mm 0;background:none;border:none;border-top:1px solid #cdb894;border-bottom:1px solid #cdb894;border-radius:0}',
+    '.bill-bar-item{border-right:none}',
+    '.bill-bar-item + .bill-bar-item{border-left:1px solid #e6d9bd}',
+    '.bill-bar-label{color:#b8934f;letter-spacing:.22em}',
+    '.bill-bar-val{color:#22314f}',
+
+    '.sect{display:flex;align-items:center;gap:1.8mm;font-size:8.5px;font-weight:700;letter-spacing:.26em;text-transform:uppercase;color:#b8934f;margin:3.4mm 0 2mm}',
+    '.sect::before{content:"";width:5px;height:5px;background:#b8934f;transform:rotate(45deg);flex:0 0 auto}',
+    '.parties{display:flex;gap:4mm;align-items:stretch}',
+    '.cdetails{flex:1 1 58%;min-width:0;border:1px solid #e0d3af}',
+    '.c-row{display:flex;padding:1.4mm 2.4mm;font-size:10.5px;border-bottom:1px solid #f0e9d8}',
+    '.c-row:last-child{border-bottom:none}',
+    '.c-row span{flex:0 0 30mm;color:#9a8a5f;letter-spacing:.14em;text-transform:uppercase;font-size:7.5px;padding-top:.6mm}',
+    '.c-row b{color:#22314f;font-weight:600}',
+    '.caddr{flex:1 1 42%;min-width:0;border:1px solid #e0d3af}',
+    '.caddr-label{font-size:7.5px;letter-spacing:.26em;text-transform:uppercase;color:#b8934f;font-weight:700;padding:1.4mm 2.4mm;border-bottom:1px solid #f0e9d8}',
+    '.caddr-val{padding:1.6mm 2.4mm;font-size:10.5px;color:#22314f;min-height:16mm}',
+
+    'table{margin:2.6mm 0 0}',
+    'th{background:#22314f;color:#fffdf7;border:1px solid #22314f}',
+    'td{border:1px solid #dcd0ae}',
+    'th,td{padding:1.7mm 1.4mm;font-size:10px}',
+
+    '.midrow{display:flex;gap:4mm;align-items:stretch}',
+    '.paycard{flex:1 1 58%;min-width:0;border:1px solid #d9cba6}',
+    '.paycard-title{font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:#b8934f;font-weight:700;padding:1.6mm 2.4mm;border-bottom:1px solid #e6d9bd}',
+    '.payrow{display:flex;justify-content:space-between;padding:1.5mm 2.4mm;font-size:10.5px;border-bottom:1px solid #f0e9d8}',
+    '.payrow span{color:#9a8a5f;letter-spacing:.14em;text-transform:uppercase;font-size:7.5px;padding-top:.6mm}',
+    '.payrow b{color:#22314f}',
+    '.scanbox{display:flex;gap:3mm;margin:2mm 2.4mm 2.4mm;padding:2.2mm;background:#fbf7ec;border:1px solid #e8ddbf;align-items:center}',
+    '.scanbox .qr{width:23mm;height:23mm}',
+    '.scanbox .qr-plate{background:#ffffff;border:1px solid #e0d3af;padding:1.4mm}',
+    '.scanbox-text .pay-amt{font-family:Georgia,"Times New Roman",serif;font-size:13px;font-weight:700;color:#b8934f;margin:.8mm 0}',
+    '.scanbox-head{font-size:8.5px;letter-spacing:.24em;text-transform:uppercase;color:#b8934f;font-weight:700}',
+    '.totals{margin:0;width:auto;flex:1 1 42%;border:1px solid #d9cba6}',
+    '.totals .due{background:#fbf6ea}',
+    '.words{margin:5mm 0 0;padding:2.2mm 0 0;border-top:1px solid #e8e0c8}',
+
+    '.footmast{text-align:center;margin-top:5mm}',
+    '.fm-name{font-family:Georgia,"Times New Roman",serif;font-size:15px;letter-spacing:.3em;color:#22314f;text-transform:uppercase;font-weight:700}',
+    '.fm-tag{font-family:Georgia,"Times New Roman",serif;font-style:italic;font-size:9.5px;color:#b8934f;margin-top:.8mm}',
+    '.fm-contact{font-size:8.5px;color:#555;margin-top:1.4mm;letter-spacing:.06em}',
+    '.fm-handle{font-size:8.5px;color:#22314f;font-weight:700;margin-top:.8mm}',
+    '.fm-rule{height:1px;background:#cdb894;margin:3mm 8mm 0}',
+    '.fm-line{margin-top:2mm;font-size:8px;letter-spacing:.3em;text-transform:uppercase;color:#8a7a54}',
+
+    '.follow{position:static;display:block;width:34mm;background:#fffdf7;color:#333;border:1px solid #b8934f;border-radius:1.5mm;padding:1.8mm 1.4mm;text-align:center;align-items:center}',
+    '.follow .qr-plate{border-color:#e0d3af;background:#ffffff;margin:0 auto}',
+    '.follow .qr{width:17mm;height:17mm}',
+    '.follow-text{margin-top:1.2mm}',
+    '.follow-head{justify-content:center;font-size:7px;letter-spacing:.3em;color:#b8934f}',
+    '.follow-link{color:#22314f;font-size:8px;margin-top:1mm;border-bottom:1px solid #cdb894}',
+    '.follow-id{color:#8a8676;font-size:6.5px}',
+    '',
+
     '@media print{body{margin:0;padding:0}',
     '.bill{transform-origin:top left}',
 
@@ -1332,23 +1408,29 @@ window.ANT.bills = (function () {
     if (target && window.ANT.qr) {
       var dueLabel = money(window.ANT.upi.balanceDue(bill));
 
-      payBlock = '<div class="pay">' +
-        '<span class="pay-ribbon">Scan &amp; Pay</span>' +
-        '<span class="qr-plate">' +
-          window.ANT.qr.svg(target, {
-            className: 'qr',
-            border: 1,
-            dark: '#000000',
-            light: '#ffffff',
-            label: 'Scan to pay ' + dueLabel + ' to ' + (state.shop.name || 'AN TAILOR')
-          }) +
-        '</span>' +
-        '<div class="pay-text">' +
-          '<div class="pay-head">Pay by UPI</div>' +
-          '<div class="pay-amt">Pay ' + esc(dueLabel) + '</div>' +
-          '<a class="pay-link" href="' + esc(target) + '">Tap to Pay ' + esc(dueLabel) + '</a>' +
-          '<div class="pay-id">UPI ID: ' + esc(state.shop.upiId) + '</div>' +
-          '<div class="pay-id">Any UPI app</div>' +
+      payBlock = '<div class="paycard">' +
+        '<div class="paycard-title">Payment Details</div>' +
+        '<div class="payrow"><span>Payment Method</span><b>' + esc(bill.method || '-') + '</b></div>' +
+        (bill.paid_on
+          ? '<div class="payrow"><span>Payment Date</span><b>' + esc(dateLabel(bill.paid_on)) + '</b></div>'
+          : '') +
+        '<div class="scanbox">' +
+          '<span class="qr-plate">' +
+            window.ANT.qr.svg(target, {
+              className: 'qr',
+              border: 1,
+              dark: '#000000',
+              light: '#ffffff',
+              label: 'Scan to pay ' + dueLabel + ' to ' + (state.shop.name || 'AN TAILOR')
+            }) +
+          '</span>' +
+          '<div class="scanbox-text">' +
+            '<div class="scanbox-head">Scan &amp; Pay</div>' +
+            '<div class="pay-id">UPI ID: ' + esc(state.shop.upiId || '') + '</div>' +
+            '<div class="pay-amt">Pay ' + esc(dueLabel) + '</div>' +
+            '<a class="pay-link" href="' + esc(target) + '">Tap to Pay ' + esc(dueLabel) + '</a>' +
+            '<div class="pay-id">Any UPI app</div>' +
+          '</div>' +
         '</div>' +
       '</div>';
     }
@@ -1395,32 +1477,29 @@ window.ANT.bills = (function () {
       window.ANT.printsize.layoutCss(size) +
       '</style></head><body>' +
       '<div class="bill' + (size === 'A4HALF' ? ' bill-half' : '') + '">' +
+      '<span class="cnr tl"></span><span class="cnr tr"></span>' +
+      '<span class="cnr bl"></span><span class="cnr br"></span>' +
 
       '<div class="head">' +
-        '<div class="brand">' +
-          '<img class="shop-logo" src="' + esc(logoUrl()) + '" alt="" ' +
-            'onerror="this.remove()">' +
-          '<div>' +
-            '<div class="shop-name">' + esc(shopName) + '</div>' +
-            '<div class="shop-sub">Professional Tailoring Services</div>' +
-            // The contact block is part of the letterhead, not a footer. A bill is
-            // read from the top, and an address plus a number at the head of the
-            // page is what makes a bill separated from its garment bag traceable
-            // back to the shop. Each line is dropped when the shop leaves it blank
-            // rather than printing an empty one.
-            (state.shop.address
-              ? '<div class="shop-sub" style="font-weight:400;text-transform:none;letter-spacing:.02em">' + esc(state.shop.address) + '</div>'
-              : '') +
-            (state.shop.phone
-              ? '<div class="shop-sub" style="font-weight:400;text-transform:none;letter-spacing:.02em">Mobile: ' + esc(state.shop.phone) + '</div>'
-              : '') +
-            (state.shop.email
-              ? '<div class="shop-sub" style="font-weight:400;text-transform:none;letter-spacing:.02em">Email: ' + esc(state.shop.email) + '</div>'
-              : '') +
-          '</div>' +
+        '<div class="mastlogo"><img class="shop-logo" src="' + esc(logoUrl()) + '" alt="" ' +
+          'onerror="this.remove()"></div>' +
+        '<div class="mastcenter">' +
+          '<div class="shop-name">' + esc(shopName) + '</div>' +
+          '<div class="shop-sub">Professional Tailoring Services</div>' +
+          (state.shop.address
+            ? '<div class="shop-contact">' + esc(state.shop.address) + '</div>'
+            : '') +
+          ((state.shop.phone || state.shop.email)
+            ? '<div class="shop-contact">' +
+              (state.shop.phone ? 'Mobile: ' + esc(state.shop.phone) : '') +
+              (state.shop.phone && state.shop.email ? ' &nbsp;&middot;&nbsp; ' : '') +
+              (state.shop.email ? 'Email: ' + esc(state.shop.email) : '') +
+              '</div>'
+            : '') +
         '</div>' +
         followBlock +
       '</div>' +
+      '<div class="orn"><span></span></div>' +
 
       '<div class="bill-bar">' +
         '<div class="bill-bar-item">' +
@@ -1443,22 +1522,17 @@ window.ANT.bills = (function () {
         '</div>' +
       '</div>' +
 
+      '<div class="sect">Customer Details</div>' +
       '<div class="parties">' +
-        '<div class="party">' +
-          '<div class="party-label">Customer Details</div>' +
-          '<div class="party-line">Customer ID: <b>' + esc(c.code || '-') + '</b></div>' +
-          '<div class="party-line">Customer Name: <b>' + esc(c.name) + '</b></div>' +
-          '<div class="party-line">Mobile No: <b>' + esc(c.mobile || '-') + '</b></div>' +
-          (c.address ? '<div class="party-line">Address: <b>' + esc(c.address) + '</b></div>' : '') +
+        '<div class="cdetails">' +
+          '<div class="c-row"><span>Customer ID</span><b>' + esc(c.code || '-') + '</b></div>' +
+          '<div class="c-row"><span>Customer Name</span><b>' + esc(c.name) + '</b></div>' +
+          '<div class="c-row"><span>Mobile No</span><b>' + esc(c.mobile || '-') + '</b></div>' +
         '</div>' +
-        '<div class="party">' +
-          '<div class="party-label">Bill Summary</div>' +
-          '<div class="party-line">Orders on this bill: <b>' + esc(String(list.length)) + '</b></div>' +
-          (bill.method
-            ? '<div class="party-line">Payment Method: <b>' + esc(bill.method) + '</b></div>'
-            : '') +
-          '<div class="party-line">Amount due: <b>' + money(due) + '</b></div>' +
-        '</div>' +
+        (c.address
+          ? '<div class="caddr"><div class="caddr-label">Address</div><div class="caddr-val">' +
+            esc(c.address) + '</div></div>'
+          : '') +
       '</div>' +
 
       '<table><thead><tr>' +
@@ -1468,17 +1542,20 @@ window.ANT.bills = (function () {
         '<th class="r" style="width:10%">Disc</th><th class="r" style="width:14%">Amount</th>' +
       '</tr></thead><tbody>' + rows + '</tbody></table>' +
 
-      '<div class="totals">' +
-        '<div><span class="label">Sub Total</span><span class="val">' + money(bill.total) + '</span></div>' +
-        (num(bill.discount)
-          ? '<div><span class="label">Discount</span><span class="val">- ' +
-            money(bill.discount) + '</span></div>'
-          : '') +
-        '<div class="sub"><span class="label">Total Amount</span><span class="val">' +
-          money(bill.bill_amount) + '</span></div>' +
-        '<div><span class="label">Total Paid</span><span class="val">' + money(bill.advance) + '</span></div>' +
-        '<div class="due"><span class="label">Balance Amount</span><span class="val">' +
-          money(due) + '</span></div>' +
+      '<div class="midrow">' +
+        payBlock +
+        '<div class="totals">' +
+          '<div><span class="label">Sub Total</span><span class="val">' + money(bill.total) + '</span></div>' +
+          (num(bill.discount)
+            ? '<div><span class="label">Discount</span><span class="val">- ' +
+              money(bill.discount) + '</span></div>'
+            : '') +
+          '<div class="sub"><span class="label">Total Amount</span><span class="val">' +
+            money(bill.bill_amount) + '</span></div>' +
+          '<div><span class="label">Total Paid</span><span class="val">' + money(bill.advance) + '</span></div>' +
+          '<div class="due"><span class="label">Balance Amount</span><span class="val">' +
+            money(due) + '</span></div>' +
+        '</div>' +
       '</div>' +
 
       '<div class="words"><b>' + esc(amountInWords(bill.bill_amount)) + '</b>' +
@@ -1486,7 +1563,19 @@ window.ANT.bills = (function () {
       '</div>' +
 
       (bill.notes ? '<div class="notes">' + esc(bill.notes) + '</div>' : '') +
-      payBlock +
+
+      '<div class="footmast">' +
+        '<div class="fm-name">' + esc(shopName) + '</div>' +
+        '<div class="fm-tag">Perfect Fit, Perfect Style</div>' +
+        '<div class="fm-contact">' +
+          (state.shop.phone ? 'Mobile: ' + esc(state.shop.phone) : '') +
+          (state.shop.phone && state.shop.email ? ' &nbsp;&middot;&nbsp; ' : '') +
+          (state.shop.email ? esc(state.shop.email) : '') +
+        '</div>' +
+        (state.shop.instagram ? '<div class="fm-handle">@' + esc(state.shop.instagram) + '</div>' : '') +
+        '<div class="fm-rule"></div>' +
+        '<div class="fm-line">We Stitch Your Style &nbsp;&middot;&nbsp; We Deliver Your Satisfaction</div>' +
+      '</div>' +
       '</div>' +
       '</body></html>';
 
