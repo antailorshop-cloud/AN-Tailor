@@ -1126,11 +1126,11 @@ window.ANT.bills = (function () {
 '.bill::after{content:"";position:absolute;inset:2mm;border:1px solid #b08d3f;pointer-events:none}',
 '.bill{position:relative}',
 
-    '.head{display:flex;justify-content:space-between;align-items:center;gap:10mm;padding-bottom:4mm;border-bottom:3px double #0f2239}',
-    '.brand{display:flex;align-items:center;gap:6mm;min-width:0}',
-    '.shop-logo{width:36mm;height:36mm;object-fit:contain;flex:0 0 auto;border-radius:50%;border:2px solid #b08d3f;padding:1mm}',
-    '.shop-name{font-family:Georgia,"Times New Roman",serif;font-size:30px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;line-height:1.1;color:#0f2239}',
-    '.shop-sub{font-size:10px;color:#5c4821;margin-top:1.6mm;letter-spacing:.06em;font-weight:600;text-transform:uppercase}',
+    '.head{display:flex;justify-content:space-between;align-items:center;gap:6mm;padding-bottom:4mm;border-bottom:3px double #0f2239}',
+    '.brand{display:flex;align-items:center;gap:4mm;min-width:0;flex:1 1 auto}',
+    '.shop-logo{width:28mm;height:28mm;object-fit:contain;flex:0 0 auto;border-radius:50%;border:2px solid #b08d3f;padding:1mm}',
+    '.shop-name{font-family:Georgia,"Times New Roman",serif;font-size:22px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;line-height:1.1;color:#0f2239;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '.shop-sub{font-size:9px;color:#5c4821;margin-top:1mm;letter-spacing:.04em;font-weight:600;text-transform:uppercase}',
 
     '.bill-bar{display:flex;gap:0;margin:4mm 0 0;padding:3mm 2mm;background:#0f2239;border-radius:3px}',
     '.bill-bar-item{flex:1 1 0;min-width:0;text-align:center;border-right:1px solid rgba(255,255,255,.15)}',
@@ -1144,15 +1144,15 @@ window.ANT.bills = (function () {
     '.party-line{font-size:10.5px;color:#374151;margin-top:1.2mm;word-break:break-word}',
     '.party-line b{color:#0f2239;font-weight:600}',
 
-    'table{width:100%;border-collapse:collapse;margin:3mm 0 0}',
-    'th{font-size:8px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#ffffff;text-align:left;padding:2.2mm 2mm;background:#0f2239;white-space:nowrap}',
-    'td{font-size:11px;padding:2mm;border-bottom:1px solid #e8e0c8;vertical-align:top}',
+    'table{width:100%;border-collapse:collapse;margin:3mm 0 0;table-layout:fixed}',
+    'th{font-size:8px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#ffffff;text-align:left;padding:2.2mm 1.5mm;background:#0f2239;white-space:nowrap}',
+    'td{font-size:11px;padding:2mm 1.5mm;border-bottom:1px solid #e8e0c8;vertical-align:top;word-wrap:break-word}',
     'tbody tr:nth-child(even) td{background:#faf8f3}',
     'th.r,td.r{text-align:right;white-space:nowrap}',
     '.item-name{font-weight:500;color:#1f2937}',
     '.item-note{font-size:9px;color:#6b7280;margin-top:.4mm;letter-spacing:.02em}',
 
-    '.totals{margin:5mm 0 0 auto;width:80mm}',
+    '.totals{margin:5mm 0 0 auto;width:70mm}',
     '.totals div{display:flex;justify-content:space-between;gap:5mm;padding:1.6mm 2mm;font-size:11px}',
     '.totals .label{color:#374151}',
     '.totals .val{font-variant-numeric:tabular-nums;white-space:nowrap;color:#0f2239;font-weight:600}',
@@ -1161,11 +1161,11 @@ window.ANT.bills = (function () {
     '.totals .due .label{color:#0f2239;font-weight:700;letter-spacing:.02em}',
     '.totals .due .val{color:#0f2239}',
 
-    '.words{font-size:10px;margin:5mm 0 0;padding:2.2mm 0 0;border-top:1px solid #e8e0c8;color:#374151;letter-spacing:.01em}',
+    '.words{font-size:10px;margin:5mm 0 0;padding:2.2mm 0 0;border-top:1px solid #e8e0c8;color:#374151;letter-spacing:.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
     '.words b{font-weight:600;color:#0f2239}',
 
     '.blocks{display:flex;flex-wrap:wrap;gap:4mm;align-items:stretch;margin-top:6mm}',
-    '.pay{position:relative;display:flex;gap:3.5mm;align-items:center;background:#fffdf7;border:1px solid #d4c9a8;border-left:3mm solid #b08d3f;border-radius:3px;padding:3.5mm 4mm 3.5mm 4.5mm;flex:1 1 auto;min-width:0;page-break-inside:avoid;break-inside:avoid}',
+    '.pay{position:relative;display:flex;gap:3mm;align-items:center;background:#fffdf7;border:1px solid #d4c9a8;border-left:3mm solid #b08d3f;border-radius:3px;padding:3mm 3.5mm 3mm 4mm;flex:1 1 auto;min-width:0;page-break-inside:avoid;break-inside:avoid}',
     '.pay-ribbon{position:absolute;top:-2.6mm;left:4mm;background:#b08d3f;color:#fff8e8;font-size:7px;font-weight:700;letter-spacing:.24em;text-transform:uppercase;padding:.8mm 2.2mm;border-radius:2px}',
     '.qr-plate{background:#ffffff;border:1px solid #e8e0c8;border-radius:2px;padding:1.6mm;flex:0 0 auto;display:block}',
     '.qr{width:26mm;height:26mm;display:block}',
@@ -1174,19 +1174,19 @@ window.ANT.bills = (function () {
     '.pay-amt{font-family:Georgia,"Times New Roman",serif;font-size:15px;font-weight:700;color:#b08d3f;letter-spacing:.02em;margin:.4mm 0 1mm}',
     '.pay-link{display:inline-block;margin:0 0 1mm;color:#0f3460;font-weight:600;word-break:break-all;text-decoration:none;border-bottom:.4mm solid #d4c9a8}',
     '.pay-id{color:#6b7280;font-size:10px;letter-spacing:.02em}',
-    '.follow{position:relative;flex:0 0 auto;display:flex;gap:3mm;align-items:center;background:#0f2239;color:#f4f1e8;border-radius:3px;padding:4mm 4.5mm;page-break-inside:avoid;break-inside:avoid}',
+    '.follow{position:relative;flex:0 0 auto;display:flex;gap:2.5mm;align-items:center;background:#0f2239;color:#f4f1e8;border-radius:3px;padding:3mm 3.5mm;page-break-inside:avoid;break-inside:avoid}',
     '.follow .qr-plate{border-color:#3a4a6e;background:#ffffff}',
-    '.follow .qr{width:21mm;height:21mm}',
+    '.follow .qr{width:18mm;height:18mm}',
     '.follow-text{min-width:0}',
-    '.follow-head{font-family:Georgia,"Times New Roman",serif;font-weight:700;font-size:11.5px;color:#ffffff;display:flex;align-items:center;gap:1.4mm}',
+    '.follow-head{font-family:Georgia,"Times New Roman",serif;font-weight:700;font-size:10px;color:#ffffff;display:flex;align-items:center;gap:1.2mm}',
     '.follow-glyph{flex:0 0 auto;display:block}',
-    '.follow-link{display:inline-block;margin:.8mm 0 .4mm;color:#f0d9a0;font-weight:600;word-break:break-all;text-decoration:none;border-bottom:.4mm solid #4a5a80}',
-    '.follow-id{font-size:9px;color:#a9b4c9;letter-spacing:.08em;text-transform:uppercase}',
+    '.follow-link{display:inline-block;margin:.6mm 0 .3mm;color:#f0d9a0;font-weight:600;word-break:break-all;text-decoration:none;border-bottom:.4mm solid #4a5a80}',
+    '.follow-id{font-size:8px;color:#a9b4c9;letter-spacing:.06em;text-transform:uppercase}',
 
     '.signs{display:flex;gap:14mm;margin-top:10mm}',
     '.sign{flex:1 1 0;border-top:1px solid #0f2239;padding-top:1.6mm;font-size:9px;color:#6b7280;letter-spacing:.03em}',
 
-    'footer{margin-top:6mm;padding-top:2.6mm;border-top:3px double #0f2239;font-size:8.5px;color:#6b7280;letter-spacing:.02em}',
+    'footer{margin-top:6mm;padding-top:2.6mm;border-top:3px double #0f2239;font-size:8.5px;color:#6b7280;letter-spacing:.02em;text-align:center}',
     '.notes{margin:4mm 0 0;font-size:10.5px;padding:2.4mm 3mm;background:#f7f4ea;border-left:2px solid #b08d3f;color:#374151}',
 
     '@media print{body{margin:0;padding:0}',
@@ -1456,8 +1456,10 @@ window.ANT.bills = (function () {
       '</div>' +
 
       '<table><thead><tr>' +
-        '<th>S.No</th><th>Order ID</th><th>Dress Type</th><th>Delivery Date</th>' +
-        '<th class="r">Qty</th><th class="r">Rate</th><th class="r">Disc</th><th class="r">Amount</th>' +
+        '<th style="width:8mm">S.No</th><th style="width:22mm">Order ID</th><th>Dress Type</th>' +
+        '<th style="width:22mm">Delivery Date</th>' +
+        '<th class="r" style="width:12mm">Qty</th><th class="r" style="width:18mm">Rate</th>' +
+        '<th class="r" style="width:14mm">Disc</th><th class="r" style="width:20mm">Amount</th>' +
       '</tr></thead><tbody>' + rows + '</tbody></table>' +
 
       '<div class="totals">' +
@@ -1484,21 +1486,14 @@ window.ANT.bills = (function () {
         '<div class="sign">For ' + esc(shopName) + '</div>' +
       '</div>' +
       '<footer>' +
-        '<div style="display:flex;justify-content:space-between;align-items:flex-end">' +
-          '<div>' +
-            '<div style="font-family:Georgia,serif;font-size:18px;font-weight:700;color:#0f2239;letter-spacing:.12em;text-transform:uppercase">' + esc(shopName) + '</div>' +
-            '<div style="font-size:10px;color:#5c4821;margin-top:.8mm;font-weight:600">Perfect Fit, Perfect Style</div>' +
-            '<div style="font-size:9.5px;color:#374151;margin-top:1.2mm">' +
-              (state.shop.address ? esc(state.shop.address) + ' &middot; ' : '') +
-              (state.shop.phone ? 'Mobile: ' + esc(state.shop.phone) : '') +
-            '</div>' +
-          '</div>' +
-          '<div style="text-align:right">' +
-            '<div style="font-size:9px;color:#0f2239;font-weight:600;letter-spacing:.06em">We Stitch Your Style</div>' +
-            '<div style="font-size:9px;color:#0f2239;font-weight:600;letter-spacing:.06em">We Deliver Your Satisfaction</div>' +
-            '<div style="font-size:8.5px;color:#6b7280;margin-top:1mm">Thank you for your business</div>' +
-          '</div>' +
+        '<div style="font-family:Georgia,serif;font-size:16px;font-weight:700;color:#0f2239;letter-spacing:.1em;text-transform:uppercase">' + esc(shopName) + '</div>' +
+        '<div style="font-size:10px;color:#5c4821;margin-top:.8mm;font-weight:600">Perfect Fit, Perfect Style</div>' +
+        '<div style="font-size:9.5px;color:#374151;margin-top:1.2mm">' +
+          (state.shop.address ? esc(state.shop.address) + ' &middot; ' : '') +
+          (state.shop.phone ? 'Mobile: ' + esc(state.shop.phone) : '') +
         '</div>' +
+        '<div style="font-size:9px;color:#0f2239;margin-top:1.6mm;font-weight:600;letter-spacing:.06em">We Stitch Your Style &nbsp;&middot;&nbsp; We Deliver Your Satisfaction</div>' +
+        '<div style="font-size:8.5px;color:#6b7280;margin-top:1mm">Thank you for your business</div>' +
       '</footer>' +
       '</div>' +
       '</body></html>';
