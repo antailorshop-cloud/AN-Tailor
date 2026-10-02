@@ -278,14 +278,16 @@ window.ANT.bills = (function () {
     return sb().from('shop_settings')
       .select('key,value')
       .then(function (res) {
-        var shop = { name: '', address: '', phone: '', instagram: '', upiId: '',
-          payee: '', waBillMessage: '', waReminderMessage: '', printSize: '' };
+        var shop = { name: '', address: '', phone: '', email: '', instagram: '',
+          upiId: '', payee: '', waBillMessage: '', waReminderMessage: '',
+          printSize: '' };
 
         if (!res.error && res.data) {
           res.data.forEach(function (row) {
             if (row.key === 'shop_name') shop.name = row.value || '';
             else if (row.key === 'shop_address') shop.address = row.value || '';
             else if (row.key === 'shop_phone') shop.phone = row.value || '';
+            else if (row.key === 'shop_email') shop.email = row.value || '';
             else if (row.key === 'shop_instagram') shop.instagram = row.value || '';
             else if (row.key === 'upi_id') shop.upiId = row.value || '';
             else if (row.key === 'upi_payee_name') shop.payee = row.value || '';
@@ -1183,10 +1185,6 @@ window.ANT.bills = (function () {
     '.follow-link{display:inline-block;margin:.5mm 0 .2mm;color:#f0d9a0;font-weight:600;word-break:break-all;text-decoration:none;border-bottom:.4mm solid #4a5a80}',
     '.follow-id{font-size:7.5px;color:#a9b4c9;letter-spacing:.05em;text-transform:uppercase}',
 
-    '.signs{display:flex;gap:14mm;margin-top:10mm}',
-    '.sign{flex:1 1 0;border-top:1px solid #0f2239;padding-top:1.6mm;font-size:9px;color:#6b7280;letter-spacing:.03em}',
-
-    'footer{margin-top:6mm;padding-top:2.6mm;border-top:3px double #0f2239;font-size:8.5px;color:#6b7280;letter-spacing:.02em;text-align:center}',
     '.notes{margin:4mm 0 0;font-size:10.5px;padding:2.4mm 3mm;background:#f7f4ea;border-left:2px solid #b08d3f;color:#374151}',
 
     '@media print{body{margin:0;padding:0}',
@@ -1405,11 +1403,19 @@ window.ANT.bills = (function () {
           '<div>' +
             '<div class="shop-name">' + esc(shopName) + '</div>' +
             '<div class="shop-sub">Professional Tailoring Services</div>' +
+            // The contact block is part of the letterhead, not a footer. A bill is
+            // read from the top, and an address plus a number at the head of the
+            // page is what makes a bill separated from its garment bag traceable
+            // back to the shop. Each line is dropped when the shop leaves it blank
+            // rather than printing an empty one.
             (state.shop.address
               ? '<div class="shop-sub" style="font-weight:400;text-transform:none;letter-spacing:.02em">' + esc(state.shop.address) + '</div>'
               : '') +
             (state.shop.phone
               ? '<div class="shop-sub" style="font-weight:400;text-transform:none;letter-spacing:.02em">Mobile: ' + esc(state.shop.phone) + '</div>'
+              : '') +
+            (state.shop.email
+              ? '<div class="shop-sub" style="font-weight:400;text-transform:none;letter-spacing:.02em">Email: ' + esc(state.shop.email) + '</div>'
               : '') +
           '</div>' +
         '</div>' +
@@ -1481,20 +1487,6 @@ window.ANT.bills = (function () {
 
       (bill.notes ? '<div class="notes">' + esc(bill.notes) + '</div>' : '') +
       payBlock +
-      '<div class="signs">' +
-        '<div class="sign">Customer signature</div>' +
-        '<div class="sign">For ' + esc(shopName) + '</div>' +
-      '</div>' +
-      '<footer>' +
-        '<div style="font-family:Georgia,serif;font-size:16px;font-weight:700;color:#0f2239;letter-spacing:.1em;text-transform:uppercase">' + esc(shopName) + '</div>' +
-        '<div style="font-size:10px;color:#5c4821;margin-top:.8mm;font-weight:600">Perfect Fit, Perfect Style</div>' +
-        '<div style="font-size:9.5px;color:#374151;margin-top:1.2mm">' +
-          (state.shop.address ? esc(state.shop.address) + ' &middot; ' : '') +
-          (state.shop.phone ? 'Mobile: ' + esc(state.shop.phone) : '') +
-        '</div>' +
-        '<div style="font-size:9px;color:#0f2239;margin-top:1.6mm;font-weight:600;letter-spacing:.06em">We Stitch Your Style &nbsp;&middot;&nbsp; We Deliver Your Satisfaction</div>' +
-        '<div style="font-size:8.5px;color:#6b7280;margin-top:1mm">Thank you for your business</div>' +
-      '</footer>' +
       '</div>' +
       '</body></html>';
 
