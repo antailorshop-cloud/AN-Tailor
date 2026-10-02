@@ -1263,7 +1263,7 @@ window.ANT.bills = (function () {
     '.follow .qr{width:12mm;height:12mm}',
     '.follow-text{margin-top:1.4mm;text-align:center;width:100%}',
     '.follow-head{justify-content:center;font-size:7px;letter-spacing:.25em;color:#b8934f;text-align:center;width:100%}',
-    '.follow-link{display:block;color:#22314f;font-size:8px;margin-top:1mm;text-align:center}',
+    '.follow-link{display:block;color:#22314f;font-size:8px;margin-top:1mm;text-align:center;text-decoration:none;border-bottom:none}',
     '.follow-id{color:#8a8676;font-size:6.5px;text-align:center;width:100%}',
     '',
 
