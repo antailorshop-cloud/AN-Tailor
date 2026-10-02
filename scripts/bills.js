@@ -1200,13 +1200,17 @@ window.ANT.bills = (function () {
     '.head{display:flex;align-items:flex-start;justify-content:space-between;gap:4mm;padding-bottom:3mm;border-bottom:none;flex-wrap:nowrap}',
     '.mastlogo{flex:0 0 auto}',
     '.mastcenter{flex:1 1 auto;min-width:0;text-align:center}',
-    '.shop-logo{width:18mm;height:18mm;border:2px solid #b8934f;padding:1mm;background:#fff}',
+    '.shop-logo{width:24mm;height:24mm;border:2px solid #b8934f;padding:1mm;background:#fff}',
     '.shop-name{font-size:19px;letter-spacing:.22em;color:#22314f}',
     '.shop-sub{color:#b8934f;letter-spacing:.28em}',
     '.shop-contact{font-size:9px;color:#5a5346;margin-top:1.2mm;letter-spacing:.03em;text-transform:none}',
     '.orn{display:flex;align-items:center;justify-content:center;margin:2.8mm 0 0}',
     '.orn::before,.orn::after{content:"";width:32mm;height:1px;background:#cdb894;flex:0 0 auto}',
     '.orn span{width:4.4mm;height:4.4mm;border:1.3px solid #b8934f;border-radius:50%;margin:0 2.4mm;flex:0 0 auto}',
+    '.stamp{position:absolute;top:12mm;right:14mm;padding:2mm 6mm;transform:rotate(-12deg);border:2px solid;border-radius:2px;font-weight:700;font-size:10px;letter-spacing:1px;text-transform:uppercase;z-index:2;box-shadow:0 2px 5px rgba(0,0,0,0.12)}',
+    '.stamp-paid{color:#155724;border-color:#155724;background:#d4edda}',
+    '.stamp-part{color:#856404;border-color:#856404;background:#fff3cd}',
+    '.stamp-due{color:#721c24;border-color:#721c24;background:#f8d7da}',
 
     '.bill-bar{margin:3mm 0 2mm;padding:2.2mm 0;background:none;border:none;border-top:1px solid #cdb894;border-bottom:1px solid #cdb894;border-radius:0}',
     '.bill-bar-item{border-right:none}',
@@ -1254,11 +1258,11 @@ window.ANT.bills = (function () {
     '.fm-rule{height:1px;background:#cdb894;margin:3mm 8mm 0}',
     '.fm-line{margin-top:2mm;font-size:8px;letter-spacing:.3em;text-transform:uppercase;color:#8a7a54}',
 
-    '.follow{position:static;display:block;width:34mm;background:#fffdf7;color:#333;border:1px solid #b8934f;border-radius:1.5mm;padding:1.8mm 1.4mm;text-align:center;align-items:center}',
-    '.follow .qr-plate{border-color:#e0d3af;background:#ffffff;margin:0 auto}',
-    '.follow .qr{width:17mm;height:17mm}',
-    '.follow-text{margin-top:1.2mm}',
-    '.follow-head{justify-content:center;font-size:7px;letter-spacing:.3em;color:#b8934f}',
+    '.follow{position:static;display:block;width:36mm;background:#ffffff;color:#22314f;border:1px solid #cdb894;border-radius:3mm;padding:2mm 1.6mm;text-align:center;box-shadow:0 2px 5px rgba(0,0,0,.08)}',
+    '.follow .qr-plate{border-color:#eaeaea;background:#ffffff;margin:0 auto;border-radius:2mm}',
+    '.follow .qr{width:19mm;height:19mm}',
+    '.follow-text{margin-top:1.4mm}',
+    '.follow-head{justify-content:center;font-size:7px;letter-spacing:.25em;color:#b8934f}',
     '.follow-link{color:#22314f;font-size:8px;margin-top:1mm;border-bottom:1px solid #cdb894}',
     '.follow-id{color:#8a8676;font-size:6.5px}',
     '',
@@ -1358,6 +1362,9 @@ window.ANT.bills = (function () {
     // Part-paid is its own state because it is the one that needs chasing, and a
     // stamp that only distinguishes paid from unpaid would call it settled.
     var partial = !settled && num(bill.advance) > 0;
+    // The angled status stamp that a counter hand-over carries. Professional
+    // bills never use a floating text line for this; a stamp is unambiguous.
+    var stampText = settled ? 'Paid' : (partial ? 'Part Paid' : 'Payment Due');
 
     // The items are optional decoration, so a bill never waits on them and a read
     // that failed simply leaves the order to print on its own.
@@ -1477,6 +1484,7 @@ window.ANT.bills = (function () {
       window.ANT.printsize.layoutCss(size) +
       '</style></head><body>' +
       '<div class="bill' + (size === 'A4HALF' ? ' bill-half' : '') + '">' +
+        '<div class="stamp stamp-' + (settled ? 'paid' : (partial ? 'part' : 'due')) + '">' + esc(stampText) + '</div>' +
       '<div class="head">' +
         '<div class="mastlogo"><img class="shop-logo" src="' + esc(logoUrl()) + '" alt="" ' +
           'onerror="this.remove()"></div>' +
@@ -1555,9 +1563,7 @@ window.ANT.bills = (function () {
         '</div>' +
       '</div>' +
 
-      '<div class="words"><b>' + esc(amountInWords(bill.bill_amount)) + '</b>' +
-        (paiseOf(bill.bill_amount) ? ' &middot; including ' + esc(paiseOf(bill.bill_amount)) + ' paise' : '') +
-      '</div>' +
+
 
       (bill.notes ? '<div class="notes">' + esc(bill.notes) + '</div>' : '') +
 

@@ -624,17 +624,22 @@ window.ANT.payments = (function () {
     var html = '<!doctype html><html><head><meta charset="utf-8"><title>' +
       esc(p.code) + '</title><style>' +
       'body{font:14px/1.5 system-ui,"Segoe UI",Arial,sans-serif;color:#111;margin:24px}' +
-      'h1{font-size:20px;margin:0}' +
-      '.shop{font-size:15px;font-weight:700;margin:0 0 2px}' +
+      '.receipt{min-height:297mm;border:2px solid #b8934f;border-radius:4px;box-sizing:border-box;padding:4mm;position:relative;background:#fffdf7}' +
+      'h1{font-size:20px;margin:0;color:#22314f}' +
+      '.shop{font-size:15px;font-weight:700;margin:0 0 2px;color:#22314f}' +
       '.sub{color:#555;margin:0 0 14px}' +
       'table{width:100%;border-collapse:collapse;margin:0 0 14px}' +
-      'th,td{border:1px solid #ccc;padding:6px 8px;text-align:left}' +
-      'th{background:#f2f2f2;font-size:12px;text-transform:uppercase;width:38%}' +
+      'th,td{border:1px solid #dcd0ae;padding:6px 8px;text-align:left}' +
+      'th{background:#f5f0e6;font-size:12px;text-transform:uppercase;width:38%;color:#22314f}' +
       '.r{text-align:right;white-space:nowrap;font-weight:700}' +
       '.totals td{border-top:1px solid #111;font-weight:700}' +
       '.due th,.due td{font-weight:700}' +
       '.notes{white-space:pre-wrap;font-size:13px}' +
       '.sign{margin-top:34px;font-size:12px;color:#555}' +
+      '.stamp{position:absolute;top:12mm;right:14mm;padding:2mm 6mm;transform:rotate(-12deg);border:2px solid;border-radius:2px;font-weight:700;font-size:10px;letter-spacing:1px;text-transform:uppercase;z-index:2}' +
+      '.stamp-paid{color:#155724;border-color:#155724;background:#d4edda}' +
+      '.stamp-part{color:#856404;border-color:#856404;background:#fff3cd}' +
+      '.stamp-due{color:#721c24;border-color:#721c24;background:#f8d7da}' +
       // The page margin comes from @page now, so the printed body margin is
       // zeroed rather than left at 24px, which would double it.
       '@media print{body{margin:0}}' +
@@ -642,6 +647,7 @@ window.ANT.payments = (function () {
       window.ANT.printsize.layoutCss(size, 'receipt') +
       '</style></head><body>' +
       '<div class="receipt' + (size === 'A4HALF' ? ' receipt-half' : '') + '">' +
+        (due <= 0 ? '<div class="stamp stamp-paid">Full Paid</div>' : '<div class="stamp stamp-part">Part Paid</div>') +
       '<h1>Payment Receipt</h1>' +
       '<p class="shop">' + esc(shopName) + '</p>' +
       '<p class="sub">Receipt ' + esc(p.code) + ' &middot; ' +
