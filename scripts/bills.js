@@ -1259,7 +1259,7 @@ window.ANT.bills = (function () {
     '.fm-line{margin-top:2mm;font-size:8px;letter-spacing:.3em;text-transform:uppercase;color:#8a7a54}',
 
     '.follow{position:static;display:block;width:36mm;background:#ffffff;color:#22314f;border:1px solid #cdb894;border-radius:3mm;padding:2mm 1.6mm;text-align:center;box-shadow:0 2px 5px rgba(0,0,0,.08)}',
-    '.follow .qr-plate{border-color:#eaeaea;background:#ffffff;margin:0 auto;border-radius:2mm}',
+    '.follow .qr-plate{border:none;background:#ffffff;margin:0 auto;display:inline-block}',
     '.follow .qr{width:12mm;height:12mm}',
     '.follow-text{margin-top:1.4mm}',
     '.follow-head{justify-content:center;font-size:7px;letter-spacing:.25em;color:#b8934f}',
