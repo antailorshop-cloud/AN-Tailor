@@ -1907,14 +1907,6 @@ window.ANT.bills = (function () {
             // The inner tab uploads via the embedded script, then this window
             // receives the uploaded link through postMessage.
             var pdfWindow = null;
-            if (PDF_UPLOAD_URL) {
-              pdfWindow = openPrintWindow(bill, list, 'pdf');
-            }
-            if (!pdfWindow) {
-              sendWhatsApp(message);
-              return;
-            }
-
             var received = false;
             var handler = function (e) {
               if (!e.data || e.data.type !== 'pdfReady' || e.data.billId !== (bill.id || '')) return;
@@ -1928,6 +1920,14 @@ window.ANT.bills = (function () {
               sendWhatsApp(message);
             };
             window.addEventListener('message', handler);
+
+            if (PDF_UPLOAD_URL) {
+              pdfWindow = openPrintWindow(bill, list, 'pdf');
+            }
+            if (!pdfWindow) {
+              sendWhatsApp(message);
+              return;
+            }
 
             var timeoutId = setTimeout(function () {
               try { window.removeEventListener('message', handler); } catch (e) {}
