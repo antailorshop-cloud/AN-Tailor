@@ -52,8 +52,22 @@ window.ANT.bills = (function () {
   var money = function (v) { return window.ANT.money(v); };
 
   var PAGE_SIZE = 25;
-  var PDF_UPLOAD_URL = window.__PDF_UPLOAD_URL__ !== undefined ? window.__PDF_UPLOAD_URL__ :
-    'https://script.google.com/macros/s/AKfycbxhxxkxaNI_vKefhLSI6n0FFkBAMy7tLnMW4briPL2_KTm_2D-xUJGcDOTNyLJPtRjF/exec';
+  /* The bucket every bill PDF is written to. One bucket rather than a folder per
+   * shop is what keeps the address of a bill's PDF stable: the object name is
+   * derived from the bill id, so re-sending a bill overwrites its own file
+   * instead of piling up copies nobody will ever open.
+   *
+   * Bills are drawn rather than photographed in scripts/billpdf.js, which is
+   * what makes a stored bill about 15KB. That is the whole reason the shop can
+   * keep years of PDFs inside a free storage allowance. */
+  var PDF_BUCKET = 'bill-pdfs';
+
+  // A bill's PDF always lives at the same address. Re-sending an edited bill
+  // must not produce a second file, and a WhatsApp message already sent must
+  // keep pointing at something that exists.
+  function pdfPath(billId) {
+    return 'bill-' + String(billId || '') + '.pdf';
+  }
 
   // How many customers a name search will offer to pick from. A list long enough
   // to scroll past its own end is a list nobody reads, and the number of matches
@@ -81,7 +95,11 @@ window.ANT.bills = (function () {
     // Shop details for the printed bill and the WhatsApp message. Read once
     // from shop_settings; a missing or unreadable row simply means no UPI code
     // is drawn and the WhatsApp message falls back to the standard wording.
-    shop: { name: '', upiId: '', payee: '', waBillMessage: '', waReminderMessage: '', printSize: '' }
+    shop: { name: '', upiId: '', payee: '', waBillMessage: '', waReminderMessage: '', printSize: '' },
+
+    // How full the PDF bucket is. Null until it has been read, because storage
+    // has no cheap way to answer it and the history should not wait on it.
+    storage: null
   };
 
   function byId(id) { return document.getElementById(id); }
@@ -251,7 +269,7 @@ window.ANT.bills = (function () {
     // The box keeps the customer's own number rather than the name that was
     // typed, so it reads back as an exact reference to who is on screen.
     state.term = customer.mobile || '';
-    return loadOrders().then(loadBills);
+    return loadOrders().then(loadBills).then(refreshStorage);
   }
 
   function resetFor() {
@@ -352,7 +370,7 @@ window.ANT.bills = (function () {
     var from = state.page * PAGE_SIZE;
 
     return sb().from('bills')
-      .select('id,code,total,discount,advance,bill_amount,balance,bill_date,notes,method,paid_on,created_at', { count: true })
+      .select('id,code,total,discount,advance,bill_amount,balance,bill_date,notes,method,paid_on,pdf_path,created_at', { count: true })
       .eq('customer_id', state.customer.id)
       .is('archived_at', null)
       .order('bill_date', false)
@@ -511,7 +529,8 @@ window.ANT.bills = (function () {
   }
 
   function customerSection() {
-    return customerCard() + ordersCard() + summaryCard() + actionCard() + historyCard() + pager();
+    return customerCard() + ordersCard() + summaryCard() + actionCard() +
+      storageCard() + historyCard() + pager();
   }
 
   function customerCard() {
@@ -665,6 +684,10 @@ window.ANT.bills = (function () {
       (canRemind
         ? '<button class="btn btn-sm btn-secondary" data-bill-remind="' + esc(b.id) + '">Remind</button> '
         : '') +
+      (b.pdf_path
+        ? '<button class="btn btn-sm btn-secondary" data-bill-pdf="' + esc(b.id) + '">PDF</button> '
+        : '<button class="btn btn-sm btn-secondary" data-bill-pdf="' + esc(b.id) + '" ' +
+          'title="This bill has no stored PDF yet. Make one.">Make PDF</button> ') +
       '<button class="btn btn-sm btn-secondary" data-bill-print="' + esc(b.id) + '">Print</button>' +
       (owner
         ? ' <button class="btn btn-sm btn-secondary" data-bill-edit="' + esc(b.id) + '">Edit</button>' +
@@ -789,6 +812,28 @@ window.ANT.bills = (function () {
       });
   }
 
+  // The bill as it was issued, kept beside the bill itself so the PDF can be
+  // produced again after the orders on it have been edited, moved to another
+  // bill or deleted. A bill a customer still holds has to keep saying what it
+  // said on the day it was sent.
+  //
+  // Best effort on purpose. The bill is already saved by the time this runs, and
+  // a missing snapshot only matters later, so a failure here is not worth turning
+  // a good save into an error the shopkeeper has to act on.
+  function keepSnapshot(billRow, orderIds) {
+    if (!billRow || !billRow.id) return Promise.resolve();
+
+    return ordersForPrint(orderIds || [])
+      .then(function (list) {
+        return sb().from('bills')
+          .update({ pdf_snapshot: billSnapshot(billRow, list) })
+          .eq('id', billRow.id);
+      })
+      .catch(function () {
+        return null;
+      });
+  }
+
   // The code is read, then written. Two people saving at the same moment can read
   // the same next number, so a clash on the unique code is retried once with a
   // fresh number instead of being reported as a failure the user cannot act on.
@@ -818,7 +863,11 @@ window.ANT.bills = (function () {
           }
 
           return linkOrders(res.data.id, orderIds).then(function (bad) {
-            if (!bad) return { message: 'Bill ' + code + ' created.' };
+            if (!bad) {
+              return keepSnapshot(res.data, orderIds).then(function () {
+                return { message: 'Bill ' + code + ' created.' };
+              });
+            }
 
             // A bill with no orders on it bills nothing, so it is taken back out
             // rather than left in the history to be found and wondered about.
@@ -895,7 +944,21 @@ window.ANT.bills = (function () {
                     }
 
                     return linkOrders(editing.id, orderIds).then(function (bad) {
-                      if (!bad) return null;
+                      if (!bad) {
+                        return keepSnapshot({
+                          id: editing.id,
+                          code: editing.code,
+                          bill_date: editing.bill_date,
+                          notes: state.notes || '',
+                          method: pay.method,
+                          paid_on: pay.paidOn,
+                          total: t.total,
+                          discount: t.discount,
+                          advance: t.advance,
+                          bill_amount: t.billAmount,
+                          balance: t.balance
+                        }, orderIds);
+                      }
                       return restoreBill(editing.id, previous, heldIds)
                         .then(function (extra) {
                           return { failed: true, message: 'The bill was not updated: ' + bad + extra };
@@ -1348,128 +1411,6 @@ window.ANT.bills = (function () {
     return p > 0 ? String(p) : '';
   }
 
-  // Inline script the print popup runs when it is asked to produce a public PDF
-  // through the Apps Script URL, rather than a local printout. It writes the
-  // result back to window.__pdfResult because the popup that owns the HTML is a
-  // different tab, so it cannot share variables directly.
-  //
-  // Apps Script web apps cannot be given CORS headers, so a normal fetch POST is
-  // rejected by the browser before it ever runs. The upload therefore goes out
-  // as a plain no-cors POST, which the browser sends without asking permission
-  // and whose answer cannot be read, and the link is collected afterwards by
-  // loading a JSONP script tag. A script tag is not subject to the same-origin
-  // rule, so that reply is readable from any site.
-  function pdfUploadScript() {
-    return '<script>' +
-      '(function(){' +
-      '  var JOB = "job_" + Date.now() + "_" + Math.floor(Math.random() * 1e9);' +
-      '  function report(url, err) {' +
-      '    window.__pdfResult = { url: url || "", error: err || "" };' +
-      '    try { if (window.opener && !window.opener.closed) window.opener.postMessage({ type: "pdfReady", url: url || "", error: err || "", billId: window.__billId || "" }, "*"); } catch (e) {}' +
-      '  }' +
-      '  function poll(remaining) {' +
-      '    if (remaining <= 0) { report("", "upload timed out"); return; }' +
-      '    var cb = "__pdfcb" + remaining + "_" + Math.floor(Math.random() * 1e6);' +
-      '    var tag = document.createElement("script");' +
-      '    var settled = false;' +
-      '    window[cb] = function (res) {' +
-      '      if (settled) return; settled = true;' +
-      '      try { delete window[cb]; } catch (e) { window[cb] = undefined; }' +
-      '      try { if (tag.parentNode) tag.parentNode.removeChild(tag); } catch (e) {}' +
-      '      if (res && res.url) { report(res.url, ""); return; }' +
-      '      if (res && res.error) { report("", res.error); return; }' +
-      '      setTimeout(function () { poll(remaining - 1); }, 1000);' +
-      '    };' +
-      '    tag.onerror = function () {' +
-      '      if (settled) return; settled = true;' +
-      '      try { delete window[cb]; } catch (e) { window[cb] = undefined; }' +
-      '      report("", "could not reach the upload script");' +
-      '    };' +
-      '    tag.src = "' + PDF_UPLOAD_URL + '?job=" + JOB + "&callback=" + cb + "&_=" + Date.now();' +
-      '    document.head.appendChild(tag);' +
-      '  }' +
-      // Before spending time rendering a PDF, ask the script to introduce
-      // itself. An older deployment has no doGet at all, and the reply it sends
-      // back is not javascript, so the callback below would simply never fire
-      // and the popup would sit silent for a full minute. Asking first turns
-      // that into an immediate, readable reason.
-      '  function preflight() {' +
-      '    var cb = "__pdfok" + Date.now();' +
-      '    var done = false;' +
-      '    var tag = document.createElement("script");' +
-      '    window[cb] = function (res) {' +
-      '      if (done) return; done = true;' +
-      '      try { delete window[cb]; } catch (e) { window[cb] = undefined; }' +
-      '      if (res && res.ok) { start(); return; }' +
-      '      report("", "the upload script is out of date and has to be redeployed");' +
-      '    };' +
-      '    tag.onerror = function () {' +
-      '      if (done) return; done = true;' +
-      '      report("", "could not reach the upload script");' +
-      '    };' +
-      '    tag.src = "' + PDF_UPLOAD_URL + '?callback=" + cb + "&_=" + Date.now();' +
-      '    document.head.appendChild(tag);' +
-      '    setTimeout(function () {' +
-      '      if (done) return; done = true;' +
-      '      report("", "the upload script did not answer, so it has to be redeployed");' +
-      '    }, 8000);' +
-      '  }' +
-      '  function complete(blob) {' +
-      '    var fr = new FileReader();' +
-      '    fr.onloadend = function(){' +
-      '      var base64 = String(fr.result).split(",")[1] || "";' +
-      '      if (!base64) { report("", "the pdf came back empty"); return; }' +
-      '      var payload = JSON.stringify({ job: JOB, filename: "Bill-" + document.title.replace(/[^a-zA-Z0-9]/g, "_") + ".pdf", data: base64 });' +
-      '      fetch("' + PDF_UPLOAD_URL + '", { method: "POST", mode: "no-cors", headers: { "Content-Type": "text/plain;charset=UTF-8" }, body: payload })' +
-      '      .then(function(){ poll(60); })' +
-      '      .catch(function(){ report("", "upload failed"); });' +
-      '    };' +
-      '    fr.readAsDataURL(blob);' +
-      '  }' +
-      '  function run() {' +
-      '    if (typeof html2pdf === "undefined") { setTimeout(run, 200); return; }' +
-      '    var el = document.querySelector(".bill");' +
-      '    if (!el) { report("", "no bill on the page"); return; }' +
-      '    fit();' +
-      '    var opts = { html2canvas:{ scale:2, useCORS:true }, margin:0, filename:"bill.pdf", jsPDF:{ unit:"mm", format:"a4", orientation:"portrait" } };' +
-      '    html2pdf().set(opts).from(el).toPdf().get("pdf").then(function(p){ complete(p.output("blob")); });' +
-      '  }' +
-      // The shared PDF is fitted to one page for the same reason the printout
-      // is: a bill that runs onto a second page is a nuisance. This runs in the
-      // popup, immediately before html2pdf reads the bill, so the scale is
-      // already applied when the pages are rendered.
-      '  function fit() {' +
-      '    var el = document.querySelector(".bill");' +
-      '    if (!el || !window.__fitH) return;' +
-      '    var probe = document.createElement("div");' +
-      '    probe.style.cssText = "position:absolute;visibility:hidden;height:100mm;width:0";' +
-      '    document.body.appendChild(probe);' +
-      '    var px = probe.getBoundingClientRect().height / 100;' +
-      '    document.body.removeChild(probe);' +
-      '    if (!(px > 0)) return;' +
-      '    var target = window.__fitH * px;' +
-      '    var body = document.body, prevW = body.style.width, prevZ = body.style.zoom;' +
-      '    body.style.width = (window.__fitW * px) + "px";' +
-      '    el.style.zoom = "";' +
-      '    var h = el.getBoundingClientRect().height;' +
-      '    body.style.width = prevW; body.style.zoom = prevZ;' +
-      '    if (!(h > target)) return;' +
-      '    var s = target / h;' +
-      '    if (s < 0.62) s = 0.62;' +
-      '    if (s >= 1) return;' +
-      '    el.style.zoom = String(s);' +
-      '  }' +
-'  function start() {' +
-      '    var script = document.createElement("script");' +
-      '    script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";' +
-      '    script.onload = function(){ setTimeout(run, 300); };' +
-      '    script.onerror = function(){ report("", "library failed"); };' +
-      '    document.head.appendChild(script);' +
-      '  }' +
-      '  preflight();' +
-      '})();' +
-      '<' + '/script>';
-  }
 
   function openPrintWindow(bill, list, opts) {
     var c = state.customer;
@@ -1695,34 +1636,15 @@ window.ANT.bills = (function () {
       '</div>' +
       '</body></html>';
 
-    // When the caller asks for a shared PDF, the popup itself uploads the PDF
-    // to the Apps Script endpoint. It sends the resulting URL back through a
-    // private window variable, which the caller polls and then opens WhatsApp
-    // with that URL in the text.
-    if (opts === 'pdf') {
-      html = html.replace('</body></html>', pdfUploadScript() + '</body></html>');
-    }
-
     var win = window.open('', '_blank');
     if (!win) {
       toast('Please allow pop-ups to print the bill.', 'error');
       return;
     }
-    if (opts === 'pdf') {
-      win.__billId = bill.id || '';
-      win.__fitH = window.ANT.printsize.pageHeightMm(size);
-      win.__fitW = window.ANT.printsize.billWidthMm(size);
-    }
 
     win.document.open();
     win.document.write(html);
     win.document.close();
-
-    if (opts === 'pdf') {
-      // The popup is asked to upload the PDF via the inline script embedded
-      // in the HTML, not to open the print dialog.
-      return win;
-    }
 
     var go = function () {
       // The bill is fitted to one page first. Fitting needs a laid-out document
@@ -1914,6 +1836,253 @@ window.ANT.bills = (function () {
     openUpi(target);
   }
 
+  /* The stored bill -------------------------------------------------------
+   *
+   * A bill PDF is built here, in this window, and written straight into
+   * Supabase storage. There is no popup and no third-party script in the path,
+   * because nothing about that is needed any more: storage speaks ordinary CORS,
+   * so a plain upload works and its link can be read back.
+   *
+   * Three things make this cheap enough to keep every bill forever:
+   *
+   *   - the bill is drawn as vectors, so a file is about 15KB rather than 200KB
+   *   - one bill is one address, so re-sending overwrites instead of copying
+   *   - a snapshot is saved next to the file, so a cleared file can be rebuilt
+   */
+
+  // The free allowance the meter measures against. Storage does not report its
+  // own ceiling, so this is the number the shop is actually living inside.
+  var FREE_STORAGE_BYTES = 1024 * 1024 * 1024;
+
+  /* Everything the PDF is drawn from, held as one value. It is saved with the
+   * file rather than being rebuilt on demand from live orders, so the stored PDF
+   * is the bill as it was raised - and so a file exported and cleared can be
+   * produced again later without the orders having to stay untouched since. */
+  function billSnapshot(bill, list) {
+    var due = window.ANT.upi ? window.ANT.upi.balanceDue(bill) : num(bill.balance);
+
+    return {
+      takenAt: new Date().toISOString(),
+      printSize: state.shop.printSize || 'A4',
+      logoUrl: logoUrl(),
+      shop: {
+        name: state.shop.name,
+        address: state.shop.address,
+        phone: state.shop.phone,
+        email: state.shop.email,
+        instagram: state.shop.instagram,
+        upiId: state.shop.upiId,
+        payee: state.shop.payee
+      },
+      customer: {
+        code: state.customer.code,
+        name: state.customer.name,
+        mobile: state.customer.mobile,
+        address: state.customer.address
+      },
+      bill: {
+        code: bill.code,
+        bill_date: bill.bill_date,
+        notes: bill.notes || '',
+        method: bill.method || '',
+        paid_on: bill.paid_on,
+        total: num(bill.total),
+        discount: num(bill.discount),
+        advance: num(bill.advance),
+        bill_amount: num(bill.bill_amount),
+        balance: num(bill.balance)
+      },
+      orders: (list || []).map(function (o) {
+        return {
+          code: o.code,
+          order_date: o.order_date,
+          delivery_date: o.delivery_date,
+          total: num(o.total),
+          discount: num(o.discount),
+          advance: num(o.advance),
+          items: (o.items || []).map(function (it) {
+            return {
+              category: it.category,
+              dress_type: it.dress_type,
+              service: it.service,
+              variant: it.variant,
+              lining: it.lining,
+              quantity: it.quantity,
+              line_total: num(it.line_total)
+            };
+          })
+        };
+      }),
+      payLink: payLink(bill),
+      dueLabel: due,
+      instagramUrl: instagramUrl(),
+      words: amountInWords(num(bill.bill_amount))
+    };
+  }
+
+  /* The address is written to the bill row and to storage in that order of
+   * importance but one transaction: a URL that is stored and never uploaded is a
+   * dead link the shop would keep handing out, so the file is uploaded first and
+   * only a stored file is recorded. */
+  function savePdfRecord(bill, path, snap) {
+    return sb().from('bills')
+      .update({ pdf_path: path, pdf_snapshot: snap })
+      .eq('id', bill.id)
+      .execute()
+      .then(function (res) {
+        if (res.error) throw res.error;
+        bill.pdf_path = path;
+        return true;
+      });
+  }
+
+  function writeBlob(bill, snap, path) {
+    var bucket = sb().storage.from(PDF_BUCKET);
+    return window.ANT.billpdf.render(snap)
+      .then(function (blob) {
+        return bucket.upload(path, blob, { contentType: 'application/pdf' });
+      })
+      .then(function (res) {
+        if (res.error) throw res.error;
+        return savePdfRecord(bill, path, snap)
+          .then(function () { return bucket.publicUrl(path); });
+      });
+  }
+
+  /* Draws and stores a bill, then hands back the link. Never rejects: a bill
+   * that could not be stored is a reason to send the message without a link, not
+   * a reason to stop the tailor messaging the customer. */
+  function storeBillPdf(bill, list) {
+    if (!window.ANT.billpdf || !sb().storage) {
+      return Promise.resolve({ url: '', error: 'PDF storage is not set up yet.' });
+    }
+
+    var snap = billSnapshot(bill, list);
+    return writeBlob(bill, snap, pdfPath(bill.id))
+      .then(function (url) { return { url: url, error: '' }; })
+      .catch(function (e) {
+        return { url: '', error: (e && e.message) ? e.message : String(e) };
+      });
+  }
+
+  /* Rebuilds a bill whose file is gone or was never made. The saved snapshot is
+   * used when there is one, so the bill that comes back is the bill that was
+   * raised. Only a bill too old to have a snapshot is rebuilt from live orders,
+   * which can differ from the original if the orders have been edited since. */
+  function regenerateBillPdf(billId) {
+    var bill = null;
+    for (var i = 0; i < state.bills.length; i++) {
+      if (state.bills[i].id === billId) bill = state.bills[i];
+    }
+    if (!bill) return Promise.resolve({ url: '', error: 'That bill is not on this page.' });
+    if (!window.ANT.billpdf || !sb().storage) {
+      return Promise.resolve({ url: '', error: 'PDF storage is not set up yet.' });
+    }
+
+    var path = pdfPath(bill.id);
+
+    return sb().from('bills')
+      .select('pdf_snapshot')
+      .eq('id', billId)
+      .limit(1)
+      .then(function (res) {
+        if (res.error) throw res.error;
+        var saved = res.data && res.data[0] && res.data[0].pdf_snapshot;
+
+        if (saved) return writeBlob(bill, saved, path);
+
+        return sb().from('bill_orders')
+          .select('order_id')
+          .eq('bill_id', billId)
+          .then(function (link) {
+            if (link.error) throw link.error;
+            return ordersForPrint((link.data || []).map(function (r) { return r.order_id; }));
+          })
+          .then(function (list) { return writeBlob(bill, billSnapshot(bill, list), path); });
+      })
+      .then(function (url) { return { url: url, error: '' }; })
+      .catch(function (e) {
+        return { url: '', error: (e && e.message) ? e.message : String(e) };
+      });
+  }
+
+  /* How much of the allowance is used. Storage answers a page of object names at
+   * a time, so this walks the pages rather than trusting the first one, and says
+   * so when it stopped early instead of reporting a confident wrong total. */
+  function storageUsage() {
+    if (!sb().storage) return Promise.resolve(null);
+
+    var bucket = sb().storage.from(PDF_BUCKET);
+    var pageSize = 1000;
+    var maxPages = 25;
+    var used = 0;
+    var count = 0;
+    var truncated = false;
+
+    var walk = function (page) {
+      if (page >= maxPages) {
+        truncated = true;
+        return Promise.resolve(null);
+      }
+
+      return bucket.list('', { limit: pageSize, offset: page * pageSize })
+        .then(function (res) {
+          if (res.error || !res.data) throw res.error;
+          var files = res.data || [];
+          files.forEach(function (f) {
+            var meta = f.metadata || f;
+            used += Number(meta.size || meta.contentLength || 0);
+          });
+          count += files.length;
+          if (files.length < pageSize) return null;
+          return walk(page + 1);
+        });
+    };
+
+    return walk(0)
+      .then(function () { return { used: used, count: count, truncated: truncated }; })
+      .catch(function () { return null; });
+  }
+
+  function megabytes(bytes) {
+    if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    if (bytes >= 1024) return (bytes / 1024).toFixed(0) + ' KB';
+    return String(bytes) + ' B';
+  }
+
+  /* Shown above the bill history. The point is to see the allowance filling while
+   * there is still time to export and clear, not to discover it on a busy day
+   * when an upload fails and the customer is waiting. */
+  function storageCard() {
+    if (!state.storage) return '';
+
+    var used = state.storage.used;
+    var pct = Math.min(100, Math.round((used / FREE_STORAGE_BYTES) * 100));
+    var kind = pct >= 95 ? 'danger' : (pct >= 80 ? 'warn' : 'ok');
+    var verdict = pct >= 95
+      ? 'Storage is nearly full. Export and clear old bills before the next one fails.'
+      : (pct >= 80
+        ? 'Storage is filling. Bills can be exported and cleared once their PDFs are archived.'
+        : 'Plenty of room. A drawn bill is about 15KB, so this holds thousands.');
+
+    return '<div class="ui-card"><h2 class="ui-card-title">Bill PDF storage</h2>' +
+      '<div class="pay-grid">' +
+      field('Used', megabytes(used) + (state.storage.truncated ? '+' : '') + ' of 1 GB') +
+      field('Bills stored', String(state.storage.count)) +
+      field('Allowance used', pct + '%') +
+      '</div>' +
+      '<p class="pay-hint">' + esc(verdict) +
+      (state.storage.truncated ? ' Some older files were not counted.' : '') + '</p>' +
+      '</div>';
+  }
+
+  function refreshStorage() {
+    return storageUsage().then(function (usage) {
+      state.storage = usage;
+      return usage;
+    });
+  }
+
   /* Sending a bill on WhatsApp ---------------------------------------------- */
 
   /* wa.me with the message already filled in. Handed over by clicking a real
@@ -1993,43 +2162,35 @@ window.ANT.bills = (function () {
               toast('Opening WhatsApp for ' + (c.name || 'this customer') + '.', 'success');
             };
 
-            // First try to generate a public Drive PDF and append it to the text.
-            // The inner tab uploads via the embedded script, then this window
-            // receives the uploaded link through postMessage.
-            var pdfWindow = null;
-            var received = false;
-            var handler = function (e) {
-              if (!e.data || e.data.type !== 'pdfReady' || e.data.billId !== (bill.id || '')) return;
-              received = true;
-              clearTimeout(timeoutId);
-              try { window.removeEventListener('message', handler); } catch (e) {}
-              try { pdfWindow.close(); } catch (e) {}
-              if (e.data.error) {
-                toast('That PDF could not be shared: ' + e.data.error + '. Sending the text on its own.', 'warning');
-              }
-              if (e.data.url) {
-                message += '\n\nDownload PDF: ' + e.data.url;
-              }
-              sendWhatsApp(message);
-            };
-            window.addEventListener('message', handler);
+            // The PDF is drawn and stored first, then the message is built. It is
+            // drawn before the link is added rather than after, because a message
+            // that has already opened in WhatsApp cannot be edited - so the link
+            // is either in the message or the message is still correct without
+            // it.
+            return storeBillPdf(bill, list)
+              .then(function (result) {
+                if (result.url) {
+                  message += '\n\nDownload PDF: ' + result.url;
+                } else {
+                  // Storage can be full, or the drawing library unreachable, or
+                  // the bucket not created yet. None of those are a reason to
+                  // withhold a customer's bill, so the message goes out without
+                  // the link and the bill is marked as needing a retry.
+                  toast('That PDF could not be shared: ' + result.error +
+                    '. The bill was sent as text.', 'warning');
+                }
 
-            if (PDF_UPLOAD_URL) {
-              pdfWindow = openPrintWindow(bill, list, 'pdf');
-            }
-            if (!pdfWindow) {
-              sendWhatsApp(message);
-              return;
-            }
-
-            var timeoutId = setTimeout(function () {
-              try { window.removeEventListener('message', handler); } catch (e) {}
-              try { pdfWindow.close(); } catch (e) {}
-              if (!received) {
-                toast('PDF upload did not finish in time, sending text only.', 'warning');
+                state.bills = state.bills.map(function (row) {
+                  return row.id === bill.id
+                    ? Object.assign({}, row, { pdf_path: pdfPath(bill.id) })
+                    : row;
+                });
+                return refreshStorage();
+              })
+              .catch(function () { return null; })
+              .then(function () {
                 sendWhatsApp(message);
-              }
-            }, 90000);
+              });
           });
       });
   }
@@ -2097,6 +2258,31 @@ window.ANT.bills = (function () {
     each('[data-bill-print]', function (b) {
       b.addEventListener('click', function () {
         printBill(b.getAttribute('data-bill-print'));
+      });
+    });
+
+    each('[data-bill-pdf]', function (b) {
+      b.addEventListener('click', function () {
+        var id = b.getAttribute('data-bill-pdf');
+        b.disabled = true;
+        b.textContent = 'Working…';
+
+        regenerateBillPdf(id)
+          .then(function (result) {
+            if (result.error) {
+              toast('That PDF could not be made: ' + result.error, 'error');
+              return null;
+            }
+            toast('PDF ready.', 'success');
+            // Opened in a new tab so the shop keeps its place, and so the browser
+            // shows it is the same document the customer will get.
+            window.open(result.url, '_blank', 'noopener');
+            return loadBills().then(refreshStorage).then(paint);
+          })
+          .catch(function () {
+            b.disabled = false;
+            paint();
+          });
       });
     });
 

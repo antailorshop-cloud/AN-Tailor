@@ -123,6 +123,87 @@ window.ANT.sb = (function () {
     });
   }
 
+  /* Storage ------------------------------------------------------------
+   *
+   * Bill PDFs are objects, not rows, so they need their own calls. The bucket is
+   * public for reading, which is what lets a printed WhatsApp link keep working
+   * long after the upload; writing still goes through the signed-in session, so
+   * the anon key on its own cannot put anything into the bucket.
+   */
+
+  function objectPath(bucket, path) {
+    return root() + '/storage/v1/object/' + bucket + '/' +
+      String(path).split('/').map(encodeURIComponent).join('/');
+  }
+
+  function readResult(res) {
+    return res.text().then(function (text) {
+      var data = null;
+      if (text) {
+        try {
+          data = JSON.parse(text);
+        } catch (e) {
+          data = null;
+        }
+      }
+      if (!res.ok) {
+        return {
+          data: null,
+          error: {
+            message: (data && (data.message || data.error)) || res.statusText || 'Request failed',
+            status: res.status
+          }
+        };
+      }
+      return { data: data, error: null, status: res.status };
+    });
+  }
+
+  function Storage(bucket) {
+    this.bucket = bucket;
+  }
+
+  // Writes the object, replacing whatever was at that path. Replacing rather than
+  // creating a new name is what keeps one bill to one file: an edited bill
+  // overwrites its own PDF instead of landing beside it as a second copy.
+  Storage.prototype.upload = function (path, body, opts) {
+    opts = opts || {};
+    return fetch(objectPath(this.bucket, path), {
+      method: 'POST',
+      headers: authHeaders({
+        'Content-Type': opts.contentType || 'application/octet-stream',
+        'x-upsert': 'true'
+      }),
+      body: body
+    }).then(readResult);
+  };
+
+  Storage.prototype.remove = function (paths) {
+    return fetch(root() + '/storage/v1/object/' + this.bucket, {
+      method: 'DELETE',
+      headers: authHeaders(),
+      body: JSON.stringify({ prefixes: [].concat(paths) })
+    }).then(readResult);
+  };
+
+  // The address a printed link points at. Nothing is signed, so it stays valid
+  // for as long as the file is in the bucket.
+  Storage.prototype.publicUrl = function (path) {
+    return root() + '/storage/v1/object/public/' + this.bucket + '/' +
+      String(path).split('/').map(encodeURIComponent).join('/');
+  };
+
+  Storage.prototype.list = function (prefix, opts) {
+    opts = opts || {};
+    var q = 'limit=' + (opts.limit || 1000) + '&offset=' + (opts.offset || 0);
+    if (prefix) q += '&prefix=' + encodeURIComponent(prefix);
+
+    return fetch(root() + '/storage/v1/object/list/' + this.bucket + '?' + q, {
+      method: 'GET',
+      headers: authHeaders()
+    }).then(readResult);
+  };
+
   /* Query builder ----------------------------------------------------- */
 
   function encodeValue(v) {
@@ -410,6 +491,12 @@ window.ANT.sb = (function () {
 
     from: function (table) {
       return new Query(table);
+    },
+
+    storage: {
+      from: function (bucket) {
+        return new Storage(bucket);
+      }
     }
   };
 })();
