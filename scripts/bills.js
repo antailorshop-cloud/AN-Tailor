@@ -1258,7 +1258,7 @@ window.ANT.bills = (function () {
     '.fm-rule{height:1px;background:#cdb894;margin:3mm 8mm 0}',
     '.fm-line{margin-top:2mm;font-size:8px;letter-spacing:.3em;text-transform:uppercase;color:#8a7a54}',
 
-    '.follow{position:static;flex:0 0 auto;width:auto;background:#ffffff;color:#22314f;border:1px solid #cdb894;border-radius:3mm;padding:1.6mm;text-align:center;box-shadow:0 2px 5px rgba(0,0,0,.08)}',
+    '.follow{position:static;flex:0 0 auto;width:auto;display:block;background:#ffffff;color:#22314f;border:1px solid #cdb894;border-radius:3mm;padding:1.6mm;text-align:center;box-shadow:0 2px 5px rgba(0,0,0,.08)}',
     '.follow .qr-plate{border:none;background:#ffffff;margin:0 auto;display:inline-block}',
     '.follow .qr{width:12mm;height:12mm}',
     '.follow-text{margin-top:1.4mm;text-align:center;width:100%}',
