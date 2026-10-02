@@ -1477,9 +1477,6 @@ window.ANT.bills = (function () {
       window.ANT.printsize.layoutCss(size) +
       '</style></head><body>' +
       '<div class="bill' + (size === 'A4HALF' ? ' bill-half' : '') + '">' +
-      '<span class="cnr tl"></span><span class="cnr tr"></span>' +
-      '<span class="cnr bl"></span><span class="cnr br"></span>' +
-
       '<div class="head">' +
         '<div class="mastlogo"><img class="shop-logo" src="' + esc(logoUrl()) + '" alt="" ' +
           'onerror="this.remove()"></div>' +
@@ -1564,18 +1561,6 @@ window.ANT.bills = (function () {
 
       (bill.notes ? '<div class="notes">' + esc(bill.notes) + '</div>' : '') +
 
-      '<div class="footmast">' +
-        '<div class="fm-name">' + esc(shopName) + '</div>' +
-        '<div class="fm-tag">Perfect Fit, Perfect Style</div>' +
-        '<div class="fm-contact">' +
-          (state.shop.phone ? 'Mobile: ' + esc(state.shop.phone) : '') +
-          (state.shop.phone && state.shop.email ? ' &nbsp;&middot;&nbsp; ' : '') +
-          (state.shop.email ? esc(state.shop.email) : '') +
-        '</div>' +
-        (state.shop.instagram ? '<div class="fm-handle">@' + esc(state.shop.instagram) + '</div>' : '') +
-        '<div class="fm-rule"></div>' +
-        '<div class="fm-line">We Stitch Your Style &nbsp;&middot;&nbsp; We Deliver Your Satisfaction</div>' +
-      '</div>' +
       '</div>' +
       '</body></html>';
 

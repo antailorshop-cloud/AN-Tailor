@@ -83,9 +83,9 @@ window.ANT.printsize = (function () {
    * zeroed by the caller, so the two cannot stack into a double margin. */
   function pageCss(value) {
     var key = normalize(value);
-    if (key === 'A5') return '@page{size:A5 portrait;margin:8mm}';
-    if (key === 'A4HALF') return '@page{size:A4 landscape;margin:8mm}';
-    return '@page{size:A4 portrait;margin:10mm}';
+    if (key === 'A5') return '@page{size:A5 portrait;margin:0mm}';
+    if (key === 'A4HALF') return '@page{size:A4 landscape;margin:0mm}';
+    return '@page{size:A4 portrait;margin:0mm}';
   }
 
   /* How tall the printable area of each sheet is, in millimetres: the paper height
@@ -93,18 +93,18 @@ window.ANT.printsize = (function () {
    * measures itself against, so a bill with four garments and one with nine are
    * both told the same target.
    *
-   *   A4      297mm paper, 10mm margins  -> 277mm
-   *   A5      210mm paper, 8mm margins   -> 194mm
-   *   A4HALF  A4 turned sideways, 8mm    -> 194mm, same as A5
+    *   A4      297mm paper, 0mm margins  -> 297mm
+    *   A5      210mm paper, 0mm margins  -> 210mm
+    *   A4HALF  A4 turned sideways, 0mm   -> 210mm, same as A5
    *
    * It is exported rather than kept private so the bill can ask for it and the
    * harness can check the arithmetic, which is the kind of number that is easy to
    * get subtly wrong and hard to see on paper. */
   function pageHeightMm(value) {
     var key = normalize(value);
-    if (key === 'A5') return 194;
-    if (key === 'A4HALF') return 194;
-    return 277;
+    if (key === 'A5') return 210;
+    if (key === 'A4HALF') return 210;
+    return 297;
   }
 
   /* How wide the bill is laid out, in millimetres. The auto-fit on the bill sets
@@ -113,18 +113,18 @@ window.ANT.printsize = (function () {
    * bill on a 190mm sheet - so without it the fit would be calculated against a
    * layout the printer never uses.
    *
-   *   A4      210mm paper, 10mm margins -> 190mm
-   *   A5      148mm paper, 8mm margins  -> 132mm
-   *   A4HALF  the left half of a landscape A4 -> 140mm
+    *   A4      210mm paper, 0mm margins -> 210mm
+    *   A5      148mm paper, 0mm margins -> 148mm
+    *   A4HALF  the left half of a landscape A4 -> 148mm
    *
    * These are the same numbers layoutCss() puts in the stylesheet, kept here as
    * values so a change to the layout and a change to the measurement cannot drift
    * apart unnoticed. */
   function billWidthMm(value) {
     var key = normalize(value);
-    if (key === 'A5') return 132;
-    if (key === 'A4HALF') return 140;
-    return 190;
+    if (key === 'A5') return 148;
+    if (key === 'A4HALF') return 148;
+    return 210;
   }
 
   /* The layout rule for the printed body, given its own class so nothing else on
@@ -139,14 +139,14 @@ window.ANT.printsize = (function () {
       // the frame's right border rather than sitting inside it - two vertical
       // lines a millimetre apart would print as one smudge. It is drawn in the
       // same navy as the frame so the document still reads as one bordered sheet.
-      return '.' + base + '-half{width:140mm;min-height:194mm;' +
+      return '.' + base + '-half{width:148mm;min-height:210mm;' +
         'border-right:2px dashed #0f2239;padding-right:6mm}';
     }
 
-    if (key === 'A5') return '.' + base + '{width:132mm;max-width:132mm' +
-      (base === 'bill' ? ';min-height:194mm' : '') + '}';
-    return '.' + base + '{width:190mm;max-width:190mm' +
-      (base === 'bill' ? ';min-height:277mm' : '') + '}';
+    if (key === 'A5') return '.' + base + '{width:148mm;max-width:148mm' +
+      (base === 'bill' ? ';min-height:210mm' : '') + '}';
+    return '.' + base + '{width:210mm;max-width:210mm' +
+      (base === 'bill' ? ';min-height:297mm' : '') + '}';
   }
 
   return {
