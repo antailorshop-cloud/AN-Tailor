@@ -1261,9 +1261,9 @@ window.ANT.bills = (function () {
     '.follow{position:static;flex:0 0 auto;width:auto;display:block;background:#ffffff;color:#22314f;border:1px solid #cdb894;border-radius:3mm;padding:1.6mm;text-align:center;box-shadow:0 2px 5px rgba(0,0,0,.08)}',
     '.follow .qr-plate{border:none;background:#ffffff;margin:0 auto;padding:0;display:inline-block}',
     '.follow .qr{width:12mm;height:12mm}',
-    '.follow-text{margin-top:0.6mm;text-align:center;width:100%}',
-    '.follow-head{justify-content:center;font-size:7px;letter-spacing:.25em;color:#b8934f;text-align:center;width:100%}',
-    '.follow-link{display:block;color:#22314f;font-size:8px;margin-top:1mm;text-align:center;text-decoration:none;border-bottom:none}',
+    '.follow-text{margin-top:0mm;text-align:center;width:100%}',
+    '.follow-head{justify-content:center;font-size:7px;letter-spacing:.25em;color:#b8934f;text-align:center;width:100%;margin-bottom:2mm}',
+    '.follow-link{display:block;color:#22314f;font-size:8px;margin-top:0;text-align:center;text-decoration:none;border-bottom:none}',
     '.follow-id{color:#8a8676;font-size:6.5px;text-align:center;width:100%}',
     '',
 
