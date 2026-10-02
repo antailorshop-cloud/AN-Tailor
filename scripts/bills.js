@@ -1362,7 +1362,7 @@ window.ANT.bills = (function () {
       '      var ff = { filename: "Bill-"+document.title.replace(/[^a-zA-Z0-9]/g, "_")+".pdf", data: base64 };' +
       '      fetch("' + PDF_UPLOAD_URL + '", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(ff) })' +
       '      .then(function(r){ return r.text(); })' +
-      '      .then(function(url){ window.__pdfResult = { url: url }; })' +
+      '      .then(function(url){ window.__pdfResult = { url: url }; try { if (window.opener && !window.opener.closed) window.opener.postMessage({ type: "pdfReady", url: url, billId: window.__billId || "" }, "*"); } catch (e) {} })' +
       '      .catch(function(){ window.__pdfResult = { error: "upload failed" }; });' +
       '    };' +
       '    fr.readAsDataURL(blob);' +
@@ -1619,6 +1619,9 @@ window.ANT.bills = (function () {
     if (!win) {
       toast('Please allow pop-ups to print the bill.', 'error');
       return;
+    }
+    if (opts === 'pdf') {
+      win.__billId = bill.id || '';
     }
 
     win.document.open();
@@ -1901,8 +1904,8 @@ window.ANT.bills = (function () {
             };
 
             // First try to generate a public Drive PDF and append it to the text.
-            // The inner tab uploads via the embedded script, then this tab
-            // polls its result until it is ready.
+            // The inner tab uploads via the embedded script, then this window
+            // receives the uploaded link through postMessage.
             var pdfWindow = null;
             if (PDF_UPLOAD_URL) {
               pdfWindow = openPrintWindow(bill, list, 'pdf');
@@ -1912,27 +1915,28 @@ window.ANT.bills = (function () {
               return;
             }
 
-            var attempts = 0;
-            var poll = setInterval(function () {
-              attempts++;
-              var result;
-              try { result = pdfWindow.__pdfResult; } catch (e) { result = null; }
+            var received = false;
+            var handler = function (e) {
+              if (!e.data || e.data.type !== 'pdfReady' || e.data.billId !== (bill.id || '')) return;
+              received = true;
+              clearTimeout(timeoutId);
+              try { window.removeEventListener('message', handler); } catch (e) {}
+              try { pdfWindow.close(); } catch (e) {}
+              if (e.data.url) {
+                message += '\n\nDownload PDF: ' + e.data.url;
+              }
+              sendWhatsApp(message);
+            };
+            window.addEventListener('message', handler);
 
-              if (result) {
-                clearInterval(poll);
-                try { pdfWindow.close(); } catch (e) {}
-                var linkText = result.url || '';
-                if (linkText) {
-                  message += '\n\nDownload PDF: ' + linkText;
-                }
-                sendWhatsApp(message);
-              } else if (attempts > 60) {
-                clearInterval(poll);
-                try { pdfWindow.close(); } catch (e) {}
+            var timeoutId = setTimeout(function () {
+              try { window.removeEventListener('message', handler); } catch (e) {}
+              try { pdfWindow.close(); } catch (e) {}
+              if (!received) {
                 toast('PDF upload did not finish in time, sending text only.', 'warning');
                 sendWhatsApp(message);
               }
-            }, 500);
+            }, 30000);
           });
       });
   }
