@@ -1385,7 +1385,7 @@ window.ANT.bills = (function () {
       '      try { delete window[cb]; } catch (e) { window[cb] = undefined; }' +
       '      report("", "could not reach the upload script");' +
       '    };' +
-      '    tag.src = "' + PDF_UPLOAD_URL + '?job=' + JOB + '&callback=' + cb + '&_=' + Date.now() + '";' +
+      '    tag.src = "' + PDF_UPLOAD_URL + '?job=" + JOB + "&callback=" + cb + "&_=" + Date.now();' +
       '    document.head.appendChild(tag);' +
       '  }' +
       '  function complete(blob) {' +
