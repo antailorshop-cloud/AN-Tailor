@@ -636,7 +636,7 @@ window.ANT.payments = (function () {
       '.due th,.due td{font-weight:700}' +
       '.notes{white-space:pre-wrap;font-size:13px}' +
       '.sign{margin-top:34px;font-size:12px;color:#555}' +
-      '.stamp{position:absolute;top:12mm;right:14mm;padding:2mm 6mm;transform:rotate(-12deg);border:2px solid;border-radius:2px;font-weight:700;font-size:10px;letter-spacing:1px;text-transform:uppercase;z-index:2}' +
+      '.stamp{position:absolute;top:24mm;right:14mm;padding:2mm 6mm;transform:rotate(-12deg);border:2px solid;border-radius:2px;font-weight:700;font-size:10px;letter-spacing:1px;text-transform:uppercase;z-index:2}' +
       '.stamp-paid{color:#155724;border-color:#155724;background:#d4edda}' +
       '.stamp-part{color:#856404;border-color:#856404;background:#fff3cd}' +
       '.stamp-due{color:#721c24;border-color:#721c24;background:#f8d7da}' +
