@@ -1122,7 +1122,9 @@ window.ANT.bills = (function () {
   var PRINT_CSS = [
     '*{box-sizing:border-box}',
     'body{font:12.5px/1.5 "Segoe UI",system-ui,-apple-system,Arial,sans-serif;color:#1f2937;margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}',
-    '.bill{width:190mm;margin:0;padding:0}',
+    '.bill{width:190mm;margin:0;padding:4mm;border:2px solid #0f2239;border-radius:2px}',
+'.bill::after{content:"";position:absolute;inset:2mm;border:1px solid #b08d3f;pointer-events:none}',
+'.bill{position:relative}',
 
     '.head{display:flex;justify-content:space-between;align-items:center;gap:10mm;padding-bottom:4mm;border-bottom:3px double #0f2239}',
     '.brand{display:flex;align-items:center;gap:6mm;min-width:0}',

@@ -135,8 +135,12 @@ window.ANT.printsize = (function () {
     var base = className || 'bill';
 
     if (key === 'A4HALF') {
+      // The dashed right edge is the cut line for the half sheet, so it replaces
+      // the frame's right border rather than sitting inside it - two vertical
+      // lines a millimetre apart would print as one smudge. It is drawn in the
+      // same navy as the frame so the document still reads as one bordered sheet.
       return '.' + base + '-half{width:140mm;min-height:194mm;' +
-        'border-right:1px dashed #999;padding-right:6mm}';
+        'border-right:2px dashed #0f2239;padding-right:6mm}';
     }
 
     if (key === 'A5') return '.' + base + '{width:132mm;max-width:132mm}';
