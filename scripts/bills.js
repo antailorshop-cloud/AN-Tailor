@@ -1200,7 +1200,7 @@ window.ANT.bills = (function () {
     '.head{display:flex;align-items:flex-start;justify-content:space-between;gap:4mm;padding-bottom:3mm;border-bottom:none;flex-wrap:nowrap}',
     '.mastlogo{flex:0 0 auto}',
     '.mastcenter{flex:1 1 auto;min-width:0;text-align:center}',
-    '.shop-logo{width:24mm;height:24mm;border:2px solid #b8934f;padding:1mm;background:#fff}',
+    '.shop-logo{width:26mm;height:26mm;border:2px solid #b8934f;padding:1mm;background:#fff}',
     '.shop-name{font-size:19px;letter-spacing:.22em;color:#22314f}',
     '.shop-sub{color:#b8934f;letter-spacing:.28em}',
     '.shop-contact{font-size:9px;color:#5a5346;margin-top:1.2mm;letter-spacing:.03em;text-transform:none}',
@@ -1260,7 +1260,7 @@ window.ANT.bills = (function () {
 
     '.follow{position:static;display:block;width:36mm;background:#ffffff;color:#22314f;border:1px solid #cdb894;border-radius:3mm;padding:2mm 1.6mm;text-align:center;box-shadow:0 2px 5px rgba(0,0,0,.08)}',
     '.follow .qr-plate{border-color:#eaeaea;background:#ffffff;margin:0 auto;border-radius:2mm}',
-    '.follow .qr{width:19mm;height:19mm}',
+    '.follow .qr{width:14mm;height:14mm}',
     '.follow-text{margin-top:1.4mm}',
     '.follow-head{justify-content:center;font-size:7px;letter-spacing:.25em;color:#b8934f}',
     '.follow-link{color:#22314f;font-size:8px;margin-top:1mm;border-bottom:1px solid #cdb894}',
