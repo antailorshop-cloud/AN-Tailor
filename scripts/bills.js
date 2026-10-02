@@ -1126,11 +1126,11 @@ window.ANT.bills = (function () {
 '.bill::after{content:"";position:absolute;inset:2mm;border:1px solid #b08d3f;pointer-events:none}',
 '.bill{position:relative}',
 
-    '.head{display:flex;justify-content:space-between;align-items:center;gap:6mm;padding-bottom:4mm;border-bottom:3px double #0f2239}',
-    '.brand{display:flex;align-items:center;gap:4mm;min-width:0;flex:1 1 auto}',
-    '.shop-logo{width:28mm;height:28mm;object-fit:contain;flex:0 0 auto;border-radius:50%;border:2px solid #b08d3f;padding:1mm}',
-    '.shop-name{font-family:Georgia,"Times New Roman",serif;font-size:22px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;line-height:1.1;color:#0f2239;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
-    '.shop-sub{font-size:9px;color:#5c4821;margin-top:1mm;letter-spacing:.04em;font-weight:600;text-transform:uppercase}',
+    '.head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:4mm;padding-bottom:4mm;border-bottom:3px double #0f2239}',
+    '.brand{display:flex;align-items:center;gap:3mm;min-width:0;flex:1 1 60mm}',
+    '.shop-logo{width:22mm;height:22mm;object-fit:contain;flex:0 0 auto;border-radius:50%;border:2px solid #b08d3f;padding:1mm}',
+    '.shop-name{font-family:Georgia,"Times New Roman",serif;font-size:18px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;line-height:1.1;color:#0f2239}',
+    '.shop-sub{font-size:8px;color:#5c4821;margin-top:.8mm;letter-spacing:.03em;font-weight:600;text-transform:uppercase}',
 
     '.bill-bar{display:flex;gap:0;margin:4mm 0 0;padding:3mm 2mm;background:#0f2239;border-radius:3px}',
     '.bill-bar-item{flex:1 1 0;min-width:0;text-align:center;border-right:1px solid rgba(255,255,255,.15)}',
@@ -1145,8 +1145,8 @@ window.ANT.bills = (function () {
     '.party-line b{color:#0f2239;font-weight:600}',
 
     'table{width:100%;border-collapse:collapse;margin:3mm 0 0;table-layout:fixed}',
-    'th{font-size:8px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#ffffff;text-align:left;padding:2.2mm 1.5mm;background:#0f2239;white-space:nowrap}',
-    'td{font-size:11px;padding:2mm 1.5mm;border-bottom:1px solid #e8e0c8;vertical-align:top;word-wrap:break-word}',
+    'th{font-size:8px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#ffffff;text-align:left;padding:2mm 1.2mm;background:#0f2239;white-space:nowrap}',
+    'td{font-size:11px;padding:2mm 1.2mm;border-bottom:1px solid #e8e0c8;vertical-align:top;word-wrap:break-word;overflow-wrap:break-word}',
     'tbody tr:nth-child(even) td{background:#faf8f3}',
     'th.r,td.r{text-align:right;white-space:nowrap}',
     '.item-name{font-weight:500;color:#1f2937}',
@@ -1161,7 +1161,7 @@ window.ANT.bills = (function () {
     '.totals .due .label{color:#0f2239;font-weight:700;letter-spacing:.02em}',
     '.totals .due .val{color:#0f2239}',
 
-    '.words{font-size:10px;margin:5mm 0 0;padding:2.2mm 0 0;border-top:1px solid #e8e0c8;color:#374151;letter-spacing:.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '.words{font-size:10px;margin:5mm 0 0;padding:2.2mm 0 0;border-top:1px solid #e8e0c8;color:#374151;letter-spacing:.01em;white-space:normal;word-wrap:break-word}',
     '.words b{font-weight:600;color:#0f2239}',
 
     '.blocks{display:flex;flex-wrap:wrap;gap:4mm;align-items:stretch;margin-top:6mm}',
@@ -1174,14 +1174,14 @@ window.ANT.bills = (function () {
     '.pay-amt{font-family:Georgia,"Times New Roman",serif;font-size:15px;font-weight:700;color:#b08d3f;letter-spacing:.02em;margin:.4mm 0 1mm}',
     '.pay-link{display:inline-block;margin:0 0 1mm;color:#0f3460;font-weight:600;word-break:break-all;text-decoration:none;border-bottom:.4mm solid #d4c9a8}',
     '.pay-id{color:#6b7280;font-size:10px;letter-spacing:.02em}',
-    '.follow{position:relative;flex:0 0 auto;display:flex;gap:2.5mm;align-items:center;background:#0f2239;color:#f4f1e8;border-radius:3px;padding:3mm 3.5mm;page-break-inside:avoid;break-inside:avoid}',
+    '.follow{position:relative;flex:0 1 auto;display:flex;gap:2mm;align-items:center;background:#0f2239;color:#f4f1e8;border-radius:3px;padding:2.5mm 3mm;page-break-inside:avoid;break-inside:avoid}',
     '.follow .qr-plate{border-color:#3a4a6e;background:#ffffff}',
-    '.follow .qr{width:18mm;height:18mm}',
+    '.follow .qr{width:16mm;height:16mm}',
     '.follow-text{min-width:0}',
-    '.follow-head{font-family:Georgia,"Times New Roman",serif;font-weight:700;font-size:10px;color:#ffffff;display:flex;align-items:center;gap:1.2mm}',
+    '.follow-head{font-family:Georgia,"Times New Roman",serif;font-weight:700;font-size:9px;color:#ffffff;display:flex;align-items:center;gap:1mm}',
     '.follow-glyph{flex:0 0 auto;display:block}',
-    '.follow-link{display:inline-block;margin:.6mm 0 .3mm;color:#f0d9a0;font-weight:600;word-break:break-all;text-decoration:none;border-bottom:.4mm solid #4a5a80}',
-    '.follow-id{font-size:8px;color:#a9b4c9;letter-spacing:.06em;text-transform:uppercase}',
+    '.follow-link{display:inline-block;margin:.5mm 0 .2mm;color:#f0d9a0;font-weight:600;word-break:break-all;text-decoration:none;border-bottom:.4mm solid #4a5a80}',
+    '.follow-id{font-size:7.5px;color:#a9b4c9;letter-spacing:.05em;text-transform:uppercase}',
 
     '.signs{display:flex;gap:14mm;margin-top:10mm}',
     '.sign{flex:1 1 0;border-top:1px solid #0f2239;padding-top:1.6mm;font-size:9px;color:#6b7280;letter-spacing:.03em}',
@@ -1456,10 +1456,10 @@ window.ANT.bills = (function () {
       '</div>' +
 
       '<table><thead><tr>' +
-        '<th style="width:8mm">S.No</th><th style="width:22mm">Order ID</th><th>Dress Type</th>' +
-        '<th style="width:22mm">Delivery Date</th>' +
-        '<th class="r" style="width:12mm">Qty</th><th class="r" style="width:18mm">Rate</th>' +
-        '<th class="r" style="width:14mm">Disc</th><th class="r" style="width:20mm">Amount</th>' +
+        '<th style="width:6%">S.No</th><th style="width:14%">Order ID</th><th style="width:22%">Dress Type</th>' +
+        '<th style="width:14%">Delivery Date</th>' +
+        '<th class="r" style="width:8%">Qty</th><th class="r" style="width:12%">Rate</th>' +
+        '<th class="r" style="width:10%">Disc</th><th class="r" style="width:14%">Amount</th>' +
       '</tr></thead><tbody>' + rows + '</tbody></table>' +
 
       '<div class="totals">' +
