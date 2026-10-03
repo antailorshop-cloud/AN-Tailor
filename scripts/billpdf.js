@@ -60,6 +60,11 @@ window.ANT.billpdf = (function () {
     return out.replace(/\u20b9/g, 'Rs. ');
   }
 
+  function num(value) {
+    var n = Number(value);
+    return isFinite(n) ? n : 0;
+  }
+
   function dateLabel(iso) {
     if (!iso) return '-';
     var d = new Date(iso);
@@ -256,11 +261,15 @@ window.ANT.billpdf = (function () {
     return y + 14;
   }
 
-  /* Customer details beside the address, each in its own ruled box. */
+  /* Customer details beside the address, each in its own ruled box. Both boxes are
+   * drawn to the same height, measured from whichever has more to say, so the
+   * two boxes always end level with each other and a long address stays inside
+   * its own border instead of running out through the bottom of it. */
   function parties(doc, snap, x, right, y) {
     var c = snap.customer || {};
     var wide = (right - x) * 0.56;
     var narrow = right - x - wide - 2;
+    var pad = 2;
 
     var rows = [
       ['Customer ID', c.code || '-'],
@@ -268,38 +277,52 @@ window.ANT.billpdf = (function () {
       ['Mobile No', c.mobile || '-']
     ];
 
+    setFont(doc, 'normal', 8, NAVY);
+    var addressLines = doc.splitTextToSize(String(c.address || '-'), narrow - pad * 2);
+    var addressX = x + wide + 2 + pad;
+
+    // Both boxes share one height. The rows on the left are a fixed rhythm, so
+    // they simply stop early when the address is the longer of the two.
+    var leftHeight = rows.length * 6 + 3;
+    var addressHeight = 9.8 + addressLines.length * 3.8 + 1.6;
+    var boxHeight = Math.max(leftHeight, addressHeight);
+
     doc.setDrawColor.apply(doc, GOLD_SOFT);
     doc.setLineWidth(0.25);
-    doc.rect(x, y, wide, rows.length * 6 + 2);
-    doc.rect(x + wide + 2, y, narrow, rows.length * 6 + 2);
+    doc.rect(x, y, wide, boxHeight);
+    doc.rect(x + wide + 2, y, narrow, boxHeight);
 
     rows.forEach(function (row, i) {
       var ry = y + 5 + i * 6;
       setFont(doc, 'normal', 6.5, MUTED);
-      doc.text(String(row[0]).toUpperCase(), x + 2, ry);
+      doc.text(String(row[0]).toUpperCase(), x + pad, ry);
       setFont(doc, 'bold', 8.5, NAVY);
-      doc.text(String(row[1]), x + 26, ry, { maxWidth: wide - 28 });
+      doc.text(String(row[1]), x + 26, ry, { maxWidth: wide - 26 - pad });
       hairline(doc, x + 0.3, ry + 1.9, x + wide - 0.3, [240, 233, 216], 0.15);
     });
 
+    // The address label sits on the same baseline as the first row label, so the
+    // two boxes read as one row of headings rather than two unrelated lists.
     setFont(doc, 'normal', 6.5, MUTED);
-    doc.text('ADDRESS', x + wide + 4, y + 4.6);
+    doc.text('ADDRESS', addressX, y + 5);
     setFont(doc, 'normal', 8, NAVY);
-    var lines = doc.splitTextToSize(String(c.address || '-'), narrow - 4);
-    doc.text(lines, x + wide + 4, y + 8.6);
+    doc.text(addressLines, addressX, y + 9.8);
 
-    return y + rows.length * 6 + 6;
+    return y + boxHeight + 3;
   }
 
+  /* The same columns, in the same proportions and on the same sides, as the
+   * printed bill at PRINT_CSS. A PDF that lines its numbers up differently from
+   * the sheet the shopkeeper has just compared it against reads as a mistake. */
   var COLUMNS = [
     { key: 'no', label: '#', w: 0.06, align: 'right' },
-    { key: 'code', label: 'Order ID', w: 0.15, align: 'right' },
-    { key: 'item', label: 'Dress Type', w: 0.25, align: 'left' },
+    { key: 'code', label: 'Order ID', w: 0.14, align: 'right' },
+    { key: 'item', label: 'Dress Type', w: 0.22, align: 'left' },
     { key: 'delivery', label: 'Delivery', w: 0.14, align: 'right' },
-    { key: 'qty', label: 'Qty', w: 0.07, align: 'right' },
-    { key: 'rate', label: 'Rate', w: 0.11, align: 'right' },
+    { key: 'qty', label: 'Qty', w: 0.08, align: 'right' },
+    { key: 'rate', label: 'Rate', w: 0.12, align: 'right' },
     { key: 'disc', label: 'Disc', w: 0.10, align: 'right' },
-    { key: 'amount', label: 'Amount', w: 0.12, align: 'right' }
+    { key: 'amount', label: 'Amount', w: 0.14, align: 'right' }
   ];
 
   function tableHeader(doc, x, right, y) {
@@ -320,27 +343,48 @@ window.ANT.billpdf = (function () {
   }
 
   /* One garment line. Returns the height it used, so the caller knows whether
-   * the next line still fits on the page. */
-  function itemRow(doc, snap, x, right, y, row, shaded) {
-    var width = right - x;
+   * the next line still fits on the page.
+   *
+   * Every cell is measured, not only the garment name. A rate that wraps would
+   * otherwise print its second line below the border of its own row, which is
+   * the one alignment fault a customer is likely to notice on a bill. */
+  var ROW_LEAD = 3.6;
+  var ROW_PAD = 2.6;
+
+  function rowLines(doc, width, row) {
     var cellText = [row.no, row.code, row.item, row.delivery, row.qty, row.rate, row.disc, row.amount];
 
+    return cellText.map(function (value, i) {
+      var text = String(value == null ? '' : value);
+      if (!text) return [''];
+      return doc.splitTextToSize(text, width * COLUMNS[i].w - 3);
+    });
+  }
+
+  function rowHeight(lines) {
+    var tallest = lines.reduce(function (most, l) { return Math.max(most, l.length); }, 1);
+    return Math.max(7, tallest * ROW_LEAD + ROW_PAD);
+  }
+
+  function itemRow(doc, snap, x, right, y, row, shaded) {
+    var width = right - x;
+    var lines = rowLines(doc, width, row);
+    var height = rowHeight(lines);
+
+    // The band is drawn to the measured height, so a row that had to grow for a
+    // long garment name is shaded all the way down rather than to a fixed depth.
     if (shaded) {
       doc.setFillColor(250, 248, 243);
-      doc.rect(x, y, width, 7, 'F');
+      doc.rect(x, y, width, height, 'F');
     }
 
     var cx = x;
-    var itemLines = doc.splitTextToSize(String(row.item || ''), width * COLUMNS[2].w - 3);
-    var height = Math.max(7, itemLines.length * 3.6 + 2.6);
-
     COLUMNS.forEach(function (col, i) {
       var cw = width * col.w;
       var bold = (i === 2 || i === 7);
       setFont(doc, bold ? 'bold' : 'normal', bold ? 8 : 7.5, bold ? NAVY : INK);
-      doc.text(i === 2 ? itemLines : String(cellText[i] == null ? '' : cellText[i]),
-        col.align === 'right' ? cx + cw - 1.5 : cx + 1.5,
-        y + 4.7, { align: col.align, maxWidth: cw - 3 });
+      doc.text(lines[i], col.align === 'right' ? cx + cw - 1.5 : cx + 1.5,
+        y + ROW_PAD + ROW_LEAD - 0.8, { align: col.align });
       cx += cw;
     });
 
@@ -351,24 +395,34 @@ window.ANT.billpdf = (function () {
     return height;
   }
 
-  /* The totals, in the same ruled box on the printed bill. */
-  function totals(doc, snap, x, right, y) {
+  /* The totals, in the same ruled box as the printed bill. The discount is only
+   * listed when there is one, exactly as PRINT_CSS does it: a line reading
+   * "Discount - Rs. 0.00" on every bill trains the eye to skip the line that
+   * matters.
+   *
+   * height is the height of the box beside it, so the two boxes start and end
+   * together. The rows are spread through it rather than stacked at the top, so
+   * the balance - the figure the customer is actually asked for - finishes level
+   * with the foot of the payment box. */
+  function totals(doc, snap, x, right, y, height) {
     var bill = snap.bill || {};
-    var rows = [
-      ['Sub Total', money(bill.total)],
-      ['Total Amount', money(bill.bill_amount)],
-      ['Total Paid', money(bill.advance)],
-      ['Balance Amount', money(bill.balance)]
-    ];
+    var rows = [['Sub Total', money(bill.total)]];
+    if (num(bill.discount)) rows.push(['Discount', '- ' + money(bill.discount)]);
+    rows.push(['Total Amount', money(bill.bill_amount)]);
+    rows.push(['Total Paid', money(bill.advance)]);
+    rows.push(['Balance Amount', money(bill.balance)]);
 
     var width = right - x;
-    var height = rows.length * 6 + 8;
+    var needed = rows.length * 6 + 8;
+    height = Math.max(needed, num(height));
+    var step = rows.length > 1 ? (height - 10) / (rows.length - 1) : 6;
+
     doc.setDrawColor.apply(doc, GOLD_SOFT);
     doc.setLineWidth(0.25);
     doc.rect(x, y, width, height);
 
     rows.forEach(function (row, i) {
-      var ry = y + 5 + i * 6;
+      var ry = y + 5 + step * i;
       var last = i === rows.length - 1;
 
       if (last) {
@@ -387,65 +441,101 @@ window.ANT.billpdf = (function () {
     return height;
   }
 
-  /* The UPI box: the amount, the id, and a QR the customer can scan. */
-  function payCard(doc, snap, x, right, y) {
+  /* The UPI box: the id, the amount, and a QR the customer can scan.
+   *
+   * The measurements are taken first and the box is then sized from them. It used
+   * to be given a fixed height while the code and its caption were placed at
+   * fixed offsets below that height, so the QR hung outside the bottom of its own
+   * box on every single bill. */
+  var CARD_PAD = 2.5;
+  var CARD_QR = 16;
+
+  function cardPlan(doc, snap, width) {
     var bill = snap.bill || {};
     var shop = snap.shop || {};
+
+    var hint = bill.method
+      ? ('Method: ' + bill.method + (bill.paid_on ? (' · ' + dateLabel(bill.paid_on)) : ''))
+      : 'Any UPI app';
+
+    // The QR shares the row with the caption, so the text above it is measured
+    // against the space actually left rather than the whole width.
+    var hintLines = doc.splitTextToSize(hint, width - CARD_PAD * 2 - CARD_QR - 4);
+    var qrY = 19.4 + hintLines.length * 3.4 + 2;
+    var captionY = qrY + CARD_QR + 3.2;
+
+    return {
+      shop: shop,
+      hint: hint,
+      hintLines: hintLines,
+      qrY: qrY,
+      captionY: captionY,
+      height: captionY + 2
+    };
+  }
+
+  function payCard(doc, snap, x, right, y) {
     var width = right - x;
-    var boxWidth = (width - 2) * 0.52;
-    var qrSide = 17;
-    var boxHeight = 8 + qrSide + 6;
+    var plan = cardPlan(doc, snap, width);
 
     doc.setDrawColor.apply(doc, GOLD_SOFT);
     doc.setLineWidth(0.25);
     doc.setFillColor(255, 253, 247);
-    doc.rect(x, y, boxWidth, boxHeight, 'FD');
+    doc.rect(x, y, width, plan.height, 'FD');
 
     setFont(doc, 'bold', 6.5, GOLD);
-    doc.text('PAYMENT DETAILS', x + 2.5, y + 5);
+    doc.text('PAYMENT DETAILS', x + CARD_PAD, y + 5);
 
     setFont(doc, 'normal', 7, MUTED);
-    doc.text('UPI ID', x + 2.5, y + 12);
+    doc.text('UPI ID', x + CARD_PAD, y + 10);
     setFont(doc, 'bold', 8, NAVY);
-    doc.text(shop.upiId || '-', x + 20, y + 12);
+    doc.text(plan.shop.upiId || '-', x + CARD_PAD + 17, y + 10, { maxWidth: width - CARD_PAD * 2 - 17 });
 
     if (snap.dueLabel) {
       setFont(doc, 'bold', 11, GOLD);
-      doc.text('Pay ' + money(snap.dueLabel), x + 2.5, y + 18);
+      doc.text('Pay ' + money(snap.dueLabel), x + CARD_PAD, y + 15.6);
     }
 
     setFont(doc, 'normal', 7, MUTED);
-    var hint = bill.method ? ('Method: ' + bill.method + (bill.paid_on ? (' · ' + dateLabel(bill.paid_on)) : '')) : 'Any UPI app';
-    doc.text(hint, x + 2.5, y + 23, { maxWidth: boxWidth - 8 });
+    doc.text(plan.hintLines, x + CARD_PAD, y + 19.4);
 
-    qr(doc, snap.payLink, x + 2.5, y + 26, qrSide);
-    setFont(doc, 'normal', 6.5, MUTED);
-    doc.text('Scan to pay', x + 2.5 + qrSide / 2, y + 26 + qrSide + 3.4, { align: 'center' });
+    if (qr(doc, snap.payLink, x + CARD_PAD, y + plan.qrY, CARD_QR)) {
+      setFont(doc, 'normal', 6.5, MUTED);
+      doc.text('Scan to pay', x + CARD_PAD + CARD_QR / 2, y + plan.captionY, { align: 'center' });
+    }
 
-    return boxHeight;
+    return plan.height;
   }
 
-  /* The Instagram block, printed only when the shop has set a handle. */
-  function followCard(doc, snap, x, right, y, height) {
-    var width = right - x;
-    var boxWidth = width - (width - 2) * 0.52 - 2;
-    if (boxWidth < 22) return;
+  /* The Instagram block, printed only when the shop has set a handle. It is given
+   * its own column and its own left edge, rather than measuring one back from
+   * the right of the row - measuring back from the right put its border about a
+   * millimetre inside the totals box beside it. */
+  function followCard(doc, snap, x, width, y, height) {
+    if (width < 22) return 0;
+
+    var cx = x + width / 2;
+    var qrSide = Math.min(14, width - 6);
 
     doc.setDrawColor.apply(doc, GOLD_SOFT);
     doc.setLineWidth(0.25);
     doc.setFillColor(255, 255, 255);
-    doc.rect(x + width - boxWidth, y, boxWidth, height, 'FD');
-
-    var cx = x + width - boxWidth / 2;
-    var qrSide = 14;
+    doc.rect(x, y, width, height, 'FD');
 
     setFont(doc, 'bold', 6.5, GOLD);
     doc.text('FOLLOW US', cx, y + 5, { align: 'center' });
 
-    qr(doc, snap.instagramUrl, cx - qrSide / 2, y + 7, qrSide);
-
+    // Centred in the box it was given, so a box stretched level with a taller
+    // payment box does not leave the code hanging off the top of it.
+    var handle = '@' + ((snap.shop || {}).instagram || '');
     setFont(doc, 'bold', 7, NAVY);
-    doc.text('@' + (snap.shop.instagram || ''), cx, y + 7 + qrSide + 4, { align: 'center', maxWidth: boxWidth - 4 });
+    var content = 4.6 + 1.6 + qrSide + 4.4;
+    var top = y + Math.max(6, (height - content) / 2);
+
+    qr(doc, snap.instagramUrl, cx - qrSide / 2, top, qrSide);
+    doc.text(handle, cx, top + qrSide + 4, { align: 'center', maxWidth: width - 4 });
+
+    return height;
   }
 
   /* The footer, repeated at the foot of the last page. */
@@ -518,7 +608,13 @@ window.ANT.billpdf = (function () {
     var h = sheet[1];
     var x = 12;
     var right = w - 12;
-    var floor = h - 16;
+
+    // The footer is a fixed band at the foot of the last page, so it is reserved
+    // before anything else is placed and content is kept clear of it. Choosing
+    // the footer's position from wherever the content happened to end used to
+    // print a note straight through the shop's name on a long bill.
+    var footerY = h - 30;
+    var floor = footerY - 4;
 
     var doc = new jsPDF({
       unit: 'mm',
@@ -533,6 +629,15 @@ window.ANT.billpdf = (function () {
       subject: 'Bill'
     });
 
+    function nextBlock(y, need) {
+      if (y + need > floor) {
+        doc.addPage();
+        frame(doc, w, h);
+        return 20;
+      }
+      return y;
+    }
+
     frame(doc, w, h);
     var y = masthead(doc, snap, x, right, 13);
     y = billBar(doc, snap, x, right, y);
@@ -543,64 +648,72 @@ window.ANT.billpdf = (function () {
     y = sectionTitle(doc, 'Garments', x, y + 1, right);
     y = tableHeader(doc, x, right, y);
 
-    var rows = itemRows(snap);
+var rows = itemRows(snap);
     rows.forEach(function (row, i) {
-      if (y + 8 > floor) {
+      // Measured before it is drawn, so a row that needs more than one line is
+      // never left straddling the foot of the page.
+      var rowH = rowHeight(rowLines(doc, right - x, row));
+      if (y + rowH > floor) {
         doc.addPage();
         frame(doc, w, h);
-        y = 20;
-        y = tableHeader(doc, x, right, y);
+        y = tableHeader(doc, x, right, 20);
       }
       y += itemRow(doc, snap, x, right, y, row, i % 2 === 1);
     });
 
     y += 4;
-    if (y + 34 > floor) {
+
+    /* The totals sit on the right, level with the payment box on the left, so
+     * the balance the customer is asked for is the most prominent figure in the
+     * lower half of the page. The boxes are laid out from explicit edges and one
+     * shared gap: measuring the follow box back from the right of the row used to
+     * put its border inside the totals box beside it. */
+    var gap = 2;
+    var span = right - x;
+    var followWidth = snap.instagramUrl && span > 150 ? Math.min(30, span * 0.15) : 0;
+    var usable = span - (followWidth ? gap * 2 : gap) - followWidth;
+    var payWidth = usable * 0.54;
+    var totalsWidth = usable - payWidth;
+    var payRight = x + payWidth;
+    var totalsLeft = payRight + gap;
+    var totalsRight = followWidth ? totalsLeft + totalsWidth : right;
+    var followLeft = totalsRight + gap;
+
+    var cardHeight = cardPlan(doc, snap, payWidth).height;
+    if (y + cardHeight > floor) {
       doc.addPage();
       frame(doc, w, h);
       y = 20;
     }
 
-    /* The totals sit on the right, level with the payment box on the left, so
-     * the balance the customer is asked for is the most prominent figure in
-     * the lower half of the page. */
-    var totalsLeft = x + (right - x) * 0.52;
-    var payHeight = payCard(doc, snap, x, totalsLeft - 2, y);
-    var totalsHeight = totals(doc, snap, totalsLeft, right, y);
-    if (snap.instagramUrl) followCard(doc, snap, x, right, y, Math.max(payHeight, totalsHeight));
+    payCard(doc, snap, x, payRight, y);
+    totals(doc, snap, totalsLeft, totalsRight, y, cardHeight);
+    if (followWidth) followCard(doc, snap, followLeft, followWidth, y, cardHeight);
 
-    y += Math.max(payHeight, totalsHeight) + 4;
+    y += cardHeight + 4;
 
     if (snap.words) {
-      if (y + 12 > floor) {
-        doc.addPage();
-        frame(doc, w, h);
-        y = 20;
-      }
       setFont(doc, 'italic', 7.5, MUTED);
       var words = doc.splitTextToSize(String(snap.words), right - x);
+      y = nextBlock(y, words.length * 3.6 + 3);
       doc.text(words, x, y + 3);
       y += words.length * 3.6 + 3;
     }
 
     if (snap.notes) {
-      if (y + 12 > floor) {
-        doc.addPage();
-        frame(doc, w, h);
-        y = 20;
-      }
-      doc.setFillColor(247, 244, 234);
+      setFont(doc, 'normal', 8, INK);
       var noteLines = doc.splitTextToSize(String(snap.notes), right - x - 6);
       var noteHeight = noteLines.length * 3.6 + 4;
+      y = nextBlock(y, noteHeight);
+      doc.setFillColor(247, 244, 234);
       doc.rect(x, y, right - x, noteHeight, 'F');
       doc.setFillColor.apply(doc, GOLD);
       doc.rect(x, y, 0.8, noteHeight, 'F');
-      setFont(doc, 'normal', 8, INK);
       doc.text(noteLines, x + 3, y + 5);
       y += noteHeight + 3;
     }
 
-    footer(doc, snap, x, right, Math.max(y + 2, floor - 14));
+    footer(doc, snap, x, right, footerY);
 
     return doc.output('blob');
   }
