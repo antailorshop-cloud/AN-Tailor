@@ -163,7 +163,7 @@ window.ANT.auth = (function () {
 
   function loadProfile(user) {
     return window.ANT.sb.from('profiles')
-      .select('id, email, display_name, role, active')
+      .select('id, email, display_name, phone, address, role, active')
       .eq('id', user.id)
       .single()
       .then(function (res) {
@@ -180,6 +180,8 @@ window.ANT.auth = (function () {
             id: res.data.id,
             email: res.data.email || user.email,
             name: res.data.display_name || res.data.email || user.email,
+            phone: res.data.phone || '',
+            address: res.data.address || '',
             role: res.data.role,
             areas: areas,
             preview: false
@@ -262,6 +264,84 @@ window.ANT.auth = (function () {
     signOut: function () {
       writeCache(null);
       return window.ANT.sb.signOut();
+    },
+
+    /* Save the signed-in person's own details.
+     *
+     * The database, not this file, decides what may move: `profiles_update_self`
+     * limits the write to the row you own and the `block_role_escalation` trigger
+     * refuses any change to role or active. So the only columns that can change
+     * through here are display_name, phone and address - exactly the three the
+     * account page offers. A write RLS filtered out comes back as an empty row
+     * rather than an error, so an empty result is reported as a refusal instead
+     * of pretending it saved.
+     *
+     * The cached profile is rewritten on success so the header name follows
+     * without a reload.
+     */
+    updateProfile: function (fields) {
+      var user = readCache();
+      if (!user || user.preview) {
+        return Promise.reject(new Error('Editing your details needs a real signed-in account, not preview mode.'));
+      }
+
+      var clean = {
+        display_name: String(fields && fields.name != null ? fields.name : '').trim(),
+        phone: String(fields && fields.phone != null ? fields.phone : '').trim(),
+        address: String(fields && fields.address != null ? fields.address : '').trim()
+      };
+      if (!clean.display_name) {
+        return Promise.reject(new Error('Enter a name to show on screen.'));
+      }
+
+      return window.ANT.sb.from('profiles')
+        .update(clean)
+        .eq('id', user.id)
+        .select('id, email, display_name, phone, address, role, active')
+        .single()
+        .then(function (res) {
+          if (res.error) throw new Error(friendly(res.error.message));
+          if (!res.data) throw new Error('Your details could not be saved.');
+          var next = {
+            id: res.data.id,
+            email: res.data.email || user.email,
+            name: res.data.display_name || res.data.email || user.email,
+            phone: res.data.phone || '',
+            address: res.data.address || '',
+            role: res.data.role,
+            areas: user.areas || [],
+            preview: false
+          };
+          writeCache(next);
+          return next;
+        });
+    },
+
+    /* Change the signed-in person's password.
+     *
+     * The current password is asked for and checked by signing in with it again.
+     * That is the only check the app can make that the person at the keyboard is
+     * the account holder, and it doubles as a token refresh for the write that
+     * follows. A wrong current password fails here and no password is changed.
+     */
+    changePassword: function (current, next) {
+      var user = readCache();
+      if (!user || user.preview) {
+        return Promise.reject(new Error('Changing your password needs a real signed-in account, not preview mode.'));
+      }
+      if (!current) {
+        return Promise.reject(new Error('Enter your current password.'));
+      }
+      if (!next || String(next).length < 6) {
+        return Promise.reject(new Error('The new password must be at least 6 characters.'));
+      }
+      return window.ANT.sb.signIn(user.email, current).then(function (res) {
+        if (res.error) throw new Error('Your current password is not correct.');
+        return window.ANT.sb.updateUser({ password: next });
+      }).then(function (res) {
+        if (res.error) throw new Error(friendly(res.error.message));
+        return true;
+      });
     },
 
     previewSignIn: function (role) {

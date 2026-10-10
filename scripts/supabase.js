@@ -195,12 +195,22 @@ window.ANT.sb = (function () {
 
   Storage.prototype.list = function (prefix, opts) {
     opts = opts || {};
-    var q = 'limit=' + (opts.limit || 1000) + '&offset=' + (opts.offset || 0);
-    if (prefix) q += '&prefix=' + encodeURIComponent(prefix);
+    // The storage API validates the body against a schema that requires prefix,
+    // limit, offset and sortBy, so every one of them goes in every time. An
+    // omitted prefix is not "the root" to it - it is a missing field, and the
+    // whole call comes back 400. The root is the empty string, sent explicitly.
+    var body = {
+      prefix: prefix == null ? '' : String(prefix),
+      limit: opts.limit || 1000,
+      offset: opts.offset || 0,
+      sortBy: opts.sortBy || { column: 'created_at', order: 'desc' }
+    };
 
-    return fetch(root() + '/storage/v1/object/list/' + this.bucket + '?' + q, {
-      method: 'GET',
-      headers: authHeaders()
+    // The REST endpoint expects POST with a JSON body, not GET with query string.
+    return fetch(root() + '/storage/v1/object/list/' + this.bucket, {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(body)
     }).then(readResult);
   };
 
@@ -463,6 +473,14 @@ window.ANT.sb = (function () {
       var s = readSession();
       writeSession(null);
       if (!s || !s.access_token) return Promise.resolve({ error: null });
+      // The session is already gone from this device, so the server call is only
+      // housekeeping. Offline it can only fail, and a failed fetch shows as
+      // ERR_CONNECTION_REFUSED in the console while the user is already logged
+      // out - so it is skipped, and a token the server no longer accepts (its
+      // own 401) is allowed to pass the same quiet way.
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        return Promise.resolve({ error: null });
+      }
       return request('POST', '/auth/v1/logout', {}).then(function () {
         return { error: null };
       });
@@ -480,6 +498,14 @@ window.ANT.sb = (function () {
           return res;
         });
       });
+    },
+
+    // Change the signed-in user's password (or email). Supabase authorises this
+    // with the current access token, which authHeaders already attaches. A
+    // password change does not invalidate the session, so the person stays
+    // signed in on this device after it.
+    updateUser: function (attrs) {
+      return request('PUT', '/auth/v1/user', { body: attrs });
     },
 
     // Fires when the token is refreshed elsewhere or the session is lost.

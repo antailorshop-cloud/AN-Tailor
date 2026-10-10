@@ -15,7 +15,7 @@ do $$ begin
 exception when duplicate_object then null; end $$;
 
 do $$ begin
-  create type order_status as enum ('Pending', 'In Progress', 'Ready', 'Delivered', 'Cancelled');
+  create type order_status as enum ('Pending', 'Process', 'Finish', 'Delivery', 'Cancelled');
 exception when duplicate_object then null; end $$;
 
 do $$ begin
@@ -32,6 +32,8 @@ create table if not exists profiles (
   display_name text not null default '',
   role         member_role not null default 'staff',
   photo_path   text,
+  phone        text,
+  address      text,
   active       boolean not null default true,
   created_at   timestamptz not null default now(),
   updated_at   timestamptz not null default now()

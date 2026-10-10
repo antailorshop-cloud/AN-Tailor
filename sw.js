@@ -1,4 +1,4 @@
-﻿// Bump on every release that changes any cached file. The old cache is deleted
+// Bump on every release that changes any cached file. The old cache is deleted
 // on activate, so a bumped name is what forces phones to pick up new code.
 //
 // This has to happen on EVERY release, not just when a file is added. A fixed
@@ -6,7 +6,7 @@
 // network-first falls back to the cache, and the cache still holds the old
 // copy. That is how a "Save order" fix reached the server and never reached
 // the shop phone.
-var CACHE = 'an-tailor-v28';
+var CACHE = 'an-tailor-v41';
 
 // Every module index.html loads, so a first visit that is online and then goes
 // offline still has the whole app rather than a shell that cannot open Bills.
@@ -32,6 +32,7 @@ var SHELL = [
   './scripts/billpdf.js',
   './scripts/bills.js',
   './scripts/settings.js',
+  './scripts/account.js',
   './scripts/app.js',
   './assets/icon.svg',
   // The shop's own logo. Optional: a shop with no logo file yet still installs.

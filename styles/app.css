@@ -514,6 +514,68 @@ button, input, select, textarea { font: inherit; color: inherit; }
   color: var(--text-muted);
 }
 
+/* Delivery tracker */
+
+.tracker-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: var(--gap-sm);
+}
+
+.tracker-item {
+  position: relative;
+  padding: 14px 14px 12px 18px;
+  border: 1px solid var(--surface-line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.tracker-item::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--tracker-tone, var(--surface-muted));
+}
+
+.tracker-count {
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+.tracker-label {
+  margin-top: 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.tracker-item.tone-bad {
+  --tracker-tone: var(--danger);
+  background: linear-gradient(180deg, var(--danger-soft) 0%, var(--surface) 72%);
+}
+
+.tracker-item.tone-warn {
+  --tracker-tone: var(--warn);
+  background: linear-gradient(180deg, var(--warn-soft) 0%, var(--surface) 72%);
+}
+
+.tracker-item.tone-info { --tracker-tone: var(--info); }
+.tracker-item.tone-plain { --tracker-tone: var(--brand-gold); }
+.tracker-item.tone-muted { --tracker-tone: var(--text-soft); }
+
+.tracker-item.tone-bad .tracker-count { color: var(--danger); }
+.tracker-item.tone-warn .tracker-count { color: var(--warn); }
+
 .skeleton-line {
   height: 12px;
   margin-top: 10px;
@@ -694,6 +756,24 @@ button, input, select, textarea { font: inherit; color: inherit; }
   color: var(--text-muted);
 }
 
+/* A disabled field is a value shown, not a value typed: the login email and the
+   role on the account page. It is greyed so it does not read as an editable box,
+   and the cursor says the same thing before it is clicked. */
+.ui-input:disabled {
+  background: var(--surface-muted);
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+/* The submit row of a form. Both the account page and Settings use it. */
+.form-actions {
+  display: flex;
+  gap: var(--gap-sm);
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: var(--gap);
+}
+
 /* The placeholder legend under the WhatsApp message box. Laid out in columns so
    the tokens read as a reference to scan, not a paragraph to wade through. */
 .wa-tokens {
@@ -844,6 +924,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 @media (max-width: 900px) {
   .dashboard-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dashboard-hero { grid-column: span 2; }
+  .tracker-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 @media (max-width: 620px) {
@@ -860,6 +941,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
   .dashboard-grid { grid-template-columns: 1fr; }
   .dashboard-hero { grid-column: auto; }
   .dashboard-hero .stat-value { font-size: 30px; }
+
+  .tracker-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
   .form-grid { grid-template-columns: 1fr; }
 

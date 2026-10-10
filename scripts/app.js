@@ -143,6 +143,21 @@
     if (!user) return;
 
     var id = currentAreaId();
+
+    // The account page is personal, not a shop section, so it is deliberately
+    // not one of the config areas: every signed-in person has it, no per-area
+    // grant can take it away, and it never appears as a tab. It is reached from
+    // the profile menu (#/account).
+    if (id === 'account') {
+      el.main.innerHTML = window.ANT.account.mount();
+      window.ANT.account.render();
+      el.pageTitle.textContent = 'My profile';
+      el.navTrack.scrollTop = 0;
+      markActiveNav();
+      el.main.focus();
+      return;
+    }
+
     var area = null;
 
     allowedAreas().forEach(function (a) {
@@ -244,6 +259,11 @@
       location.hash = '#/settings';
     });
 
+    el.menuAccount.addEventListener('click', function () {
+      el.profileMenu.hidden = true;
+      location.hash = '#/account';
+    });
+
     el.menuSignOut.addEventListener('click', function () {
       auth.signOut();
       applyUser(null);
@@ -325,6 +345,7 @@
       menuName: byId('menuName'),
       menuRole: byId('menuRole'),
       menuSettings: byId('menuSettings'),
+      menuAccount: byId('menuAccount'),
       menuSignOut: byId('menuSignOut'),
       toastStack: byId('toastStack'),
       installBar: byId('installBar'),
@@ -461,6 +482,14 @@
   window.ANT.escapeHtml = escapeHtml;
   window.ANT.money = money;
   window.ANT.toast = toast;
+
+  // Re-paint the shell from the signed-in person's profile. The account page
+  // calls this after saving a name so the header and the menu follow immediately
+  // without a reload. With no argument it reads the cached profile, which
+  // auth.updateProfile has already refreshed.
+  window.ANT.refreshUser = function (user) {
+    applyUser(user || auth.current());
+  };
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', boot);
