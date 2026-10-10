@@ -73,6 +73,19 @@ window.ANT.dashboard = (function () {
       + ('0' + d.getDate()).slice(-2);
   }
 
+  /* A calendar date shifted by whole days, kept in local time for the same
+   * reason isoToday() is: a delivery date is the shop's day, and a date one day
+   * out would put a job in the wrong bucket. */
+  function addDays(iso, n) {
+    var p = String(iso == null ? '' : iso).split('-');
+    if (p.length !== 3) return iso;
+    var d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+    d.setDate(d.getDate() + n);
+    return d.getFullYear() + '-'
+      + ('0' + (d.getMonth() + 1)).slice(-2) + '-'
+      + ('0' + d.getDate()).slice(-2);
+  }
+
   var state = {
     loaded: false,
     error: '',
@@ -90,7 +103,11 @@ window.ANT.dashboard = (function () {
     /* The jobs themselves, so the screen says what needs doing rather than only
      * how many. Capped: this is a glance, not a work list, and the full list
      * already exists on the Orders page. */
-    bench: []
+    bench: [],
+    /* Every open order split by the day the customer expects it, so the shop can
+     * see at a glance what is late and what is coming. Counted on the order's
+     * delivery_date - the latest of its items - the same date a bill prints. */
+    tracker: { overdue: 0, today: 0, tomorrow: 0, week: 0, later: 0, none: 0 }
   };
 
   var BENCH_LIMIT = 6;
@@ -183,34 +200,53 @@ window.ANT.dashboard = (function () {
       }).length;
 
       state.inProgress = rows.filter(function (o) {
-        return o.status === 'In Progress';
+        return o.status === 'Process';
       }).length;
 
       state.ready = rows.filter(function (o) {
-        return o.status === 'Ready';
+        return o.status === 'Finish';
       }).length;
 
       // Counted on delivery_date rather than a status change time, because the
       // legacy system only ever recorded when a garment was due to be handed
       // over, and that is the date a tailor recognises.
       state.deliveredWeek = rows.filter(function (o) {
-        return o.status === 'Delivered'
+        return o.status === 'Delivery'
           && o.delivery_date
           && String(o.delivery_date).slice(0, 10) >= week;
       }).length;
+
+      // The delivery tracker: every open order - not yet handed over, not
+      // cancelled, not archived (the query already dropped those) - split by the
+      // day the customer expects it. An order with no date is its own bucket
+      // rather than being counted as due today, because a job nobody dated is a
+      // job somebody still has to schedule, which is a different problem.
+      var tomorrow = addDays(today, 1);
+      var weekEnd = addDays(week, 6);
+      state.tracker = { overdue: 0, today: 0, tomorrow: 0, week: 0, later: 0, none: 0 };
+      rows.forEach(function (o) {
+        if (o.status === 'Delivery') return;
+        var d = String(o.delivery_date || '').slice(0, 10);
+        if (!d) state.tracker.none++;
+        else if (d < today) state.tracker.overdue++;
+        else if (d === today) state.tracker.today++;
+        else if (d === tomorrow) state.tracker.tomorrow++;
+        else if (d <= weekEnd) state.tracker.week++;
+        else state.tracker.later++;
+      });
 
       // Urgent is a subset of the three live statuses, not a fourth list, so a
       // garment cannot be double counted on two tiles.
       state.urgent = rows.filter(function (o) {
         return o.priority === 'Urgent'
-          && (o.status === 'Pending' || o.status === 'In Progress' || o.status === 'Ready');
+          && (o.status === 'Pending' || o.status === 'Process' || o.status === 'Finish');
       }).length;
 
       // The bench is what is still to be cut or finished. A Pending order has
-      // not been started, so it is not on the bench yet; In Progress and Ready
-      // are both work in hand, and Ready is the one a customer is waiting on.
+      // not been started, so it is not on the bench yet; Process and Finish
+      // are both work in hand, and Finish is the one a customer is waiting on.
       state.bench = rows.filter(function (o) {
-        return o.status === 'In Progress' || o.status === 'Ready';
+        return o.status === 'Process' || o.status === 'Finish';
       }).sort(function (a, b) {
         var ad = String(a.delivery_date || '9999-99-99');
         var bd = String(b.delivery_date || '9999-99-99');
@@ -267,11 +303,11 @@ window.ANT.dashboard = (function () {
     // tiles with it. Orders feeds five of the six, so a tailor with the
     // dashboard but no orders sees a screen that says what it cannot see.
     var orderTiles = held('orders')
-      ? heldTile('Orders today') + heldTile('In progress') + heldTile('Ready') +
+      ? heldTile('Orders today') + heldTile('Process') + heldTile('Finish') +
         heldTile('Delivered this week')
       : statTile('Orders today', String(state.ordersToday), 'New orders taken today') +
-        statTile('In progress', String(state.inProgress), 'Taken but not yet ready') +
-        statTile('Ready', String(state.ready), 'Finished, waiting for pickup') +
+        statTile('Process', String(state.inProgress), 'Taken but not yet ready') +
+        statTile('Finish', String(state.ready), 'Finished, waiting for pickup') +
         statTile('Delivered this week', String(state.deliveredWeek), 'Handed over since Monday');
 
     return (held('bills')
@@ -288,10 +324,47 @@ window.ANT.dashboard = (function () {
       statTile('Outstanding', '—', 'Loading', true) +
       statTile('Collected this week', '—', 'Loading', true) +
       statTile('Orders today', '—', 'Loading') +
-      statTile('In progress', '—', 'Loading') +
-      statTile('Ready', '—', 'Loading') +
+      statTile('Process', '—', 'Loading') +
+      statTile('Finish', '—', 'Loading') +
       statTile('Delivered this week', '—', 'Loading') +
       '</div>';
+  }
+
+  /* The delivery tracker, in the shop's own words: what is late, what is due
+   * now, and what is coming. Each figure is a bucket of the same open orders the
+   * tiles count, so the tracker and the tiles can never disagree, and a bucket
+   * with nothing in it still shows a real 0 rather than disappearing. */
+  function tracker() {
+    if (held('orders')) {
+      return '<div class="ui-card tracker-card" style="margin-top:var(--gap)">' +
+        '<h2 class="ui-card-title">Delivery tracker</h2>' +
+        '<p class="ui-card-sub">The tracker is built from live orders, and Orders is not in your access.</p>' +
+      '</div>';
+    }
+
+    var t = state.tracker;
+    var open = t.overdue + t.today + t.tomorrow + t.week + t.later + t.none;
+
+    var item = function (key, label, value, tone) {
+      return '<div class="tracker-item ' + tone + '" data-tracker="' + key + '">' +
+        '<div class="tracker-count">' + value + '</div>' +
+        '<div class="tracker-label">' + esc(label) + '</div>' +
+      '</div>';
+    };
+
+    return '<div class="ui-card tracker-card" style="margin-top:var(--gap)">' +
+      '<h2 class="ui-card-title">Delivery tracker</h2>' +
+      '<p class="ui-card-sub">' + open + ' open order' + (open === 1 ? '' : 's') +
+        ' by the day the customer expects them.</p>' +
+      '<div class="tracker-grid">' +
+        item('overdue', 'Overdue', t.overdue, 'tone-bad') +
+        item('today', 'Due today', t.today, 'tone-warn') +
+        item('tomorrow', 'Due tomorrow', t.tomorrow, 'tone-info') +
+        item('week', 'Due this week', t.week, 'tone-info') +
+        item('later', 'Later', t.later, 'tone-plain') +
+        item('none', 'No delivery date', t.none, 'tone-muted') +
+      '</div>' +
+    '</div>';
   }
 
   /* Deliberately does not draw zeros. A failed load that showed the real
@@ -343,14 +416,14 @@ window.ANT.dashboard = (function () {
     var rows = state.bench.map(function (o) {
       var c = o.customer || {};
       var due = dateLabel(o.delivery_date);
-      var waiting = o.status === 'Ready';
+      var waiting = o.status === 'Finish';
 
       var dueText = waiting ? 'awaiting pickup' : due;
       if (o.priority === 'Urgent' && !waiting) dueText += ' \u00b7 Urgent';
 
       return '<tr>' +
         '<td>' + (waiting
-          ? '<span class="chip chip-success">Ready</span>'
+          ? '<span class="chip chip-success">Finish</span>'
           : '<span class="chip">' + esc(o.status) + '</span>') + '</td>' +
         '<td><span class="ord-sub-strong">' + esc(c.name || 'Unknown customer') + '</span></td>' +
         '<td>' + esc(o.code) + '</td>' +
@@ -379,7 +452,7 @@ window.ANT.dashboard = (function () {
     if (state.error) return failed(state.error);
     if (!state.loaded) return loading();
 
-    return '<div class="dashboard-grid">' + tiles() + '</div>' + benchCard() + heldNote();
+    return '<div class="dashboard-grid">' + tiles() + '</div>' + tracker() + benchCard() + heldNote();
   }
 
   /* When any figure is missing for want of access rather than want of data, say

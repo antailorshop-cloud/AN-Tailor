@@ -1,4 +1,4 @@
-﻿/* AN TAILOR - Settings: dress types, prices and shop details.
+/* AN TAILOR - Settings: dress types, prices and shop details.
  *
  * Dress types and prices are master data. Every order line needs a dress type
  * and a price, so nothing downstream can be created until these hold real
@@ -40,7 +40,7 @@ window.ANT.settings = (function () {
   var SHOP_KEYS = ['shop_name', 'shop_address', 'shop_phone', 'shop_email',
     'shop_instagram', 'upi_id', 'upi_payee_name', 'wa_bill_message',
     'wa_reminder_message', 'wa_ready_message', 'bill_print_size',
-    'receipt_print_size'];
+    'wa_bill_size', 'receipt_print_size'];
 
   var state = {
     tab: 'dress',
@@ -50,7 +50,7 @@ window.ANT.settings = (function () {
     shop: { shop_name: '', shop_address: '', shop_phone: '', shop_email: '',
       shop_instagram: '', upi_id: '', upi_payee_name: '', wa_bill_message: '',
       wa_reminder_message: '', wa_ready_message: '', bill_print_size: '',
-      receipt_print_size: '' },
+      wa_bill_size: '', receipt_print_size: '' },
     staff: { rows: [], access: {}, loading: false, error: null },
     loading: false,
     error: null,
@@ -119,7 +119,7 @@ window.ANT.settings = (function () {
     var shop = { shop_name: '', shop_address: '', shop_phone: '', shop_email: '',
       shop_instagram: '', upi_id: '', upi_payee_name: '', wa_bill_message: '',
       wa_reminder_message: '', wa_ready_message: '', bill_print_size: '',
-      receipt_print_size: '' };
+      wa_bill_size: '', receipt_print_size: '' };
     rows.forEach(function (row) {
       if (SHOP_KEYS.indexOf(row.key) !== -1) {
         shop[row.key] = String(row.value == null ? '' : row.value);
@@ -336,7 +336,7 @@ window.ANT.settings = (function () {
     return '<tr>' +
       '<td class="cust-code">' + esc(r.code) + '</td>' +
       '<td class="cust-name">' + esc(r.item) + '</td>' +
-      '<td>' + esc(r.option || 'â€”') + '</td>' +
+      '<td>' + esc(r.option || '—') + '</td>' +
       '<td class="num set-price-cell">' +
         '<span' + (zero ? ' class="set-price-zero"' : '') + '>' + esc(money(r.price)) + '</span>' +
         (extra !== 0 ? '<span class="set-extra">+ ' + esc(money(extra)) + ' extra</span>' : '') +
@@ -360,12 +360,19 @@ window.ANT.settings = (function () {
     '</div>';
   }
 
-  /* One paper picker, used twice. The wording differs because the sheet means
-   * something different for a bill than for a slip, and the size only ever
-   * affects how the document is laid out - never a figure printed on it. */
-  function printSizeField(id, label, current, kind, hint) {
-    var picked = window.ANT.printsize.normalize(current,
-      kind === 'receipt' ? window.ANT.printsize.RECEIPT_DEFAULT : window.ANT.printsize.DEFAULT);
+  /* One paper picker, used several times. The wording differs because the sheet
+   * means something different for a bill than for a slip, and the size only ever
+   * affects how the document is laid out - never a figure printed on it.
+   *
+   * `fallback` is what the picker shows when the shop has never chosen. Each sheet
+   * has its own: the bill is printed on a full sheet and shared on a small one, so
+   * an unset shop gets the bill on paper at A4 and the same bill on a phone at A5
+   * without either of those being a decision somebody had to remember to make. */
+  function printSizeField(id, label, current, kind, hint, fallback) {
+    var def = fallback || (kind === 'receipt'
+      ? window.ANT.printsize.RECEIPT_DEFAULT
+      : window.ANT.printsize.DEFAULT);
+    var picked = window.ANT.printsize.normalize(current, def);
 
     var options = window.ANT.printsize.SIZES.map(function (s) {
       return '<option value="' + esc(s.key) + '"' + (s.key === picked ? ' selected' : '') + '>' +
@@ -405,6 +412,13 @@ window.ANT.settings = (function () {
             'Lays out the printed bill only; it never changes a figure. The A4 sheet ' +
             'option prints one A5 bill on the left half and leaves the right half ' +
             'blank to cut off and reuse.') +
+          printSizeField('shopWaBillSize', 'Bill PDF / WhatsApp size', s.wa_bill_size, 'bill',
+            'The sheet the same bill is drawn on when it is saved as a PDF or sent ' +
+            'on WhatsApp. Set apart from the print size because a bill read on a ' +
+            'phone wants a narrower sheet than one read across a counter, and ' +
+            'changing one never changes the other. It starts at A5. A bill ' +
+            'already sent keeps the size it was sent at.',
+            window.ANT.printsize.SHARE_DEFAULT) +
           printSizeField('shopReceiptSize', 'Receipt print size', s.receipt_print_size, 'receipt',
             'The slip printed from the Payments page. It defaults to A5, because a ' +
             'full sheet for a small cash payment is paper wasted.') +
@@ -478,6 +492,7 @@ window.ANT.settings = (function () {
     var payee = byId('shopPayee').value.trim();
     var confirm = window.ANT.upi.normalizeVpa(byId('shopConfirm').value);
     var printSize = window.ANT.printsize.normalize(byId('shopPrintSize').value);
+    var waBillSize = window.ANT.printsize.normalize(byId('shopWaBillSize').value);
     var receiptSize = window.ANT.printsize.normalize(byId('shopReceiptSize').value);
 
     var problem = window.ANT.upi.vpaProblem(upiIn);
@@ -516,6 +531,7 @@ window.ANT.settings = (function () {
       putSetting('upi_id', upiIn),
       putSetting('upi_payee_name', payee),
       putSetting('bill_print_size', printSize),
+      putSetting('wa_bill_size', waBillSize),
       putSetting('receipt_print_size', receiptSize)
     ]).then(function (results) {
       var bad = results.filter(function (r) { return r && r.error; })[0];
@@ -587,7 +603,7 @@ window.ANT.settings = (function () {
         waBox('waReminderMessage', 'Payment reminder', 'wa_reminder_message', 'DEFAULT_REMINDER',
           'Sent from a bill that still owes money.') +
         waBox('waReadyMessage', 'Order ready', 'wa_ready_message', 'DEFAULT_READY',
-          'Sent from an order that is marked Ready.') +
+          'Sent from an order that is marked Finish.') +
         tokenLegend() +
         '<div class="form-actions">' +
           '<button type="submit" class="btn btn-primary">Save WhatsApp messages</button>' +

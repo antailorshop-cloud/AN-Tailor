@@ -35,7 +35,7 @@ window.ANT.orders = (function () {
   var toast = function (m, k) { return window.ANT.toast(m, k); };
   var money = function (v) { return window.ANT.money(v); };
 
-  var STATUSES = ['Pending', 'In Progress', 'Ready', 'Delivered', 'Cancelled'];
+  var STATUSES = ['Pending', 'Process', 'Finish', 'Delivery', 'Cancelled'];
   var PRIORITIES = ['Normal', 'Urgent'];
 
   // Service, variant and lining lists are taken verbatim from the legacy
@@ -146,9 +146,9 @@ window.ANT.orders = (function () {
   function statusChip(status) {
     var kind = {
       'Pending': 'chip-warn',
-      'In Progress': 'chip-info',
-      'Ready': 'chip-info',
-      'Delivered': 'chip-success',
+      'Process': 'chip-info',
+      'Finish': 'chip-info',
+      'Delivery': 'chip-success',
       'Cancelled': 'chip-muted'
     }[status] || 'chip-muted';
     return '<span class="chip ' + kind + '">' + esc(status) + '</span>';
@@ -464,7 +464,7 @@ window.ANT.orders = (function () {
 
   function pageHead() {
     var open = state.orders.filter(function (o) {
-      return o.status !== 'Delivered' && o.status !== 'Cancelled';
+      return o.status !== 'Delivery' && o.status !== 'Cancelled';
     }).length;
 
     return '<div class="page-head">' +
@@ -549,7 +549,7 @@ window.ANT.orders = (function () {
   function row(o) {
     var items = state.items[o.id] || [];
     var count = items.length || o.item_count || 0;
-    var late = overdue(o.delivery_date) && o.status !== 'Delivered' && o.status !== 'Cancelled';
+    var late = overdue(o.delivery_date) && o.status !== 'Delivery' && o.status !== 'Cancelled';
 
     return '<tr>' +
       '<td><button class="ord-link" data-ord-open="' + esc(o.id) + '">' + esc(o.code) + '</button>' +
@@ -574,13 +574,13 @@ window.ANT.orders = (function () {
     '</tr>';
   }
 
-  /* The "your order is ready" message is only offered on an order that is
-   * actually ready and has a mobile to send to. Telling a customer an order is
-   * ready when it is still being stitched would be worse than not offering the
-   * button at all. */
+  /* The "your order is ready" message is only offered on an order that has
+   * actually finished and has a mobile to send to. Telling a customer an order
+   * is ready when it is still being stitched would be worse than not offering
+   * the button at all. */
   function canTell(o) {
     return !!(window.ANT.whatsapp &&
-      o.status === 'Ready' &&
+      o.status === 'Finish' &&
       o.customer && window.ANT.whatsapp.canSend(o.customer.mobile));
   }
 

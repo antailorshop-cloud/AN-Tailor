@@ -1,4 +1,4 @@
-﻿/* AN TAILOR - Payments.
+/* AN TAILOR - Payments.
  *
  * A payment is money received against exactly one order. The legacy system had
  * no customer-level payment and no way to settle several orders at once, and
@@ -251,7 +251,7 @@ window.ANT.payments = (function () {
   function payableCard() {
     var body;
     if (state.loading) {
-      body = '<div class="empty"><p class="empty-text">Loadingâ€¦</p></div>';
+      body = '<div class="empty"><p class="empty-text">Loading…</p></div>';
     } else if (!state.orders.length) {
       body = '<div class="empty"><div class="empty-title">Nothing outstanding</div>' +
         '<p class="empty-text">Every order is either settled or cancelled.</p></div>';
@@ -273,7 +273,7 @@ window.ANT.payments = (function () {
   function payableRow(o) {
     return '<tr>' +
       '<td><span class="ord-mono">' + esc(o.code) + '</span></td>' +
-      '<td>' + esc(o.customer ? o.customer.name : 'â€”') +
+      '<td>' + esc(o.customer ? o.customer.name : '—') +
         (o.customer && o.customer.mobile ? '<div class="ord-sub">' + esc(o.customer.mobile) + '</div>' : '') +
       '</td>' +
       '<td>' + esc(dateLabel(o.order_date)) + '</td>' +
@@ -291,9 +291,9 @@ window.ANT.payments = (function () {
     var s = status || 'Pending';
     var kind = {
       'Pending': 'chip-warn',
-      'In Progress': 'chip-info',
-      'Ready': 'chip-info',
-      'Delivered': 'chip-success',
+      'Process': 'chip-info',
+      'Finish': 'chip-info',
+      'Delivery': 'chip-success',
       'Cancelled': 'chip-muted'
     }[s] || 'chip-muted';
     return '<span class="chip ' + kind + '">' + esc(s) + '</span>';
@@ -328,7 +328,7 @@ window.ANT.payments = (function () {
         (p.reference ? '<div class="ord-sub">' + esc(p.reference) + '</div>' : '') + '</td>' +
       '<td><span class="ord-link" data-pay-order="' + esc(p.order_id) + '">' +
         esc(orderCodeOf(p.order_id, p.order)) + '</span></td>' +
-      '<td>' + esc(p.customer ? p.customer.name : 'â€”') + '</td>' +
+      '<td>' + esc(p.customer ? p.customer.name : '—') + '</td>' +
       '<td>' + esc(dateLabel(p.paid_on || p.created_at)) + '</td>' +
       '<td>' + esc(p.method) + '</td>' +
       '<td class="num"><strong>' + money(p.amount) + '</strong></td>' +
@@ -354,7 +354,7 @@ window.ANT.payments = (function () {
   // "o1" on a printed receipt names nothing.
   function orderCodeOf(orderId, order) {
     if (order && order.code) return order.code;
-    if (!orderId) return 'â€”';
+    if (!orderId) return '—';
     var hit = state.orders.filter(function (o) { return o.id === orderId; })[0];
     return hit ? hit.code : orderId.slice(0, 8);
   }
@@ -379,11 +379,11 @@ window.ANT.payments = (function () {
 
     return '<div class="page-head"><div>' +
       '<h1 class="page-head-title">Take a payment</h1>' +
-      '<p class="page-head-sub">Against order ' + esc(o.code) + ' for ' + esc(o.customer ? o.customer.name : 'â€”') + '.</p>' +
+      '<p class="page-head-sub">Against order ' + esc(o.code) + ' for ' + esc(o.customer ? o.customer.name : '—') + '.</p>' +
       '</div><div class="page-head-actions">' +
       '<button class="btn btn-secondary" id="payCancel">Cancel</button>' +
       '<button class="btn btn-primary" id="paySave"' + (state.busy ? ' disabled' : '') + '>' +
-        (state.busy ? 'Recordingâ€¦' : 'Record payment') + '</button>' +
+        (state.busy ? 'Recording…' : 'Record payment') + '</button>' +
       '</div></div>' +
 
       '<div class="ui-card"><div class="pay-grid">' +
@@ -598,6 +598,122 @@ window.ANT.payments = (function () {
 
   /* Receipt -------------------------------------------------------------- */
 
+  /* The receipt, as markup, in the same design as the bill.
+   *
+   * This used to be a document of its own: its own stylesheet, its own frame, its
+   * own idea of where a stamp goes, and a browser window opened to print it. Two
+   * documents that mean to look alike stop agreeing the moment one of them is
+   * edited, and a customer handed a receipt on visibly different stationery from
+   * the bill they were given ten minutes earlier reads that as carelessness.
+   *
+   * So it is built out of the bill's own rules - the same masthead, the same gold
+   * rule, the same navy summary bar, the same angled stamp in the same reserved
+   * band - and printed by the same renderer through the same hand-off. What is left
+   * of it that is receipt-shaped is which lines it carries, not how it looks.
+   */
+  function receiptMarkup(snap) {
+    var size = window.ANT.printsize.normalize(snap.printSize);
+    var p = snap.payment || {};
+    var c = p.customer || {};
+    var shop = snap.shop || {};
+    var shopName = shop.name || 'AN TAILOR';
+    var due = Math.max(0, num(p.new_balance));
+    var settled = due <= 0;
+
+    // A line of label and value, in the bill's own key/value style rather than a
+    // bordered table, so a slip reads as part of the same letterhead.
+    var kv = function (label, value, cls) {
+      return '<div class="c-row"' + (cls ? ' class="' + cls + '"' : '') + '>' +
+        '<span>' + esc(label) + '</span><b>' + esc(value) + '</b></div>';
+    };
+
+    var contact = '';
+    if (shop.phone || shop.email) {
+      contact = '<div class="shop-contact">' +
+        (shop.phone ? 'Mobile: ' + esc(shop.phone) : '') +
+        (shop.phone && shop.email ? ' &nbsp;&middot;&nbsp; ' : '') +
+        (shop.email ? 'Email: ' + esc(shop.email) : '') +
+        '</div>';
+    }
+
+    return '<!doctype html><html><head><meta charset="utf-8"><title>' +
+      esc(p.code || 'Receipt') + ' ' + esc(shopName) + '</title><style>' +
+      window.ANT.bills.__printCss +
+      window.ANT.printsize.pageCss(size) +
+      window.ANT.printsize.layoutCss(size) +
+      '</style></head><body>' +
+      // The frame is the bill's own .bill, not a lookalike, so the sheet width, the
+      // one-page fit and the space kept clear for the stamp are the bill's rules
+      // rather than a second set of them that can drift.
+      '<div class="bill receipt' + (size === 'A4HALF' ? ' bill-half' : '') + '">' +
+        '<div class="stamp stamp-' + (settled ? 'paid' : 'part') + '">' +
+          esc(settled ? 'Full Paid' : 'Part Paid') +
+        '</div>' +
+      '<div class="head">' +
+        '<div class="mastlogo"><img class="shop-logo" src="' + esc(snap.logoUrl || '') +
+          '" alt="" onerror="this.remove()"></div>' +
+        '<div class="mastcenter">' +
+          '<div class="shop-name">' + esc(shopName) + '</div>' +
+          '<div class="shop-sub">Professional Tailoring Services</div>' +
+          (shop.address ? '<div class="shop-contact">' + esc(shop.address) + '</div>' : '') +
+          contact +
+        '</div>' +
+      '</div>' +
+      '<div class="orn"><span></span></div>' +
+
+      // Said in the bill's own section-heading style, because a slip that does not
+      // name itself is a slip that gets filed as something else.
+      '<div class="sect">Payment Receipt</div>' +
+
+      // The same navy summary bar the bill carries, carrying the four things that
+      // identify a slip: which receipt, when, for which order, and by what means.
+      '<div class="bill-bar">' +
+        '<div class="bill-bar-item">' +
+          '<div class="bill-bar-label">Receipt No</div>' +
+          '<div class="bill-bar-val">' + esc(p.code || '-') + '</div>' +
+        '</div>' +
+        '<div class="bill-bar-item">' +
+          '<div class="bill-bar-label">Received On</div>' +
+          '<div class="bill-bar-val">' + esc(dateLabel(p.paid_on || p.created_at)) + '</div>' +
+        '</div>' +
+        '<div class="bill-bar-item">' +
+          '<div class="bill-bar-label">Order ID</div>' +
+          '<div class="bill-bar-val">' + esc(snap.orderCode || '-') + '</div>' +
+        '</div>' +
+        '<div class="bill-bar-item">' +
+          '<div class="bill-bar-label">Paid By</div>' +
+          '<div class="bill-bar-val">' + esc(p.method || '-') + '</div>' +
+        '</div>' +
+      '</div>' +
+
+      '<div class="sect">Received From</div>' +
+      '<div class="parties"><div class="cdetails">' +
+        kv('Customer ID', c.code || '-') +
+        kv('Name', c.name || '(no name)') +
+        kv('Mobile No', c.mobile || '-') +
+      '</div></div>' +
+
+      '<div class="sect">Payment</div>' +
+      '<div class="parties"><div class="cdetails">' +
+        kv('Amount Received', money(p.amount)) +
+        (p.reference ? kv('Reference', p.reference) : '') +
+      '</div></div>' +
+
+      '<div class="midrow solo"><div class="totals">' +
+        '<div><span class="label">Balance Before</span><span class="val">' +
+          money(p.previous_balance) + '</span></div>' +
+        '<div><span class="label">Balance After</span><span class="val">' +
+          money(p.new_balance) + '</span></div>' +
+        '<div class="due"><span class="label">Still Due</span><span class="val">' +
+          money(due) + '</span></div>' +
+      '</div></div>' +
+
+      (p.notes ? '<div class="notes">' + esc(p.notes) + '</div>' : '') +
+      '<div class="sign">Received by ______________________ for ' + esc(shopName) + '.</div>' +
+      '</div>' +
+      '</body></html>';
+  }
+
   function printReceipt(id) {
     var p = state.payments.filter(function (x) { return x.id === id; })[0];
     if (!p) {
@@ -605,96 +721,37 @@ window.ANT.payments = (function () {
       return;
     }
 
-    var size = window.ANT.printsize
-      ? window.ANT.printsize.normalize(state.shop.receiptSize, window.ANT.printsize.RECEIPT_DEFAULT)
-      : 'A5';
-
-    var shopName = state.shop.name || 'AN TAILOR';
-    var c = p.customer || {};
-    var due = Math.max(0, num(p.new_balance));
-
-    // A line of label and value. Written as a table rather than a flex row so
-    // the two columns stay aligned in a print engine that ignores flex, which
-    // several phone browsers still do on a print preview.
-    function line(label, value, cls) {
-      return '<tr' + (cls ? ' class="' + cls + '"' : '') + '>' +
-        '<th>' + esc(label) + '</th><td>' + esc(value) + '</td></tr>';
-    }
-
-    var html = '<!doctype html><html><head><meta charset="utf-8"><title>' +
-      esc(p.code) + '</title><style>' +
-      'body{font:14px/1.5 system-ui,"Segoe UI",Arial,sans-serif;color:#111;margin:24px}' +
-      '.receipt{min-height:297mm;border:2px solid #b8934f;border-radius:4px;box-sizing:border-box;padding:4mm;position:relative;background:#fffdf7}' +
-      'h1{font-size:20px;margin:0;color:#22314f}' +
-      '.shop{font-size:15px;font-weight:700;margin:0 0 2px;color:#22314f}' +
-      '.sub{color:#555;margin:0 0 14px}' +
-      'table{width:100%;border-collapse:collapse;margin:0 0 14px}' +
-      'th,td{border:1px solid #dcd0ae;padding:6px 8px;text-align:left}' +
-      'th{background:#f5f0e6;font-size:12px;text-transform:uppercase;width:38%;color:#22314f}' +
-      '.r{text-align:right;white-space:nowrap;font-weight:700}' +
-      '.totals td{border-top:1px solid #111;font-weight:700}' +
-      '.due th,.due td{font-weight:700}' +
-      '.notes{white-space:pre-wrap;font-size:13px}' +
-      '.sign{margin-top:34px;font-size:12px;color:#555}' +
-      '.stamp{position:absolute;top:24mm;right:14mm;padding:2mm 6mm;transform:rotate(-12deg);border:2px solid;border-radius:2px;font-weight:700;font-size:10px;letter-spacing:1px;text-transform:uppercase;z-index:2}' +
-      '.stamp-paid{color:#155724;border-color:#155724;background:#d4edda}' +
-      '.stamp-part{color:#856404;border-color:#856404;background:#fff3cd}' +
-      '.stamp-due{color:#721c24;border-color:#721c24;background:#f8d7da}' +
-      // The page margin comes from @page now, so the printed body margin is
-      // zeroed rather than left at 24px, which would double it.
-      '@media print{body{margin:0}}' +
-      window.ANT.printsize.pageCss(size) +
-      window.ANT.printsize.layoutCss(size, 'receipt') +
-      '</style></head><body>' +
-      '<div class="receipt' + (size === 'A4HALF' ? ' receipt-half' : '') + '">' +
-        (due <= 0 ? '<div class="stamp stamp-paid">Full Paid</div>' : '<div class="stamp stamp-part">Part Paid</div>') +
-      '<h1>Payment Receipt</h1>' +
-      '<p class="shop">' + esc(shopName) + '</p>' +
-      '<p class="sub">Receipt ' + esc(p.code) + ' &middot; ' +
-        esc(dateLabel(p.paid_on || p.created_at)) + '</p>' +
-      '<table>' +
-        // The customer block comes first because it is what a counter hand-over
-        // needs to be checked against; "received from" is the whole claim the
-        // slip makes.
-        line('Received from', (c.name || '(no name)') +
-          (c.code ? ' (' + c.code + ')' : '')) +
-        line('Mobile', c.mobile || 'â€”') +
-        line('Order', orderCodeOf(p.order_id, p.order)) +
-        line('Amount received', money(p.amount), 'r') +
-        line('Paid by', p.method) +
-        (p.reference ? line('Reference', p.reference) : '') +
-      '</table>' +
-      '<table class="totals">' +
-        line('Balance before', money(p.previous_balance)) +
-        line('Balance after', money(p.new_balance)) +
-        line('Still due', money(due), 'due') +
-      '</table>' +
-      (p.notes ? '<div class="notes">' + esc(p.notes) + '</div>' : '') +
-      '<div class="sign">Received by ______________________ for ' + esc(shopName) + '.</div>' +
-      '</div>' +
-      '</body></html>';
-
-    var win = window.open('', '_blank');
-    if (!win) {
-      toast('Please allow pop-ups to print a receipt.', 'error');
+    if (!window.ANT.billpdf) {
+      toast('The receipt drawing library has not loaded. Try again in a moment.', 'error');
       return;
     }
 
-    win.document.open();
-    win.document.write(html);
-    win.document.close();
+    // Same page-size staleness as bills: the shop row is read at script boot, but
+    // the Receipt Print Size may change while the page stays open. Reload it just
+    // before committing the slip, so choosing A5 in Settings applies to the very
+    // next print.
+    return loadShop().then(function () {
+      var size = window.ANT.printsize
+        ? window.ANT.printsize.normalize(state.shop.receiptSize, window.ANT.printsize.RECEIPT_DEFAULT)
+        : 'A5';
 
-    var go = function () {
-      try {
-        win.focus();
-        win.print();
-      } catch (e) {
-        return;
-      }
-    };
+      var snap = {
+        printSize: size,
+        shop: state.shop,
+        logoUrl: state.shop.logoUrl || state.shop.logo || '',
+        payment: p,
+        orderCode: orderCodeOf(p.order_id, p.order)
+      };
 
-    if (win.document.readyState === 'complete') setTimeout(go, 250);
-    else win.onload = function () { setTimeout(go, 250); };
+      // The same call a bill makes, so a receipt is drawn by the same renderer and
+      // reaches the printer by the same road. It used to open a window of its own,
+      // which is why a receipt printed differently from a bill even when it looked
+      // the same.
+      return window.ANT.billpdf.print(snap, window.ANT.payments, 'Receipt ' + (p.code || id))
+        .catch(function () {
+          // billpdf has already said what went wrong, in the tailor's own words.
+        });
+    });
   }
 
   function wire() {
@@ -791,5 +848,18 @@ window.ANT.payments = (function () {
     loadShop();
   }
 
-  return { mount: mount, render: render };
+  return {
+    mount: mount,
+    render: render,
+    /* What the PDF renderer is handed.
+     *
+     * A document is described to billpdf the same way whichever document it is, so
+     * a receipt is drawn by the code that draws a bill rather than by a second
+     * copy of it. The root is the bill's own frame: the receipt wears the same
+     * sheet, the same one-page fit and the same space kept clear for the stamp, so
+     * those are the bill's rules and cannot drift apart from what prints. */
+    markup: receiptMarkup,
+    root: '.bill',
+    what: 'receipt'
+  };
 })();

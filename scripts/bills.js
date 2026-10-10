@@ -300,7 +300,7 @@ window.ANT.bills = (function () {
       .then(function (res) {
         var shop = { name: '', address: '', phone: '', email: '', instagram: '',
           upiId: '', payee: '', waBillMessage: '', waReminderMessage: '',
-          printSize: '' };
+          printSize: '', waPrintSize: '' };
 
         if (!res.error && res.data) {
           res.data.forEach(function (row) {
@@ -314,6 +314,7 @@ window.ANT.bills = (function () {
             else if (row.key === 'wa_bill_message') shop.waBillMessage = row.value || '';
             else if (row.key === 'wa_reminder_message') shop.waReminderMessage = row.value || '';
             else if (row.key === 'bill_print_size') shop.printSize = row.value || '';
+            else if (row.key === 'wa_bill_size') shop.waPrintSize = row.value || '';
           });
         }
 
@@ -595,9 +596,9 @@ window.ANT.bills = (function () {
   function statusChip(status) {
     var kind = {
       'Pending': 'chip-warn',
-      'In Progress': 'chip-info',
-      'Ready': 'chip-info',
-      'Delivered': 'chip-success',
+      'Process': 'chip-info',
+      'Finish': 'chip-info',
+      'Delivery': 'chip-success',
       'Cancelled': 'chip-muted'
     }[status] || 'chip-muted';
     return '<span class="chip ' + kind + '">' + esc(status || 'Pending') + '</span>';
@@ -684,10 +685,6 @@ window.ANT.bills = (function () {
       (canRemind
         ? '<button class="btn btn-sm btn-secondary" data-bill-remind="' + esc(b.id) + '">Remind</button> '
         : '') +
-      (b.pdf_path
-        ? '<button class="btn btn-sm btn-secondary" data-bill-pdf="' + esc(b.id) + '">PDF</button> '
-        : '<button class="btn btn-sm btn-secondary" data-bill-pdf="' + esc(b.id) + '" ' +
-          'title="This bill has no stored PDF yet. Make one.">Make PDF</button> ') +
       '<button class="btn btn-sm btn-secondary" data-bill-print="' + esc(b.id) + '">Print</button>' +
       (owner
         ? ' <button class="btn btn-sm btn-secondary" data-bill-edit="' + esc(b.id) + '">Edit</button>' +
@@ -1079,7 +1076,7 @@ window.ANT.bills = (function () {
           return;
         }
         return ordersForPrint((res.data || []).map(function (r) { return r.order_id; }))
-          .then(function (list) { openPrintWindow(bill, list); });
+          .then(function (list) { return printBillFile(bill, list); });
       });
   }
 
@@ -1189,7 +1186,7 @@ window.ANT.bills = (function () {
   var PRINT_CSS = [
     '*{box-sizing:border-box}',
     'body{font:12.5px/1.5 "Segoe UI",system-ui,-apple-system,Arial,sans-serif;color:#1f2937;margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}',
-    '.bill{width:190mm;margin:0;padding:4mm;border:2px solid #0f2239;border-radius:2px}',
+    '.bill{width:190mm;margin:0;padding:4mm;border:2px solid #0f2239;border-radius:0}',
 '.bill::after{content:"";position:absolute;inset:2mm;border:1px solid #b08d3f;pointer-events:none}',
 '.bill{position:relative}',
 
@@ -1199,20 +1196,20 @@ window.ANT.bills = (function () {
     '.shop-name{font-family:Georgia,"Times New Roman",serif;font-size:18px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;line-height:1.1;color:#0f2239}',
     '.shop-sub{font-size:8px;color:#5c4821;margin-top:.8mm;letter-spacing:.03em;font-weight:600;text-transform:uppercase}',
 
-    '.bill-bar{display:flex;gap:0;margin:4mm 0 0;padding:3mm 2mm;background:#0f2239;border-radius:3px}',
+    '.bill-bar{display:flex;gap:0;margin:4mm 0 0;padding:3mm 2mm;background:#0f2239;border-radius:0}',
     '.bill-bar-item{flex:1 1 0;min-width:0;text-align:center;border-right:1px solid rgba(255,255,255,.15)}',
     '.bill-bar-item:last-child{border-right:none}',
     '.bill-bar-label{font-size:7.5px;font-weight:700;letter-spacing:.24em;text-transform:uppercase;color:#d8c293}',
     '.bill-bar-val{font-size:12px;font-weight:600;color:#ffffff;margin-top:.8mm;letter-spacing:.04em}',
 
     '.parties{display:flex;gap:8mm;margin:5mm 0 4mm}',
-    '.party{flex:1 1 0;min-width:0;border:1px solid #d4c9a8;border-radius:3px;padding:3mm 3.5mm;background:#fffdf7}',
+    '.party{flex:1 1 0;min-width:0;border:1px solid #d4c9a8;border-radius:0;padding:3mm 3.5mm;background:#fffdf7}',
     '.party-label{font-size:8px;font-weight:700;letter-spacing:.22em;text-transform:uppercase;color:#b08d3f;padding-bottom:1.2mm;margin-bottom:2mm;border-bottom:1px solid #e8e0c8}',
     '.party-line{font-size:10.5px;color:#374151;margin-top:1.2mm;word-break:break-word}',
     '.party-line b{color:#0f2239;font-weight:600}',
 
     'table{width:100%;border-collapse:collapse;margin:3mm 0 0;table-layout:fixed}',
-    'th{font-size:8px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#ffffff;text-align:left;padding:2mm 1.2mm;background:#0f2239;white-space:nowrap}',
+    'th{font-size:8px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#ffffff;text-align:left;vertical-align:top;padding:1.8mm 1mm;background:#0f2239;white-space:normal}',
     'td{font-size:11px;padding:2mm 1.2mm;border-bottom:1px solid #e8e0c8;vertical-align:top;word-wrap:break-word;overflow-wrap:break-word}',
     'tbody tr:nth-child(even) td{background:#faf8f3}',
     'th.r,td.r{text-align:right;white-space:nowrap}',
@@ -1232,16 +1229,16 @@ window.ANT.bills = (function () {
     '.words b{font-weight:600;color:#0f2239}',
 
     '.blocks{display:flex;flex-wrap:wrap;gap:4mm;align-items:stretch;margin-top:6mm}',
-    '.pay{position:relative;display:flex;gap:3mm;align-items:center;background:#fffdf7;border:1px solid #d4c9a8;border-left:3mm solid #b08d3f;border-radius:3px;padding:3mm 3.5mm 3mm 4mm;flex:1 1 auto;min-width:0;page-break-inside:avoid;break-inside:avoid}',
-    '.pay-ribbon{position:absolute;top:-2.6mm;left:4mm;background:#b08d3f;color:#fff8e8;font-size:7px;font-weight:700;letter-spacing:.24em;text-transform:uppercase;padding:.8mm 2.2mm;border-radius:2px}',
-    '.qr-plate{background:#ffffff;border:1px solid #e8e0c8;border-radius:2px;padding:1.6mm;flex:0 0 auto;display:block}',
+    '.pay{position:relative;display:flex;gap:3mm;align-items:center;background:#fffdf7;border:1px solid #d4c9a8;border-left:3mm solid #b08d3f;border-radius:0;padding:3mm 3.5mm 3mm 4mm;flex:1 1 auto;min-width:0;page-break-inside:avoid;break-inside:avoid}',
+    '.pay-ribbon{position:absolute;top:-2.6mm;left:4mm;background:#b08d3f;color:#fff8e8;font-size:7px;font-weight:700;letter-spacing:.24em;text-transform:uppercase;padding:.8mm 2.2mm;border-radius:0}',
+    '.qr-plate{background:#ffffff;border:1px solid #e8e0c8;border-radius:0;padding:1.6mm;flex:0 0 auto;display:block}',
     '.qr{width:26mm;height:26mm;display:block}',
     '.pay-text{font-size:10.5px;min-width:0}',
     '.pay-head{font-family:Georgia,"Times New Roman",serif;font-weight:700;font-size:12.5px;margin-bottom:.6mm;color:#0f2239}',
     '.pay-amt{font-family:Georgia,"Times New Roman",serif;font-size:15px;font-weight:700;color:#b08d3f;letter-spacing:.02em;margin:.4mm 0 1mm}',
     '.pay-link{display:inline-block;margin:0 0 1mm;color:#0f3460;font-weight:600;word-break:break-all;text-decoration:none;border-bottom:.4mm solid #d4c9a8}',
     '.pay-id{color:#6b7280;font-size:10px;letter-spacing:.02em}',
-    '.follow{position:relative;flex:0 1 auto;display:flex;gap:2mm;align-items:center;background:#0f2239;color:#f4f1e8;border-radius:3px;padding:2.5mm 3mm;page-break-inside:avoid;break-inside:avoid}',
+    '.follow{position:relative;flex:0 1 auto;display:flex;gap:2mm;align-items:center;background:#0f2239;color:#f4f1e8;border-radius:0;padding:2.5mm 3mm;page-break-inside:avoid;break-inside:avoid}',
     '.follow .qr-plate{border-color:#3a4a6e;background:#ffffff}',
     '.follow .qr{width:16mm;height:16mm}',
     '.follow-text{min-width:0}',
@@ -1253,7 +1250,7 @@ window.ANT.bills = (function () {
     '.notes{margin:4mm 0 0;font-size:10.5px;padding:2.4mm 3mm;background:#f7f4ea;border-left:2px solid #b08d3f;color:#374151}',
 
     /* Reference frame - ornate gold double border with corner flourishes --- */
-    '.bill{border:2px solid #b8934f;border-radius:2mm;padding:4.5mm;background:#fffdf7}',
+    '.bill{border:2px solid #b8934f;border-radius:0;padding:4.5mm;background:#fffdf7}',
     '.bill::before{content:"";position:absolute;inset:1.6mm;border:1px solid #cdb894;pointer-events:none}',
     '.bill::after{display:none}',
     '.cnr{position:absolute;width:11mm;height:11mm;border:1.6px solid #b8934f;border-radius:50%;border-right:none;border-bottom:none;z-index:1}',
@@ -1272,7 +1269,24 @@ window.ANT.bills = (function () {
     '.orn{display:flex;align-items:center;justify-content:center;margin:2.8mm 0 0}',
     '.orn::before,.orn::after{content:"";width:32mm;height:1px;background:#cdb894;flex:0 0 auto}',
     '.orn span{width:4.4mm;height:4.4mm;border:1.3px solid #b8934f;border-radius:50%;margin:0 2.4mm;flex:0 0 auto}',
-    '.stamp{position:absolute;bottom:14mm;right:18mm;padding:2mm 6mm;transform:rotate(-12deg);border:2px solid;border-radius:2px;font-weight:700;font-size:10px;letter-spacing:1px;text-transform:uppercase;z-index:2;box-shadow:0 2px 5px rgba(0,0,0,0.12)}',
+    /* The stamp is put in a band kept clear for it, rather than at a fixed
+     * distance above the foot of the sheet.
+     *
+     * A bill is as tall as its longest run of garments, so a stamp placed by
+     * measurement from the bottom edge lands on the totals as soon as there are
+     * enough rows to reach down there - the balance figure ends up printed
+     * underneath a red PAID. Keeping the space empty instead means the words can
+     * grow into the sheet and the stamp still has somewhere to sit: padding is
+     * always below the content, on a short bill and a long one alike.
+     *
+     * The band is 14mm because that is what an A5 can spare. The shortest sheet
+     * prints 200mm and its tallest ordinary bill already needs 186.5mm, so
+     * anything more would push the bill onto a second page. The stamp is drawn to
+     * suit the band rather than the other way round: a stamp leaning 9 degrees is
+     * about 12mm tall all round, where at 12 degrees the box enclosing it was
+     * nearly 16mm and would not have fitted at all. */
+    '.bill{padding-bottom:25mm}',
+    '.stamp{position:absolute;bottom:7.5mm;right:15mm;padding:1.2mm 3mm;transform:rotate(-8deg);border:2px solid;border-radius:0;font-weight:700;font-size:8.5px;letter-spacing:.6px;text-transform:uppercase;z-index:2;box-shadow:0 2px 5px rgba(0,0,0,0.12);display:inline-block;text-align:center;line-height:1.3}',
     '.stamp-paid{color:#155724;border-color:#155724;background:#d4edda}',
     '.stamp-part{color:#856404;border-color:#856404;background:#fff3cd}',
     '.stamp-due{color:#721c24;border-color:#721c24;background:#f8d7da}',
@@ -1286,12 +1300,18 @@ window.ANT.bills = (function () {
     '.sect{display:flex;align-items:center;gap:1.8mm;font-size:8.5px;font-weight:700;letter-spacing:.26em;text-transform:uppercase;color:#b8934f;margin:3.4mm 0 2mm}',
     '.sect::before{content:"";width:5px;height:5px;background:#b8934f;transform:rotate(45deg);flex:0 0 auto}',
     '.parties{display:flex;gap:4mm;align-items:stretch}',
-    '.cdetails{flex:1 1 58%;min-width:0;border:1px solid #e0d3af}',
+    /* Corners. One family of radius, so the bill reads as a single set of boxes
+     * rather than as a gold frame around a heap of squares. A hairline-bordered
+     * box needs a smaller radius than the heavy outer frame or the curve looks
+     * swollen against the thin rule, so the boxes inside take 1.4mm and the frame
+     * keeps 2mm. Corners that are too tight are what make a careful document look
+     * like a form. */
+    '.cdetails{flex:1 1 58%;min-width:0;border:1px solid #e0d3af;border-radius:0;overflow:hidden}',
     '.c-row{display:flex;padding:1.4mm 2.4mm;font-size:10.5px;border-bottom:1px solid #f0e9d8}',
     '.c-row:last-child{border-bottom:none}',
     '.c-row span{flex:0 0 30mm;color:#9a8a5f;letter-spacing:.14em;text-transform:uppercase;font-size:7.5px;padding-top:.6mm}',
     '.c-row b{color:#22314f;font-weight:600}',
-    '.caddr{flex:1 1 42%;min-width:0;border:1px solid #e0d3af}',
+    '.caddr{flex:1 1 42%;min-width:0;border:1px solid #e0d3af;border-radius:0;overflow:hidden}',
     '.caddr-label{font-size:7.5px;letter-spacing:.26em;text-transform:uppercase;color:#b8934f;font-weight:700;padding:1.4mm 2.4mm;border-bottom:1px solid #f0e9d8}',
     '.caddr-val{padding:1.6mm 2.4mm;font-size:10.5px;color:#22314f;min-height:16mm}',
 
@@ -1301,17 +1321,21 @@ window.ANT.bills = (function () {
     'th,td{padding:1.7mm 1.4mm;font-size:10px}',
 
     '.midrow{display:flex;gap:4mm;align-items:stretch}',
-    '.paycard{flex:1 1 58%;min-width:0;border:1px solid #d9cba6}',
+    // No payment card on the bill, so the totals get a measure of their own and
+    // are pushed to the right rather than left hanging at two fifths of the page.
+    '.midrow.solo{justify-content:flex-end}',
+    '.midrow.solo .totals{flex:0 1 72mm}',
+    '.paycard{flex:1 1 58%;min-width:0;border:1px solid #d9cba6;border-radius:0;overflow:hidden}',
     '.paycard-title{font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:#b8934f;font-weight:700;padding:1.6mm 2.4mm;border-bottom:1px solid #e6d9bd}',
     '.payrow{display:flex;justify-content:space-between;padding:1.5mm 2.4mm;font-size:10.5px;border-bottom:1px solid #f0e9d8}',
     '.payrow span{color:#9a8a5f;letter-spacing:.14em;text-transform:uppercase;font-size:7.5px;padding-top:.6mm}',
     '.payrow b{color:#22314f}',
-    '.scanbox{display:flex;gap:3mm;margin:2mm 2.4mm 2.4mm;padding:2.2mm;background:#fbf7ec;border:1px solid #e8ddbf;align-items:center}',
+    '.scanbox{display:flex;gap:3mm;margin:2mm 2.4mm 2.4mm;padding:2.2mm;background:#fbf7ec;border:1px solid #e8ddbf;border-radius:0;align-items:center}',
     '.scanbox .qr{width:18mm;height:18mm}',
     '.scanbox .qr-plate{background:#ffffff;border:1px solid #e0d3af;padding:1.4mm}',
     '.scanbox-text .pay-amt{font-family:Georgia,"Times New Roman",serif;font-size:13px;font-weight:700;color:#b8934f;margin:.8mm 0}',
     '.scanbox-head{font-size:8.5px;letter-spacing:.24em;text-transform:uppercase;color:#b8934f;font-weight:700}',
-    '.totals{margin:0;width:auto;flex:1 1 42%;border:1px solid #d9cba6}',
+    '.totals{margin:0;width:auto;flex:1 1 42%;border:1px solid #d9cba6;border-radius:0;overflow:hidden}',
     '.totals .due{background:#fbf6ea}',
     '.words{margin:5mm 0 0;padding:2.2mm 0 0;border-top:1px solid #e8e0c8}',
 
@@ -1323,7 +1347,7 @@ window.ANT.bills = (function () {
     '.fm-rule{height:1px;background:#cdb894;margin:3mm 8mm 0}',
     '.fm-line{margin-top:2mm;font-size:8px;letter-spacing:.3em;text-transform:uppercase;color:#8a7a54}',
 
-    '.follow{position:static;flex:0 0 auto;width:auto;display:block;background:#ffffff;color:#22314f;border:1px solid #cdb894;border-radius:3mm;padding:1.6mm;text-align:center;box-shadow:0 2px 5px rgba(0,0,0,.08)}',
+    '.follow{position:static;flex:0 0 auto;width:auto;display:block;background:#ffffff;color:#22314f;border:1px solid #cdb894;border-radius:0;padding:1.6mm;text-align:center;box-shadow:0 2px 5px rgba(0,0,0,.08)}',
     '.follow .qr-plate{border:none;background:#ffffff;margin:0 auto;padding:0;display:inline-block}',
     '.follow .qr{width:12mm;height:12mm}',
     '.follow-text{margin-top:0mm;text-align:center;width:100%}',
@@ -1412,29 +1436,30 @@ window.ANT.bills = (function () {
   }
 
 
-  function openPrintWindow(bill, list, opts) {
-    var c = state.customer;
-    if (!c) {
-      toast('Open a customer first, then print a bill.', 'error');
-      return;
-    }
+  /* The printed bill, as markup, from a snapshot.
+   *
+   * This is the one place a bill is written down. The print window and the PDF
+   * renderer both call it, so a customer holding a printed bill and a customer
+   * holding a PDF are holding the same document rather than two that resemble
+   * each other - there is no second description of the layout to fall behind.
+   * It reads only the snapshot, so a bill can be rebuilt from pdf_snapshot long
+   * after the orders it was raised from have changed. */
+  function billMarkup(snap) {
+    var size = window.ANT.printsize.normalize(snap.printSize);
 
-    // The size only lays the page out; it never touches a figure on it.
-    var size = window.ANT.printsize.normalize(state.shop.printSize);
-
-    var shopName = state.shop.name || 'AN TAILOR';
-    var due = Math.max(0, num(bill.balance));
+    var shopName = snap.shop.name || 'AN TAILOR';
+    var due = Math.max(0, num(snap.bill.balance));
     var settled = due <= 0;
     // Part-paid is its own state because it is the one that needs chasing, and a
     // stamp that only distinguishes paid from unpaid would call it settled.
-    var partial = !settled && num(bill.advance) > 0;
+    var partial = !settled && num(snap.bill.advance) > 0;
     // The angled status stamp that a counter hand-over carries. Professional
     // bills never use a floating text line for this; a stamp is unambiguous.
     var stampText = settled ? 'Paid' : (partial ? 'Part Paid' : 'Payment Due');
 
     // The items are optional decoration, so a bill never waits on them and a read
     // that failed simply leaves the order to print on its own.
-    var rows = list.map(function (o, oi) {
+    var rows = snap.orders.map(function (o, oi) {
       var items = (o.items || []).map(function (it, idx) {
         var note = [];
         if (it.variant) note.push(it.variant);
@@ -1442,14 +1467,18 @@ window.ANT.bills = (function () {
         if (it.service && it.service !== 'Tailoring') note.push(it.service);
 
         return '<tr>' +
-          '<td class="r">' + esc(String(idx + 1)) + '</td>' +
-          '<td class="r">' + esc(o.code) + '</td>' +
+          // The order reference sits in the bill's own bar above, so the
+          // column that repeated it would only be the same number twice on
+          // every row. Only the serial number, the delivery date and the
+          // four figures remain, so the width Dress Type kept from the
+          // removed column now belongs to the garment's name.
+          '<td>' + esc(String(idx + 1)) + '</td>' +
           '<td class="item">' +
             '<div class="item-name">' +
               esc(it.dress_type || it.category || 'Garment') + '</div>' +
             (note.length ? '<div class="item-note">' + esc(note.join(' · ')) + '</div>' : '') +
           '</td>' +
-          '<td class="r">' + esc(dateLabel(o.delivery_date)) + '</td>' +
+          '<td>' + esc(dateLabel(o.delivery_date)) + '</td>' +
           '<td class="r">' + esc(String(it.quantity == null ? '' : it.quantity)) + '</td>' +
           '<td class="r">' + money(it.line_total) + '</td>' +
           '<td class="r">' + money(0) + '</td>' +
@@ -1458,7 +1487,7 @@ window.ANT.bills = (function () {
       }).join('');
 
       if (!items) {
-        items = '<tr><td colspan="8" class="item-note">' +
+        items = '<tr><td colspan="7" class="item-note">' +
           'No garments are listed for this order.' +
           (o.code ? ' (Order ' + esc(o.code) + '.)' : '') +
         '</td></tr>';
@@ -1467,26 +1496,26 @@ window.ANT.bills = (function () {
       return items;
     }).join('');
 
-    if (!list.length) {
-      rows = '<tr><td colspan="8" class="item-note">No orders are recorded on this bill.</td></tr>';
+    if (!snap.orders.length) {
+      rows = '<tr><td colspan="7" class="item-note">No orders are recorded on this bill.</td></tr>';
     }
 
     // A UPI code is drawn only when a real amount is still owed and the shop
     // has a valid id configured. payLink() is the same builder the on-screen Pay
     // button uses, so a settled bill cannot print a code inviting the customer
     // to pay twice and the two can never name different accounts.
-    var target = payLink(bill);
+    var target = snap.payLink || '';
     var payBlock = '';
 
     if (target && window.ANT.qr) {
-      var dueLabel = money(window.ANT.upi.balanceDue(bill));
+      var dueLabel = money(snap.dueLabel === undefined ? due : snap.dueLabel);
 
       payBlock = '<div class="paycard">' +
         '<div class="paycard-title">Payment Details</div>' +
-        '<div class="payrow"><span>Payment Method</span><b>' + esc(bill.method || '-') + '</b></div>' +
-        (bill.paid_on
-          ? '<div class="payrow"><span>Payment Date</span><b>' + esc(dateLabel(bill.paid_on)) + '</b></div>'
+        (snap.bill.paid_on
+          ? '<div class="payrow"><span>Payment Date</span><b>' + esc(dateLabel(snap.bill.paid_on)) + '</b></div>'
           : '') +
+        '<div class="payrow"><span>Payment Method</span><b>' + esc(snap.bill.method || '-') + '</b></div>' +
         '<div class="scanbox">' +
           '<span class="qr-plate">' +
             window.ANT.qr.svg(target, {
@@ -1494,12 +1523,12 @@ window.ANT.bills = (function () {
               border: 1,
               dark: '#000000',
               light: '#ffffff',
-              label: 'Scan to pay ' + dueLabel + ' to ' + (state.shop.name || 'AN TAILOR')
+              label: 'Scan to pay ' + dueLabel + ' to ' + (snap.shop.name || 'AN TAILOR')
             }) +
           '</span>' +
           '<div class="scanbox-text">' +
             '<div class="scanbox-head">Scan &amp; Pay</div>' +
-            '<div class="pay-id">UPI ID: ' + esc(state.shop.upiId || '') + '</div>' +
+            '<div class="pay-id">UPI ID: ' + esc(snap.shop.upiId || '') + '</div>' +
             '<div class="pay-amt">Pay ' + esc(dueLabel) + '</div>' +
             '<a class="pay-link" href="' + esc(target) + '">Tap to Pay ' + esc(dueLabel) + '</a>' +
             '<div class="pay-id">Any UPI app</div>' +
@@ -1512,7 +1541,7 @@ window.ANT.bills = (function () {
     // handle in Settings. Like the pay code, the URL is rebuilt from the stored
     // username so the code and the printed handle can never point at different
     // profiles.
-    var igTarget = instagramUrl();
+    var igTarget = snap.instagramUrl || '';
     var followBlock = '';
 
     if (igTarget && window.ANT.qr) {
@@ -1532,19 +1561,19 @@ window.ANT.bills = (function () {
             border: 1,
             dark: '#000000',
             light: '#ffffff',
-            label: 'Scan to follow @' + state.shop.instagram + ' on Instagram'
+            label: 'Scan to follow @' + snap.shop.instagram + ' on Instagram'
           }) +
         '</span>' +
         '<div class="follow-text">' +
           '<a class="follow-link" href="' + esc(igTarget) + '">@' +
-            esc(state.shop.instagram) + '</a>' +
+            esc(snap.shop.instagram) + '</a>' +
           '<div class="follow-id">Scan to connect</div>' +
         '</div>' +
       '</div>';
     }
 
     var html = '<!doctype html><html><head><meta charset="utf-8"><title>' +
-      esc(bill.code) + ' ' + esc(shopName) + '</title><style>' +
+      esc(snap.bill.code) + ' ' + esc(shopName) + '</title><style>' +
       PRINT_CSS +
       window.ANT.printsize.pageCss(size) +
       window.ANT.printsize.layoutCss(size) +
@@ -1552,19 +1581,19 @@ window.ANT.bills = (function () {
       '<div class="bill' + (size === 'A4HALF' ? ' bill-half' : '') + '">' +
         '<div class="stamp stamp-' + (settled ? 'paid' : (partial ? 'part' : 'due')) + '">' + esc(stampText) + '</div>' +
       '<div class="head">' +
-        '<div class="mastlogo"><img class="shop-logo" src="' + esc(logoUrl()) + '" alt="" ' +
+        '<div class="mastlogo"><img class="shop-logo" src="' + esc(snap.logoUrl || '') + '" alt="" ' +
           'onerror="this.remove()"></div>' +
         '<div class="mastcenter">' +
           '<div class="shop-name">' + esc(shopName) + '</div>' +
           '<div class="shop-sub">Professional Tailoring Services</div>' +
-          (state.shop.address
-            ? '<div class="shop-contact">' + esc(state.shop.address) + '</div>'
+          (snap.shop.address
+            ? '<div class="shop-contact">' + esc(snap.shop.address) + '</div>'
             : '') +
-          ((state.shop.phone || state.shop.email)
+          ((snap.shop.phone || snap.shop.email)
             ? '<div class="shop-contact">' +
-              (state.shop.phone ? 'Mobile: ' + esc(state.shop.phone) : '') +
-              (state.shop.phone && state.shop.email ? ' &nbsp;&middot;&nbsp; ' : '') +
-              (state.shop.email ? 'Email: ' + esc(state.shop.email) : '') +
+              (snap.shop.phone ? 'Mobile: ' + esc(snap.shop.phone) : '') +
+              (snap.shop.phone && snap.shop.email ? ' &nbsp;&middot;&nbsp; ' : '') +
+              (snap.shop.email ? 'Email: ' + esc(snap.shop.email) : '') +
               '</div>'
             : '') +
         '</div>' +
@@ -1575,55 +1604,64 @@ window.ANT.bills = (function () {
       '<div class="bill-bar">' +
         '<div class="bill-bar-item">' +
           '<div class="bill-bar-label">Bill No</div>' +
-          '<div class="bill-bar-val">' + esc(bill.code) + '</div>' +
+          '<div class="bill-bar-val">' + esc(snap.bill.code) + '</div>' +
         '</div>' +
         '<div class="bill-bar-item">' +
           '<div class="bill-bar-label">Bill Date</div>' +
-          '<div class="bill-bar-val">' + esc(dateLabel(bill.bill_date)) + '</div>' +
+          '<div class="bill-bar-val">' + esc(dateLabel(snap.bill.bill_date)) + '</div>' +
         '</div>' +
         '<div class="bill-bar-item">' +
           '<div class="bill-bar-label">Delivery Date</div>' +
-          '<div class="bill-bar-val">' + esc(dateLabel(list[0] && list[0].delivery_date)) + '</div>' +
+          '<div class="bill-bar-val">' + esc(dateLabel(snap.orders[0] && snap.orders[0].delivery_date)) + '</div>' +
         '</div>' +
         '<div class="bill-bar-item">' +
-          '<div class="bill-bar-label">Status</div>' +
-          '<div class="bill-bar-val">' +
-            (settled ? 'Paid' : (partial ? 'Part paid' : 'Payment due')) +
-          '</div>' +
+          '<div class="bill-bar-label">Order ID</div>' +
+          // One bill can carry several jobs for the same customer, so the bar
+          // names them all rather than repeating a column for each row: the
+          // table's job is what each row holds, and where it is to be delivered,
+          // not say what the bar above already says.
+          '<div class="bill-bar-val">' + esc((snap.orders || []).map(function (o) {
+            return o && o.code;
+          }).filter(Boolean).join(' \u00b7 ') || '-') + '</div>' +
         '</div>' +
       '</div>' +
 
       '<div class="sect">Customer Details</div>' +
       '<div class="parties">' +
         '<div class="cdetails">' +
-          '<div class="c-row"><span>Customer ID</span><b>' + esc(c.code || '-') + '</b></div>' +
-          '<div class="c-row"><span>Customer Name</span><b>' + esc(c.name) + '</b></div>' +
-          '<div class="c-row"><span>Mobile No</span><b>' + esc(c.mobile || '-') + '</b></div>' +
+          '<div class="c-row"><span>Customer ID</span><b>' + esc(snap.customer.code || '-') + '</b></div>' +
+          '<div class="c-row"><span>Customer Name</span><b>' + esc(snap.customer.name) + '</b></div>' +
+          '<div class="c-row"><span>Mobile No</span><b>' + esc(snap.customer.mobile || '-') + '</b></div>' +
         '</div>' +
-        (c.address
+        (snap.customer.address
           ? '<div class="caddr"><div class="caddr-label">Address</div><div class="caddr-val">' +
-            esc(c.address) + '</div></div>'
+            esc(snap.customer.address) + '</div></div>'
           : '') +
       '</div>' +
 
       '<table><thead><tr>' +
-        '<th style="width:6%">S.No</th><th style="width:14%">Order ID</th><th style="width:22%">Dress Type</th>' +
-        '<th style="width:14%">Delivery Date</th>' +
-        '<th class="r" style="width:8%">Qty</th><th class="r" style="width:12%">Rate</th>' +
-        '<th class="r" style="width:10%">Disc</th><th class="r" style="width:14%">Amount</th>' +
+        '<th style="width:7%">S.No</th><th style="width:34%">Dress Type</th>' +
+        '<th style="width:15%">Delivery Date</th>' +
+        '<th class="r" style="width:8%">Qty</th><th class="r" style="width:13%">Rate</th>' +
+        '<th class="r" style="width:10%">Disc</th><th class="r" style="width:13%">Amount</th>' +
       '</tr></thead><tbody>' + rows + '</tbody></table>' +
 
-      '<div class="midrow">' +
+      // With money outstanding the totals sit beside the payment card, both filling
+      // the row. On a settled bill there is no card, and the totals would be left
+      // stranded against the margin with half the page empty beside them - so the
+      // row is marked and the totals take a fixed measure and sit on the right,
+      // which is where the eye looks for them on any commercial invoice.
+      '<div class="midrow' + (payBlock ? '' : ' solo') + '">' +
         payBlock +
         '<div class="totals">' +
-          '<div><span class="label">Sub Total</span><span class="val">' + money(bill.total) + '</span></div>' +
-          (num(bill.discount)
+          '<div><span class="label">Sub Total</span><span class="val">' + money(snap.bill.total) + '</span></div>' +
+          (num(snap.bill.discount)
             ? '<div><span class="label">Discount</span><span class="val">- ' +
-              money(bill.discount) + '</span></div>'
+              money(snap.bill.discount) + '</span></div>'
             : '') +
           '<div class="sub"><span class="label">Total Amount</span><span class="val">' +
-            money(bill.bill_amount) + '</span></div>' +
-          '<div><span class="label">Total Paid</span><span class="val">' + money(bill.advance) + '</span></div>' +
+            money(snap.bill.bill_amount) + '</span></div>' +
+          '<div><span class="label">Total Paid</span><span class="val">' + money(snap.bill.advance) + '</span></div>' +
           '<div class="due"><span class="label">Balance Amount</span><span class="val">' +
             money(due) + '</span></div>' +
         '</div>' +
@@ -1631,45 +1669,56 @@ window.ANT.bills = (function () {
 
 
 
-      (bill.notes ? '<div class="notes">' + esc(bill.notes) + '</div>' : '') +
+      (snap.bill.notes ? '<div class="notes">' + esc(snap.bill.notes) + '</div>' : '') +
 
       '</div>' +
       '</body></html>';
 
-    var win = window.open('', '_blank');
-    if (!win) {
-      toast('Please allow pop-ups to print the bill.', 'error');
+    return html;
+  }
+
+  /* Prints the bill, and prints the very file that would be sent on WhatsApp.
+   *
+   * Printing used to open the printed document in a window and let the browser
+   * print it, while the copy sent to the customer was drawn again by billpdf. Same
+   * markup both times, two different engines: the browser setting real type on one
+   * side and jsPDF setting Helvetica and Times metrics on the other, so the two
+   * bills came out looking like two documents - different spacing, different
+   * weights, a rupee sign that did not match itself. The sheets were never the
+   * problem; the drawing was. So the print button asks billpdf for the file and
+   * prints that, and both routes now draw with one engine and can differ only by
+   * the sheet they were asked for.
+   *
+   * Nothing is uploaded. The file is made in the browser and printed from there, so
+   * printing still works with no connection - the one thing that must not depend
+   * on the network, because it is the action the shop takes most. */
+  function printBillFile(bill, list) {
+    if (!state.customer) {
+      toast('Open a customer first, then print a bill.', 'error');
       return;
     }
 
-    win.document.open();
-    win.document.write(html);
-    win.document.close();
+    if (!window.ANT.billpdf) {
+      toast('The bill drawing library has not loaded. Try again in a moment.', 'error');
+      return;
+    }
 
-    var go = function () {
-      // The bill is fitted to one page first. Fitting needs a laid-out document
-      // and the logo is an image, so it waits for the window to finish loading
-      // before it measures. Any failure here leaves the bill unscaled, which still
-      // prints correctly - a bill that runs onto a second page is a nuisance, a
-      // bill that does not print at all is a lost sale.
-      try {
-        fitToOnePage(win, window.ANT.printsize.pageHeightMm(size),
-          window.ANT.printsize.billWidthMm(size));
-      } catch (e) {
-        // Measured nothing; print it as it stands.
-      }
+    // The saved bill page size can have been changed since the last time this page
+    // loaded. Bills only reads the shop row at boot, so refresh it now. When
+    // settings are not reloaded, printing still derives a PDF from whichever
+    // sheet was cached, and changing the sheet in Settings would appear to do
+    // nothing until the whole app was reloaded.
+    return loadShop().then(function () {
+      var snap = billSnapshot(bill, list);
 
-      try {
-        win.focus();
-        win.print();
-      } catch (e) {
-        return;
-      }
-    };
-
-    if (win.document.readyState === 'complete') setTimeout(go, 250);
-    else win.onload = function () { setTimeout(go, 250); };
-    return win;
+      // The same entry point a receipt uses. Drawing the file and handing it to the
+      // printer are one job, and a bill and a receipt doing it two different ways is
+      // how one comes to print on the right paper and the other on the wrong one.
+      return window.ANT.billpdf.print(snap, window.ANT.bills, snap.bill.code)
+        .catch(function () {
+          // billpdf has already said what went wrong, in the tailor's own words.
+        });
+    });
   }
 
   /* One page, whatever the bill carries ------------------------------------- */
@@ -1707,12 +1756,15 @@ window.ANT.bills = (function () {
    * behaviour can be asserted rather than taken on trust. */
   var MIN_SCALE = 0.62;
 
-  function fitToOnePage(win, pageHeightMm, billWidthMm) {
+  function fitToOnePage(win, pageHeightMm, billWidthMm, root) {
     var doc = win.document;
     if (!doc || !doc.body) return 1;
 
-    var bill = doc.querySelector('.bill');
-    if (!bill) return 1;
+    // Which element is measured: the bill for a bill, the receipt for a receipt.
+    // Both are fitted by this arithmetic, so a receipt cannot end up on two pages
+    // by being given a lazier answer than a bill gets.
+    var page = doc.querySelector(root || '.bill');
+    if (!page) return 1;
 
     // Millimetres to pixels for this document. A 100mm probe is measured rather
     // than computed from a hardcoded 3.78px/mm, because the browser's own
@@ -1737,19 +1789,19 @@ window.ANT.bills = (function () {
     body.style.width = widthPx + 'px';
 
     try {
-      // The zoom is cleared rather than set to 1 so a bill that turns out to fit
-      // is left exactly as it was written. A stray zoom on the element is a
+      // The zoom is cleared rather than set to 1 so a document that turns out to
+      // fit is left exactly as it was written. A stray zoom on the element is a
       // difference between the document that was built and the one that prints.
-      bill.style.zoom = '';
+      page.style.zoom = '';
 
-      var height = bill.getBoundingClientRect().height;
+      var height = page.getBoundingClientRect().height;
       if (!(height > targetPx)) return 1;
 
       var scale = targetPx / height;
       if (scale < MIN_SCALE) scale = MIN_SCALE;
       if (scale >= 1) return 1;
 
-      bill.style.zoom = String(scale);
+      page.style.zoom = String(scale);
       return scale;
     } finally {
       body.style.width = prevWidth;
@@ -1863,7 +1915,16 @@ window.ANT.bills = (function () {
 
     return {
       takenAt: new Date().toISOString(),
-      printSize: state.shop.printSize || 'A4',
+      printSize: window.ANT.printsize.normalize(state.shop.printSize,
+        window.ANT.printsize.DEFAULT),
+      // The sheet a bill is shared on is chosen separately from the sheet it is
+      // printed on, because the two are read in different places: a bill printed
+      // at the counter is read off a stand or a clipboard, while the same bill on
+      // a phone is read on a phone. Both are saved here, so a PDF that has to be
+      // drawn again months later is still the size the shop chose then and not
+      // the size it happens to prefer today.
+      waPrintSize: window.ANT.printsize.normalize(state.shop.waPrintSize,
+        window.ANT.printsize.SHARE_DEFAULT),
       logoUrl: logoUrl(),
       shop: {
         name: state.shop.name,
@@ -1920,6 +1981,20 @@ window.ANT.bills = (function () {
     };
   }
 
+  /* A bill is drawn on one sheet and shared on another, and the two defaults are
+   * set separately in the shop settings. Rather than teach the renderer about
+   * sharing, the snapshot is handed over with the shared sheet in the one field
+   * billMarkup already reads. Everything downstream - the markup, the fit, the
+   * page - then treats a shared bill exactly like a printed one, which is the
+   * only way the two can be guaranteed to come out the same document.
+   *
+   * printSize is left alone on the snapshot itself, because a retry reads the
+   * snapshot back and must not quietly reprint on the shop's current sheet. */
+  function sharedSnapshot(snap) {
+    var size = window.ANT.printsize.normalize(snap.waPrintSize || snap.printSize);
+    return Object.assign({}, snap, { printSize: size });
+  }
+
   /* The address is written to the bill row and to storage in that order of
    * importance but one transaction: a URL that is stored and never uploaded is a
    * dead link the shop would keep handing out, so the file is uploaded first and
@@ -1938,7 +2013,7 @@ window.ANT.bills = (function () {
 
   function writeBlob(bill, snap, path) {
     var bucket = sb().storage.from(PDF_BUCKET);
-    return window.ANT.billpdf.render(snap)
+    return window.ANT.billpdf.render(sharedSnapshot(snap))
       .then(function (blob) {
         return bucket.upload(path, blob, { contentType: 'application/pdf' });
       })
@@ -2347,6 +2422,18 @@ window.ANT.bills = (function () {
   return {
     mount: mount,
     render: render,
+    /* The bill as markup. The PDF renderer draws this rather than a second
+     * description of the same page, which is what keeps a printed bill and a
+     * shared PDF identical when one of them is changed. */
+    markup: billMarkup,
+    /* The bill's own stylesheet, handed to the receipt.
+     *
+     * A receipt used to carry a stylesheet of its own, written to look much like
+     * this one. Two stylesheets that mean to look alike agree right up to the day
+     * somebody edits one of them, and after that the shop's letterhead and its
+     * counter slip disagree in the same small ways that make a business look
+     * careless. The receipt is built out of these same rules instead. */
+    __printCss: PRINT_CSS,
     // Exposed so the harness can assert the wording of every part of the amount
     // in words. A wrong word there is read as a statement of fact by whoever signs
     // a crossed cheque against the line, so it is tested rather than trusted.
@@ -2356,6 +2443,19 @@ window.ANT.bills = (function () {
     // arithmetic is checkable there, whereas a bill that came out as two pages is
     // only ever visible on paper.
     __fitToOnePage: fitToOnePage,
-    __MIN_SCALE: MIN_SCALE
+    __MIN_SCALE: MIN_SCALE,
+    // Which sheet a shared bill is drawn on. Exposed because this is the one
+    // place the printed sheet and the shared sheet are allowed to differ, and a
+    // shop that sets both to the same thing must not be quietly given the
+    // printer's choice for its PDFs, or the other way round.
+    __sharedSnapshot: sharedSnapshot,
+    // Handing the finished file to the printer. Lives in billpdf now, where a receipt
+    // can reach it too, and pointed at from here so the harness has one door to
+    // knock on: a real print dialog cannot be answered from a test, and a test that
+    // opened one would hang rather than fail. Reached through a function because
+    // bills.js is defined before billpdf.js, so there is nothing to point at yet.
+    __printBlob: function (blob, name) {
+      return window.ANT.billpdf.__printBlob(blob, name);
+    }
   };
 })();
