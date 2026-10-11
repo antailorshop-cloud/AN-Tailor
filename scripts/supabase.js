@@ -508,6 +508,17 @@ window.ANT.sb = (function () {
       return request('PUT', '/auth/v1/user', { body: attrs });
     },
 
+    // Revoke every OTHER session for the signed-in user and keep this one. This
+    // is the documented GoTrue logout scope: POST /auth/v1/logout?scope=others
+    // answers 204 and destroys the refresh tokens of the other sessions while
+    // leaving this session's tokens untouched. It is offered after a password
+    // change so a change ends access from anywhere the old password was used.
+    // A failure is returned, not swallowed, so the caller can say what happened
+    // rather than claiming the other sessions were ended.
+    revokeOtherSessions: function () {
+      return request('POST', '/auth/v1/logout', { query: 'scope=others' });
+    },
+
     // Fires when the token is refreshed elsewhere or the session is lost.
     onAuthChange: function (handler) {
       window.addEventListener('storage', function (e) {

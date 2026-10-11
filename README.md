@@ -118,3 +118,29 @@ A grant can only ever subtract from a role, never widen it. No rows at all means
 "leave them to their role", which is why an account created before this feature
 existed keeps working; a tailor deliberately locked down gets a `NONE` row so
 the empty case is not mistaken for "no narrowing".
+
+## Releases
+
+The site is static, so a release is a push to `main`; GitHub Pages then serves
+the new files. The one ordering rule is that the database must be ready before
+the browser asks it for anything new.
+
+1. **Database first.** Run any pending file in `supabase/migrations/` in the
+   Supabase SQL editor *before* deploying the frontend that needs it. The files
+   are written to be safe to run twice. A frontend that reads a column the
+   database does not have yet fails sign-in with a schema message rather than a
+   wrong "no profile" one, but the fix is still to run the migration.
+2. **Bump the build.** Set `BUILD` in `scripts/config.js` and `CACHE` in
+   `sw.js` to the next number together. The service worker names its cache
+   after `CACHE`, so a new number is what makes a device retire the old files
+   instead of serving them from the cache.
+3. **Deploy.** Commit and push to `main`. Pages rebuilds from the branch.
+4. **Smoke test on the live site.** Hard-refresh (`Ctrl+Shift+R`) past the old
+   service worker, then check: sign in; the profile menu opens *My profile*;
+   saving a name updates the header; a password change is accepted and a wrong
+   current password is refused; and the page the release touched still loads.
+5. **Run the harnesses.** The browser checks under the local harness runner
+   (one page per invocation) must all pass before the push, not after.
+
+There is no separate deploy step and no build tool: the files in the repository
+are the files the browser downloads.

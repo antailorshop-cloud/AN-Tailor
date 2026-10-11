@@ -756,6 +756,21 @@ button, input, select, textarea { font: inherit; color: inherit; }
   color: var(--text-muted);
 }
 
+/* A validation message on a form. It stays in the layout with an empty
+   min-height so the card does not jump when the text appears, and it is coloured
+   as a fault rather than as help. */
+.form-error {
+  min-height: 16px;
+  color: var(--danger);
+}
+
+/* The password strength read-out. The word is the message; the colour only
+   agrees with it, so the meaning is never carried by colour alone. */
+.pw-strength { min-height: 16px; }
+.pw-strength.is-weak { color: var(--danger); }
+.pw-strength.is-fair { color: var(--warn); }
+.pw-strength.is-strong { color: var(--success, var(--text)); }
+
 /* A disabled field is a value shown, not a value typed: the login email and the
    role on the account page. It is greyed so it does not read as an editable box,
    and the cursor says the same thing before it is clicked. */

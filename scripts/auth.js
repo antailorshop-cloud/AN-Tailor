@@ -162,19 +162,52 @@ window.ANT.auth = (function () {
   }
 
   function loadProfile(user) {
-    return window.ANT.sb.from('profiles')
-      .select('id, email, display_name, phone, address, role, active')
-      .eq('id', user.id)
-      .single()
+    var selectExtended = 'id, email, display_name, phone, address, role, active';
+    var selectBase = 'id, email, display_name, role, active';
+
+    function buildFromSelect(sel) {
+      return window.ANT.sb.from('profiles')
+        .select(sel)
+        .eq('id', user.id)
+        .single();
+    }
+
+    return buildFromSelect(selectExtended)
       .then(function (res) {
-        if (res.error || !res.data) {
+        if (res.error) {
+          var msg = String(res.error.message || '').toLowerCase();
+          var isMissingCol = /column.*(phone|address)|does not exist|undefined column/i.test(msg);
+          if (isMissingCol) {
+            return buildFromSelect(selectBase).then(function (r2) {
+              if (r2.error || !r2.data) {
+                return { blocked: true, reason: 'schema_outdated' };
+              }
+              if (r2.data.active === false) {
+                return { blocked: true, reason: 'inactive' };
+              }
+              return loadAreas(user.id).then(function (areas) {
+                return {
+                  id: r2.data.id,
+                  email: r2.data.email || user.email,
+                  name: r2.data.display_name || r2.data.email || user.email,
+                  phone: '',
+                  address: '',
+                  role: r2.data.role,
+                  areas: areas,
+                  preview: false,
+                  schemaOutdated: true
+                };
+              });
+            });
+          }
+          return { blocked: true, reason: 'no_profile' };
+        }
+        if (!res.data) {
           return { blocked: true, reason: 'no_profile' };
         }
         if (res.data.active === false) {
           return { blocked: true, reason: 'inactive' };
         }
-        // The granted areas are carried in the cached profile so a reload
-        // paints the right menu before the second network read returns.
         return loadAreas(user.id).then(function (areas) {
           return {
             id: res.data.id,
@@ -188,7 +221,11 @@ window.ANT.auth = (function () {
           };
         });
       })
-      .catch(function () {
+      .catch(function (err) {
+        var msg = String(err && err.message || '').toLowerCase();
+        if (/column.*(phone|address)|does not exist|undefined column/i.test(msg)) {
+          return { blocked: true, reason: 'schema_outdated' };
+        }
         return { blocked: true, reason: 'lookup_failed' };
       });
   }
@@ -199,6 +236,9 @@ window.ANT.auth = (function () {
       writeCache(null);
       if (profile.reason === 'inactive') {
         return Promise.reject(new Error('This account has been deactivated. Ask the shop owner.'));
+      }
+      if (profile.reason === 'schema_outdated') {
+        return Promise.reject(new Error('Database schema is out of date (missing profile fields). Ask the owner to run migrations.'));
       }
       return Promise.reject(new Error(
         'Your account has no profile yet, so no shop access can be granted. Ask the shop owner to set it up.'
@@ -323,6 +363,17 @@ window.ANT.auth = (function () {
      * That is the only check the app can make that the person at the keyboard is
      * the account holder, and it doubles as a token refresh for the write that
      * follows. A wrong current password fails here and no password is changed.
+     *
+     * The new password is refused if it is the same as the one just confirmed,
+     * because a change to the same value is a no-op the person did not intend.
+     * The check is made after the sign-in succeeds, so it compares against the
+     * real current password rather than a mistyped one.
+     *
+     * After the write, every OTHER session is revoked (the documented
+     * `scope=others` logout), so a password change ends access from anywhere the
+     * old password may have been used. That call is separate and can fail on its
+     * own; the password change still stands if it does, and the caller is told
+     * which of the two happened instead of being told a success story.
      */
     changePassword: function (current, next) {
       var user = readCache();
@@ -337,10 +388,17 @@ window.ANT.auth = (function () {
       }
       return window.ANT.sb.signIn(user.email, current).then(function (res) {
         if (res.error) throw new Error('Your current password is not correct.');
+        if (String(next) === String(current)) {
+          throw new Error('The new password must be different from your current password.');
+        }
         return window.ANT.sb.updateUser({ password: next });
       }).then(function (res) {
         if (res.error) throw new Error(friendly(res.error.message));
-        return true;
+        return window.ANT.sb.revokeOtherSessions().then(function (rev) {
+          return { changed: true, othersRevoked: !(rev && rev.error) };
+        }, function () {
+          return { changed: true, othersRevoked: false };
+        });
       });
     },
 
