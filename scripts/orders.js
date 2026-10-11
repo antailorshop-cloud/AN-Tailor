@@ -1272,17 +1272,28 @@ window.ANT.orders = (function () {
       } else {
         work = nextCode().then(function (code) {
           if (!code) return { error: { message: 'Could not work out a new order number. Try again.' } };
-          head.code = code;
-          return sb().from('orders')
-            .insert(head)
-            .single()
-            .then(function (res) {
-              if (res.error || !res.data) {
-                return { error: res.error || { message: 'The order could not be saved.' } };
-              }
-              orderId = res.data.id;
-              return replaceItems(orderId);
-            });
+          // The orders_read policy hides archived orders from staff, so the
+          // highest number the reader can see may already be in use. A unique
+          // violation steps to the next number rather than failing on a key the
+          // tailor cannot act on.
+          var attempt = function (ordCode, tries) {
+            head.code = ordCode;
+            return sb().from('orders')
+              .insert(head)
+              .single()
+              .then(function (res) {
+                if (res.error || !res.data) {
+                  if (tries < 50 && isDuplicateCode(res)) {
+                    var m = /(\d+)\s*$/.exec(ordCode || '');
+                    if (m) return attempt('ORD-' + String(parseInt(m[1], 10) + 1).padStart(4, '0'), tries + 1);
+                  }
+                  return { error: res.error || { message: 'The order could not be saved.' } };
+                }
+                orderId = res.data.id;
+                return replaceItems(orderId);
+              });
+          };
+          return attempt(code, 0);
         });
       }
     } catch (e) {
@@ -1351,6 +1362,15 @@ window.ANT.orders = (function () {
         }
         return 'ORD-' + String(n).padStart(4, '0');
       });
+  }
+
+  // A 409 from PostgREST is a unique violation (Postgres 23505). The message is
+  // checked as well so the retry keeps working if the status is ever dropped.
+  function isDuplicateCode(res) {
+    if (!res || !res.error) return false;
+    if (res.error.status === 409) return true;
+    var m = String(res.error.message || '').toLowerCase();
+    return m.indexOf('duplicate') > -1 || m.indexOf('unique') > -1;
   }
 
   // New order: every row is an insert, so it is one request. The count is

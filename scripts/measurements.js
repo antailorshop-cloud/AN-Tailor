@@ -399,8 +399,10 @@ window.ANT.measurements = (function () {
     return res;
   }
 
-  function insertMeasurement(payload, attempt) {
-    return nextCode().then(function (code) {
+  function insertMeasurement(payload, attempt, number) {
+    attempt = attempt || 0;
+    var base = (number == null) ? nextCode() : Promise.resolve('M' + String(number).padStart(4, '0'));
+    return base.then(function (code) {
       if (code === null) {
         return { error: { message: 'Could not work out a new code. Try again.' } };
       }
@@ -415,8 +417,12 @@ window.ANT.measurements = (function () {
         })
         .single()
         .then(function (res) {
-          if (res.error && res.error.status === 409 && attempt < 3) {
-            return insertMeasurement(payload, attempt + 1);
+          // The measurements_read policy hides archived rows from staff, so the
+          // highest readable code may already be taken. Step to the next number
+          // rather than fail on a key the user cannot act on.
+          if (isDuplicateCode(res) && attempt < 50) {
+            var m = /(\d+)\s*$/.exec(code || '');
+            if (m) return insertMeasurement(payload, attempt + 1, parseInt(m[1], 10) + 1);
           }
           return res;
         });
@@ -443,6 +449,15 @@ window.ANT.measurements = (function () {
         }
         return 'M' + String(n).padStart(4, '0');
       });
+  }
+
+  // A 409 from PostgREST is a unique violation (Postgres 23505). The message is
+  // checked as well so the retry keeps working if the status is ever dropped.
+  function isDuplicateCode(res) {
+    if (!res || !res.error) return false;
+    if (res.error.status === 409) return true;
+    var m = String(res.error.message || '').toLowerCase();
+    return m.indexOf('duplicate') > -1 || m.indexOf('unique') > -1;
   }
 
   function remove(id) {
