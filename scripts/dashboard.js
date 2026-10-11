@@ -47,6 +47,15 @@ window.ANT.dashboard = (function () {
     return isFinite(n) ? n : 0;
   }
 
+  function diffDays(a, b) {
+    var pa = String(a == null ? '' : a).split('-');
+    var pb = String(b == null ? '' : b).split('-');
+    if (pa.length !== 3 || pb.length !== 3) return null;
+    var da = new Date(Number(pa[0]), Number(pa[1]) - 1, Number(pa[2]));
+    var db = new Date(Number(pb[0]), Number(pb[1]) - 1, Number(pb[2]));
+    return Math.round(Math.abs((db - da) / 86400000));
+  }
+
   /* The local calendar date as YYYY-MM-DD.
    *
    * toISOString() is not usable here. It converts to UTC first, so for a shop
@@ -100,6 +109,7 @@ window.ANT.dashboard = (function () {
     outstanding: 0,
     collectedWeek: 0,
     urgent: 0,
+    avgDeliverDays: null,
     /* The jobs themselves, so the screen says what needs doing rather than only
      * how many. Capped: this is a glance, not a work list, and the full list
      * already exists on the Orders page. */
@@ -107,7 +117,16 @@ window.ANT.dashboard = (function () {
     /* Every open order split by the day the customer expects it, so the shop can
      * see at a glance what is late and what is coming. Counted on the order's
      * delivery_date - the latest of its items - the same date a bill prints. */
-    tracker: { overdue: 0, today: 0, tomorrow: 0, week: 0, later: 0, none: 0 }
+    tracker: { overdue: 0, today: 0, tomorrow: 0, week: 0, later: 0, none: 0 },
+    /* The same open orders split by the date the shop promised the garment, not
+     * by when it is due to be handed over. A promise is what a customer holds
+     * the shop to, so an overdue promise is a phone call, not a number. The
+     * overdue and today buckets keep the orders themselves, so the board can
+     * name who is waiting. */
+    promise: { overdue: [], today: [], upcoming: [], later: 0, none: 0 },
+    /* Resale items whose available count has fallen to their own restock
+     * threshold, capped for the glance. */
+    lowStock: []
   };
 
   var BENCH_LIMIT = 6;
@@ -152,17 +171,19 @@ window.ANT.dashboard = (function () {
     var wantOrders = canRead('orders');
     var wantBills = canRead('bills');
     var wantPayments = canRead('payments');
+    var wantResale = canRead('resale');
 
     var orders = wantOrders
       ? sb().from('orders')
-          .select('id,code,status,order_date,delivery_date,balance,priority,customer:customers(id,code,name)')
+          .select('id,code,status,order_date,delivery_date,promise_date,balance,priority,customer:customers(id,code,name)')
           .neq('status', 'Cancelled')
           .is('archived_at', null)
       : withheld('orders');
 
     var bills = wantBills
       ? sb().from('bills')
-          .select('id,balance')
+          .select('id,balance,status')
+          .neq('status', 'VOID')
           .is('archived_at', null)
       : withheld('bills');
 
@@ -172,7 +193,12 @@ window.ANT.dashboard = (function () {
           .gte('paid_on', week)
       : withheld('payments');
 
-    return Promise.all([orders, bills, payments]).then(function (res) {
+    var resale = wantResale
+      ? sb().from('resale_stock')
+          .select('id,name,variant,available,min_qty,unit')
+      : withheld('resale');
+
+    return Promise.all([orders, bills, payments, resale]).then(function (res) {
       var err = firstError(res);
       if (err) {
         state.error = (err && err.message) || 'The figures could not be loaded.';
@@ -187,10 +213,12 @@ window.ANT.dashboard = (function () {
       if (res[0].withheld) state.held.push('orders');
       if (res[1].withheld) state.held.push('bills');
       if (res[2].withheld) state.held.push('payments');
+      if (res[3].withheld) state.held.push('resale');
 
       var rows = res[0].data || [];
       var billRows = res[1].data || [];
       var payRows = res[2].data || [];
+      var stockRows = res[3].data || [];
 
       state.error = '';
       state.loaded = true;
@@ -264,6 +292,55 @@ window.ANT.dashboard = (function () {
       state.collectedWeek = payRows.reduce(function (sum, p) {
         return sum + num(p.amount);
       }, 0);
+
+      // Time to deliver: whole days from the order being taken to the garment
+      // being handed over, averaged over delivered orders. Delivered is
+      // measured on the delivery_date because that is the date the shop already
+      // records - a separate "finished at" stamp would have to be taught to
+      // every old order.
+      var delays = rows.filter(function (o) {
+        return o.status === 'Delivery' && o.order_date && o.delivery_date;
+      }).map(function (o) {
+        return diffDays(o.order_date, o.delivery_date);
+      }).filter(function (d) { return d !== null; });
+      state.avgDeliverDays = delays.length
+        ? Math.round(delays.reduce(function (a, b) { return a + b; }, 0) / delays.length)
+        : null;
+
+      // The promise board: the same open orders as the delivery tracker, but by
+      // the date actually promised to the customer instead of the due date the
+      // shop set. Overdue and due-today keep the orders so the board can name
+      // who is waiting; the rest are counts.
+      var upEnd = addDays(today, 3);
+      state.promise = { overdue: [], today: [], upcoming: [], later: 0, none: 0 };
+      rows.forEach(function (o) {
+        if (o.status === 'Delivery') return;
+        var d = String(o.promise_date || '').slice(0, 10);
+        if (!d) state.promise.none++;
+        else if (d < today) state.promise.overdue.push(o);
+        else if (d === today) state.promise.today.push(o);
+        else if (d <= upEnd) state.promise.upcoming.push(o);
+        else state.promise.later++;
+      });
+      state.promise.overdue = state.promise.overdue.slice(0, 6);
+      state.promise.today = state.promise.today.slice(0, 6);
+
+      // Items sitting at or under their own restock threshold, smallest first,
+      // capped for the glance. A threshold of zero means "do not track" and is
+      // not an alert.
+      state.lowStock = stockRows
+        .map(function (r) {
+          return {
+            name: r.name,
+            variant: r.variant,
+            available: num(r.available),
+            min_qty: num(r.min_qty),
+            unit: r.unit
+          };
+        })
+        .filter(function (r) { return r.min_qty > 0 && r.available <= r.min_qty; })
+        .sort(function (a, b) { return a.available - b.available; })
+        .slice(0, 6);
     });
   }
 
@@ -300,15 +377,18 @@ window.ANT.dashboard = (function () {
 
   function tiles() {
     // Grouped by the area each figure is read from, so a held area takes its
-    // tiles with it. Orders feeds five of the six, so a tailor with the
+    // tiles with it. Orders feeds five of the seven, so a tailor with the
     // dashboard but no orders sees a screen that says what it cannot see.
     var orderTiles = held('orders')
       ? heldTile('Orders today') + heldTile('Process') + heldTile('Finish') +
-        heldTile('Delivered this week')
+        heldTile('Delivered this week') + heldTile('Avg time to deliver')
       : statTile('Orders today', String(state.ordersToday), 'New orders taken today') +
         statTile('Process', String(state.inProgress), 'Taken but not yet ready') +
         statTile('Finish', String(state.ready), 'Finished, waiting for pickup') +
-        statTile('Delivered this week', String(state.deliveredWeek), 'Handed over since Monday');
+        statTile('Delivered this week', String(state.deliveredWeek), 'Handed over since Monday') +
+        statTile('Avg time to deliver',
+          state.avgDeliverDays === null ? '—' : String(state.avgDeliverDays) + ' days',
+          state.avgDeliverDays === null ? 'No delivered orders yet' : 'Days from order to hand-over');
 
     return (held('bills')
       ? heldTile('Outstanding', true)
@@ -364,6 +444,97 @@ window.ANT.dashboard = (function () {
         item('later', 'Later', t.later, 'tone-plain') +
         item('none', 'No delivery date', t.none, 'tone-muted') +
       '</div>' +
+    '</div>';
+  }
+
+  /* The promise board. The delivery tracker above answers "when will it be
+   * done?"; this answers "what did we tell the customer?" and keeps the two
+   * honest. An order promised on a date that has passed is named by customer
+   * and order - that is the phone call list - and the overdue and today
+   * buckets keep the rows rather than just counts, capped like the bench. */
+  function promiseBoard() {
+    if (held('orders')) {
+      return '<div class="ui-card tracker-card" style="margin-top:var(--gap)">' +
+        '<h2 class="ui-card-title">Promised dates</h2>' +
+        '<p class="ui-card-sub">Promised dates come from live orders, and Orders is not in your access.</p>' +
+      '</div>';
+    }
+
+    var p = state.promise;
+    var open = p.overdue.length + p.today.length + p.upcoming.length + p.later + p.none;
+
+    var item = function (key, label, value, tone) {
+      return '<div class="tracker-item ' + tone + '" data-promise="' + key + '">' +
+        '<div class="tracker-count">' + value + '</div>' +
+        '<div class="tracker-label">' + esc(label) + '</div>' +
+      '</div>';
+    };
+
+    // The overdue and today buckets carry the names, so the shop can act on the
+    // board instead of opening the order list to work out who is waiting.
+    var named = [];
+    p.overdue.concat(p.today).slice(0, 6).forEach(function (o) {
+      var c = o.customer || {};
+      var late = p.overdue.indexOf(o) !== -1;
+      named.push('<tr>' +
+        '<td>' + (late ? '<span class="chip chip-danger">Overdue</span>' : '<span class="chip chip-warn">Due today</span>') + '</td>' +
+        '<td><span class="ord-sub-strong">' + esc(c.name || 'Unknown customer') + '</span></td>' +
+        '<td>' + esc(o.code) + '</td>' +
+        '<td>' + esc(dateLabel(o.promise_date)) + '</td>' +
+      '</tr>');
+    });
+
+    return '<div class="ui-card tracker-card" style="margin-top:var(--gap)">' +
+      '<h2 class="ui-card-title">Promised dates</h2>' +
+      '<p class="ui-card-sub">' + open + ' promised order' + (open === 1 ? '' : 's') +
+        ' by the date given to the customer.</p>' +
+      '<div class="tracker-grid">' +
+        item('overdue', 'Overdue', p.overdue.length, 'tone-bad') +
+        item('today', 'Due today', p.today.length, 'tone-warn') +
+        item('upcoming', 'Next 3 days', p.upcoming.length, 'tone-info') +
+        item('later', 'Later', p.later, 'tone-plain') +
+        item('none', 'No promise date', p.none, 'tone-muted') +
+      '</div>' +
+      (named.length
+        ? '<div class="table-wrap" style="margin-top:var(--gap-sm)"><table class="ui-table"><thead><tr>' +
+          '<th>Status</th><th>Customer</th><th>Order</th><th>Promise</th>' +
+          '</tr></thead><tbody>' + named.join('') + '</tbody></table>' +
+          '<p class="ui-card-sub" style="margin-top:var(--gap-sm)">' +
+            'Promise more on <a href="#/orders">Orders</a>.</p></div>'
+        : '') +
+    '</div>';
+  }
+
+  /* Restock alerts. A resale item reads the shop for quantities, and is a
+   * quiet habit - nobody notices until a sale is refused for want of stock.
+   * The card names the items that have reached their own threshold, so the
+   * habit happens while there is still time. */
+  function restockCard() {
+    if (held('resale')) {
+      return '<div class="ui-card" style="margin-top:var(--gap)">' +
+        '<h2 class="ui-card-title">Restock alerts</h2>' +
+        '<p class="ui-card-sub">Restock alerts read Resale stock, and Resale is not in your access.</p>' +
+      '</div>';
+    }
+
+    if (!state.lowStock.length) {
+      return '<div class="ui-card" style="margin-top:var(--gap)">' +
+        '<h2 class="ui-card-title">No restock alerts</h2>' +
+        '<p class="ui-card-sub">Nothing on the shelves is at or under its own restock threshold.</p>' +
+      '</div>';
+    }
+
+    var chips = state.lowStock.map(function (r) {
+      var label = (r.name || 'Unknown') + (r.variant ? ' ' + r.variant : '');
+      return '<span class="chip chip-warn">' + esc(label) + ' (' +
+        esc(String(r.available)) + (r.unit ? ' ' + esc(r.unit) : '') + ' left)</span>';
+    }).join(' ');
+
+    return '<div class="ui-card" style="margin-top:var(--gap)">' +
+      '<h2 class="ui-card-title">Restock alerts</h2>' +
+      '<p class="ui-card-sub">Resale items at or under their own restock threshold.</p>' +
+      '<div class="card-chips">' + chips + '</div>' +
+      '<p class="ui-card-sub" style="margin-top:var(--gap-sm)">Restock on <a href="#/resale">Resale Stock</a>.</p>' +
     '</div>';
   }
 
@@ -452,7 +623,7 @@ window.ANT.dashboard = (function () {
     if (state.error) return failed(state.error);
     if (!state.loaded) return loading();
 
-    return '<div class="dashboard-grid">' + tiles() + '</div>' + tracker() + benchCard() + heldNote();
+    return '<div class="dashboard-grid">' + tiles() + '</div>' + promiseBoard() + tracker() + restockCard() + benchCard() + heldNote();
   }
 
   /* When any figure is missing for want of access rather than want of data, say
@@ -462,7 +633,7 @@ window.ANT.dashboard = (function () {
   function heldNote() {
     if (!state.held || !state.held.length) return '';
 
-    var names = { orders: 'Orders', bills: 'Bills', payments: 'Payments' };
+    var names = { orders: 'Orders', bills: 'Bills', payments: 'Payments', resale: 'Resale Stock' };
     var list = state.held.map(function (a) { return names[a] || a; });
 
     return '<div class="ui-card" style="margin-top:var(--gap)">' +

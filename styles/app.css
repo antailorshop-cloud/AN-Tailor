@@ -1,4 +1,4 @@
-*,
+﻿*,
 *::before,
 *::after { box-sizing: border-box; }
 
@@ -1788,3 +1788,114 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 .staff-area.is-locked { cursor: default; opacity: 0.75; }
 
+
+/* Batch actions */
+.ord-batch { display:flex; flex-wrap:wrap; align-items:center; gap:var(--gap-sm); padding:var(--gap-sm) var(--gap); background: color-mix(in srgb, var(--surface-secondary, #f8fafc) 95%, transparent); border:1px solid var(--line, #e5e7eb); border-radius:12px; box-shadow:var(--shadow-sm, 0 1px 3px rgba(15,23,42,0.04), 0 1px 2px rgba(15,23,42,0.03)); margin-top:var(--gap); backdrop-filter:saturate(140%) blur(6px); }
+.ord-sel-col { width: 2.25rem; text-align: center; }
+.batch-row { display: flex; align-items: center; gap: var(--gap-sm); flex-wrap: wrap; }
+.batch-count { font-weight: 600; }
+.batch-spacer { flex: 1 1 auto; }
+.batch-label { font-size: 0.9rem; color: var(--text-muted); }
+.batch-input { max-width: 10rem; }
+.card-chips { display: flex; flex-wrap: wrap; gap: var(--gap-xs); margin-top: var(--gap-sm); }
+
+.ui-card {
+  background: var(--surface-primary, #fff);
+  border: 1px solid var(--line, #e5e7eb);
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm, 0 1px 3px rgba(15,23,42,0.04), 0 1px 2px rgba(15,23,42,0.03));
+  transition: box-shadow 0.12s ease, transform 0.12s ease;
+}
+.ui-card:hover {
+  box-shadow: var(--shadow-md, 0 4px 6px -1px rgba(15,23,42,0.08), 0 2px 4px -2px rgba(15,23,42,0.06));
+}
+.ui-card-title {
+  font-weight: 600;
+  font-size: 1rem;
+  color: var(--text-primary, #1f2937);
+  letter-spacing: 0.01em;
+}
+.ui-card-sub {
+  color: var(--text-sub, #6b7280);
+  font-size: 0.875rem;
+  margin-top: 0.375rem;
+}
+
+.stat {
+  background: var(--surface-primary, #fff);
+  border: 1px solid var(--line, #e5e7eb);
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm, 0 1px 3px rgba(15,23,42,0.04), 0 1px 2px rgba(15,23,42,0.03));
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
+}
+.stat:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md, 0 4px 6px -1px rgba(15,23,42,0.08), 0 2px 4px -2px rgba(15,23,42,0.06));
+}
+.stat-label {
+  color: var(--text-sub, #6b7280);
+  font-weight: 500;
+  font-size: 0.875rem;
+}
+.stat-value {
+  color: var(--text-primary, #1f2937);
+  font-weight: 600;
+}
+.stat-foot {
+  color: var(--text-sub, #6b7280);
+  font-size: 0.75rem;
+}
+
+.chip {
+  border-radius: 999px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  padding: 0.25rem 0.625rem;
+  font-size: 0.75rem;
+  border: 1px solid var(--line, #e5e7eb);
+  background: var(--surface-secondary, #f8fafc);
+  color: var(--text-secondary, #4b5563);
+}
+.chip-danger { background: rgba(220,38,38,0.08); color: #b91c1c; border-color: rgba(220,38,38,0.25); }
+.chip-warn   { background: rgba(245,158,11,0.08); color: #b45309; border-color: rgba(245,158,11,0.25); }
+.chip-success{ background: rgba(22,163,74,0.08);  color: #15803d; border-color: rgba(22,163,74,0.25); }
+.chip-info   { background: rgba(15,123,255,0.08); color: #0f7bff; border-color: rgba(15,123,255,0.25); }
+
+.ui-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.ui-table thead th {
+  background: var(--surface-secondary, #f8fafc);
+  color: var(--text-sub, #6b7280);
+  font-weight: 600;
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 0.625rem 0.75rem;
+  border-bottom: 1px solid var(--line, #e5e7eb);
+  text-align: left;
+}
+.ui-table tbody td {
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--line-subtle, #f1f5f9);
+  color: var(--text-secondary, #4b5563);
+  vertical-align: middle;
+}
+.ui-table tbody tr {
+  transition: background 0.08s ease;
+}
+.ui-table tbody tr:hover {
+  background: rgba(15, 123, 255, 0.04);
+}
+.ui-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+input:focus, select:focus, textarea:focus, button:focus-visible, .btn:focus-visible {
+  outline: 2px solid rgba(15, 123, 255, 0.45);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+.chip-void { background: rgba(107,114,128,0.1); color: #6b7280; border-color: rgba(107,114,128,0.25); text-decoration: line-through; }
