@@ -46,28 +46,50 @@ window.ANT.customers = (function () {
   /* Customer code ----------------------------------------------------- */
 
   // Codes are C0001 upward, zero padded so a lexicographic sort matches the
-  // numeric order. A unique-violation retry covers the case where two people
-  // add a customer at the same moment.
-  function nextCode(attempt) {
+  // numeric order.
+  //
+  // The unique index on customers.code is global, but the read below only
+  // returns the rows the signed-in user is allowed to see. The customers_read
+  // policy hides archived customers from staff, so the highest code on the
+  // shelf can already be taken by a row that never appears in this result.
+  // The readable maximum is therefore only a starting point: a unique
+  // violation - whether from a hidden row or from two people saving at the same
+  // moment - steps to the next number and tries again, instead of asking the
+  // same question and failing on it.
+  function highestCode() {
     return sb().from('customers')
       .select('code')
       .order('code', false)
       .limit(1)
       .then(function (res) {
         var n = 1;
-        if (!res.error && res.data && res.data.length) {
+        if (res && !res.error && res.data && res.data.length) {
           var m = /(\d+)\s*$/.exec(res.data[0].code || '');
           if (m) n = parseInt(m[1], 10) + 1;
         }
-        return 'C' + String(n).padStart(4, '0');
+        return n;
       });
   }
 
-  function insertCustomer(values, attempt) {
+  function codeFor(n) {
+    return 'C' + String(n).padStart(4, '0');
+  }
+
+  // A 409 from PostgREST is a unique violation (Postgres 23505). The message is
+  // checked as well so the retry keeps working if the status is ever dropped.
+  function isDuplicateCode(res) {
+    if (!res || !res.error) return false;
+    if (res.error.status === 409) return true;
+    var m = String(res.error.message || '').toLowerCase();
+    return m.indexOf('duplicate') > -1 || m.indexOf('unique') > -1;
+  }
+
+  function insertCustomer(values, attempt, number) {
     attempt = attempt || 0;
-    return nextCode().then(function (code) {
+    var base = (number == null) ? highestCode() : Promise.resolve(number);
+    return base.then(function (n) {
       var payload = {
-        code: code,
+        code: codeFor(n),
         name: values.name,
         mobile: values.mobile || '',
         address: values.address || '',
@@ -75,9 +97,8 @@ window.ANT.customers = (function () {
         status: 'ACTIVE'
       };
       return sb().from('customers').insert(payload).single().then(function (res) {
-        // 23505 is unique_violation, which means we raced another insert.
-        if (res.error && res.error.status === 409 && attempt < 3) {
-          return insertCustomer(values, attempt + 1);
+        if (isDuplicateCode(res) && attempt < 50) {
+          return insertCustomer(values, attempt + 1, n + 1);
         }
         return res;
       });
