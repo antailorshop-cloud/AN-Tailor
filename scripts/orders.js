@@ -1985,4 +1985,74 @@ window.ANT.orders = (function () {
       sel.disabled = false;
     });
   });
+  function announceStatusChange(order, wasAuto, before, after) {
+    if (!order || !after) return;
+    try {
+      if (typeof window.notifyOrderStatus === 'function') {
+        window.notifyOrderStatus(order, after, before || order.status, wasAuto);
+      }
+    } catch (e) {}
+    try {
+      var msg = null;
+      if (after === 'Finish') msg = (window._ORDERS_READY_MSG || 'Order ready - can send for pickup/delivery?');
+      else if (after === 'Delivery') msg = (window._ORDERS_DELIVERED_MSG || 'Order delivered?');
+      if (msg && order && order.phone && typeof openWhatsApp === 'function') {
+        openWhatsApp(order.phone, msg);
+      }
+    } catch (e) {}
+  }
+
+  function updateStatus(orderId, newStatus, beforeStatus) {
+    var sb = window.sb;
+    if (!sb || !orderId || !newStatus) return Promise.reject(new Error('Missing'));
+    var order = state.orders.find(function (o) { return o.id === orderId; });
+    var before = beforeStatus || (order ? order.status : null);
+    if (order) order.status = newStatus;
+    return sb().from('orders').update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', orderId).then(function (res) {
+      if (res.error) throw res.error;
+      try { if (typeof audit === 'function') audit('order.status', 'orders', orderId, { from: before, to: newStatus }); } catch (e) {}
+      try { if (order) announceStatusChange(order, true, before, newStatus); } catch (e) {}
+      return res;
+    }).catch(function (err) {
+      if (order) order.status = before;
+      throw err;
+    });
+  }
+
+  function renderStatusCell(o) {
+    if (!o || !o.id) return statusChip(o.status);
+    var opts = ['Pending','Process','Finish','Delivery','Cancelled'].map(function (st) {
+      return '<option value="' + esc(st) + '"' + (st === o.status ? ' selected' : '') + '>' + esc(st) + '</option>';
+    }).join('');
+    return '<select class="ui-input ui-input-sm ord-status" data-ord-status="' + esc(o.id) + '" data-cur="' + esc(o.status) + '" title="Change status">' + opts + '</select>';
+  }
+
+  document.addEventListener('change', function (e) {
+    var sel = e.target.closest('[data-ord-status]');
+    if (!sel) return;
+    var id = sel.getAttribute('data-ord-status');
+    var cur = sel.getAttribute('data-cur') || '';
+    var next = sel.value;
+    if (!id || !next || next === cur) return;
+    if (next === 'Cancelled') {
+      if (!confirm('Cancel this order? This action cannot be undone from here.')) {
+        sel.value = cur;
+        return;
+      }
+    }
+    sel.disabled = true;
+    sel.classList.add('is-saving');
+    try { if (typeof window.showToast === 'function') window.showToast('Saving status...', { duration: 800 }); } catch (ex) {}
+    updateStatus(id, next, cur).then(function () {
+      try { if (typeof window.showToast === 'function') window.showToast('Status updated', { type: 'success', duration: 1000 }); } catch (ex) {}
+      sel.setAttribute('data-cur', next);
+    }).catch(function (err) {
+      try { if (typeof window.showToast === 'function') window.showToast(err && err.message ? err.message : 'Failed to update status', { type: 'error', duration: 2000 }); } catch (ex) {}
+      sel.value = cur;
+      sel.setAttribute('data-cur', cur);
+    }).finally(function () {
+      sel.disabled = false;
+      sel.classList.remove('is-saving');
+    });
+  });
 })();
