@@ -175,7 +175,7 @@ window.ANT.dashboard = (function () {
 
     var orders = wantOrders
       ? sb().from('orders')
-          .select('id,code,status,order_date,delivery_date,promise_date,balance,priority,customer:customers(id,code,name)')
+          .select('id,code,status,order_date,delivery_date,balance,priority,customer:customers(id,code,name)')
           .neq('status', 'Cancelled')
           .is('archived_at', null)
       : withheld('orders');
