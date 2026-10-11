@@ -194,7 +194,7 @@ window.ANT.dashboard = (function () {
 
     var resale = wantResale
       ? sb().from('resale_stock')
-          .select('id,name,variant,available,min_qty,unit')
+          .select('id,name,variant,available,unit')
       : withheld('resale');
 
     return Promise.all([orders, bills, payments, resale]).then(function (res) {
@@ -333,7 +333,7 @@ window.ANT.dashboard = (function () {
             name: r.name,
             variant: r.variant,
             available: num(r.available),
-            min_qty: num(r.min_qty),
+            min_qty: r.min_qty != null && r.min_qty !== undefined ? num(r.min_qty) : 0,
             unit: r.unit
           };
         })
