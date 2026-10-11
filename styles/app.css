@@ -1502,6 +1502,40 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 .ord-status-bar .ui-field { min-width: 180px; }
 
+/* Inline status control in the orders list: select + Save + quick action */
+
+.ord-status-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ord-status-wrap .ord-status {
+  min-width: 118px;
+  padding: 5px 8px;
+  font-size: var(--fs-sm);
+}
+
+.ord-status-save {
+  display: none;
+}
+
+.ord-quick {
+  white-space: nowrap;
+}
+
+.btn-success {
+  background: #1f8a4c;
+  border-color: #1a7440;
+  color: #fff;
+}
+
+.btn-success:hover:not(:disabled) {
+  background: #1a7440;
+  border-color: #166335;
+}
+
 .ord-danger {
   display: flex;
   flex-direction: column;

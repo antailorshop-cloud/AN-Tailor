@@ -2183,4 +2183,107 @@ window.ANT.orders = (function () {
       try { if (typeof window.showToast === 'function') window.showToast('Update failed', { type: 'error', duration: 1500 }); } catch (ex) {}
     }).finally(function () { btn.disabled = false; sel.disabled = false; });
   });
+
+  function announceStatusChange(order, wasAuto, before, after) {
+    if (!order || !after) return;
+    try {
+      if (typeof window.notifyOrderStatus === 'function') window.notifyOrderStatus(order, after, before || order.status, wasAuto);
+    } catch (e) {}
+    try {
+      var msg = null;
+      if (after === 'Finish') msg = (window._ORDERS_READY_MSG || 'Order ready - can send for pickup/delivery?');
+      else if (after === 'Delivery') msg = (window._ORDERS_DELIVERED_MSG || 'Order delivered?');
+      if (msg && order && order.phone && typeof openWhatsApp === 'function') openWhatsApp(order.phone, msg);
+    } catch (e) {}
+  }
+
+  function updateStatus(orderId, newStatus, beforeStatus) {
+    var sb = window.sb;
+    if (!sb || !orderId || !newStatus) return Promise.reject(new Error('Missing'));
+    var order = state.orders.find(function (o) { return o.id === orderId; });
+    var before = beforeStatus || (order ? order.status : null);
+    if (order) order.status = newStatus;
+    return sb().from('orders').update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', orderId).then(function (res) {
+      if (res.error) throw res.error;
+      try { if (typeof audit === 'function') audit('order.status', 'orders', orderId, { from: before, to: newStatus }); } catch (e) {}
+      try { if (order) announceStatusChange(order, true, before, newStatus); } catch (e) {}
+      return res;
+    }).catch(function (err) {
+      if (order) order.status = before;
+      throw err;
+    });
+  }
+
+  function quickActionFor(status) {
+    if (status === 'Pending') return { next: 'Process', label: 'Start', cls: 'btn-primary' };
+    if (status === 'Process') return { next: 'Finish', label: 'Finish', cls: 'btn-primary' };
+    if (status === 'Finish') return { next: 'Delivery', label: 'Deliver', cls: 'btn-success' };
+    return null;
+  }
+
+  function renderStatusCell(o) {
+    if (!o || !o.id) return statusChip(o.status);
+    var opts = ['Pending','Process','Finish','Delivery','Cancelled'].map(function (st) {
+      return '<option value="' + esc(st) + '"' + (st === o.status ? ' selected' : '') + '>' + esc(st) + '</option>';
+    }).join('');
+    var qa = quickActionFor(o.status);
+    var quick = qa ? '<button type="button" class="btn btn-sm ' + qa.cls + ' ord-quick" data-ord-id="' + esc(o.id) + '" data-next="' + qa.next + '" data-cur="' + esc(o.status) + '">' + qa.label + '</button>' : '';
+    return '<div class="ord-status-wrap">' +
+      '<select class="ui-input ord-status" data-ord-id="' + esc(o.id) + '" data-cur="' + esc(o.status) + '">' + opts + '</select>' +
+      '<button type="button" class="btn btn-sm btn-secondary ord-status-save" data-ord-id="' + esc(o.id) + '" style="display:none">Save</button>' +
+      quick +
+      '</div>';
+  }
+
+  function applyStatus(id, next, cur, onDone, onFail) {
+    if (!id || !next || next === cur) { if (onDone) onDone(); return; }
+    if (next === 'Cancelled' && !confirm('Cancel this order?')) { if (onFail) onFail(); return; }
+    updateStatus(id, next, cur).then(function () {
+      try { if (typeof window.showToast === 'function') window.showToast('Status updated', { duration: 1000 }); } catch (e) {}
+      if (onDone) onDone();
+    }).catch(function (err) {
+      try { if (typeof window.showToast === 'function') window.showToast('Update failed', { type: 'error', duration: 1500 }); } catch (e) {}
+      if (onFail) onFail();
+    });
+  }
+
+  document.addEventListener('change', function (e) {
+    var sel = e.target;
+    if (!sel || !sel.classList || !sel.classList.contains('ord-status')) return;
+    var cur = sel.getAttribute('data-cur') || '';
+    var next = sel.value;
+    var btn = sel.parentElement && sel.parentElement.querySelector('.ord-status-save');
+    if (btn) {
+      if (next === cur) { btn.style.display = 'none'; }
+      else { btn.style.display = 'inline-flex'; btn.setAttribute('data-next', next); }
+    }
+  });
+
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    var qb = t && t.closest ? t.closest('.ord-quick') : null;
+    if (qb) {
+      var qid = qb.getAttribute('data-ord-id');
+      var qnext = qb.getAttribute('data-next');
+      var qcur = qb.getAttribute('data-cur');
+      qb.disabled = true;
+      applyStatus(qid, qnext, qcur, function () { try { if (typeof paint === 'function') paint(); } catch (x) {} }, function () { qb.disabled = false; });
+      return;
+    }
+    var sb = t && t.closest ? t.closest('.ord-status-save') : null;
+    if (sb) {
+      var wrap = sb.parentElement;
+      var sel = wrap && wrap.querySelector('.ord-status');
+      if (!sel) return;
+      var id = sb.getAttribute('data-ord-id') || sel.getAttribute('data-ord-id');
+      var cur = sel.getAttribute('data-cur') || '';
+      var next = sb.getAttribute('data-next') || sel.value;
+      sb.disabled = true; sel.disabled = true;
+      applyStatus(id, next, cur, function () {
+        sel.setAttribute('data-cur', next); sel.value = next; sb.style.display = 'none';
+        try { if (typeof paint === 'function') paint(); } catch (x) {}
+      }, function () { sb.disabled = false; sel.disabled = false; });
+    }
+  });
+
 })();
