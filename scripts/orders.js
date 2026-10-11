@@ -1284,8 +1284,8 @@ window.ANT.orders = (function () {
               .then(function (res) {
                 if (res.error || !res.data) {
                   if (tries < 50 && isDuplicateCode(res)) {
-                    var m = /(\d+)\s*$/.exec(ordCode || '');
-                    if (m) return attempt('ORD-' + String(parseInt(m[1], 10) + 1).padStart(4, '0'), tries + 1);
+                    var s = serialFromCode(ordCode);
+                    if (s != null) return attempt(codeFor(s + 1), tries + 1);
                   }
                   return { error: res.error || { message: 'The order could not be saved.' } };
                 }
@@ -1348,20 +1348,58 @@ window.ANT.orders = (function () {
     };
   }
 
-  function nextCode() {
+  // Codes read AN-ORD-<YY>-<NNNN>: brand, type, two-digit year, running serial.
+  // The serial is drawn from the database counter (next_code), which never
+  // hands the same number out twice and resets each year.
+  var TYPE = 'ORD';
+
+  function yearTag() {
+    return String(new Date().getFullYear() % 100).padStart(2, '0');
+  }
+
+  function codeFor(n) {
+    return 'AN-' + TYPE + '-' + yearTag() + '-' + String(n).padStart(4, '0');
+  }
+
+  function serialFromCode(code) {
+    var m = /(\d+)\s*$/.exec(code || '');
+    return m ? parseInt(m[1], 10) : null;
+  }
+
+  // The orders_read policy hides archived orders from staff, so the highest
+  // code on the shelf can already be taken by a row that never appears in this
+  // result. This maximum is therefore only a starting point.
+  function highestSerial() {
     return sb().from('orders')
       .select('code')
+      .ilike('code', 'AN-' + TYPE + '-' + yearTag() + '-*')
       .order('code', false)
       .limit(1)
       .then(function (res) {
         if (res.error) return null;
         var n = 1;
         if (res.data && res.data.length) {
-          var m = /(\d+)\s*$/.exec(res.data[0].code || '');
-          if (m) n = parseInt(m[1], 10) + 1;
+          var s = serialFromCode(res.data[0].code);
+          if (s != null) n = s + 1;
         }
-        return 'ORD-' + String(n).padStart(4, '0');
+        return n;
       });
+  }
+
+  // Prefer the counter. Fall back to the highest visible serial when the RPC
+  // is not present - an older database, or a test double with no rpc().
+  function nextCode(serial) {
+    if (serial != null) return Promise.resolve(codeFor(serial));
+    var client = sb();
+    if (client && typeof client.rpc === 'function') {
+      return client.rpc('next_code', { p_type: TYPE }).then(function (res) {
+        if (res && !res.error && typeof res.data === 'string' && res.data) {
+          return res.data;
+        }
+        return highestSerial().then(function (n) { return n == null ? null : codeFor(n); });
+      });
+    }
+    return highestSerial().then(function (n) { return n == null ? null : codeFor(n); });
   }
 
   // A 409 from PostgREST is a unique violation (Postgres 23505). The message is

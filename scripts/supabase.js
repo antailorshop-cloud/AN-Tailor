@@ -530,6 +530,13 @@ window.ANT.sb = (function () {
       return new Query(table);
     },
 
+    // Database functions. PostgREST exposes them at /rest/v1/rpc/<name> and
+    // takes the arguments as a JSON object. next_code() is the one the app
+    // leans on: it hands out a serial number that is never reused.
+    rpc: function (fn, args) {
+      return request('POST', '/rest/v1/rpc/' + fn, { body: args || {} });
+    },
+
     storage: {
       from: function (bucket) {
         return new Storage(bucket);

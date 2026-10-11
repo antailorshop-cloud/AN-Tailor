@@ -395,27 +395,63 @@ window.ANT.bills = (function () {
   }
 
   // bills.code is NOT NULL UNIQUE with no default, so the number has to exist
-  // before the insert. BILL-<year>-<0001> is the legacy shape, except the
-  // counter runs across every bill rather than restarting each year, the way
-  // generateBillId_ read the highest number on the whole sheet. The sequence is
-  // only ever added to, so a bill can never be handed a number already in use.
-  function nextCode() {
+  // before the insert. Codes read AN-BIL-<YY>-<NNNN>: brand, type, two-digit
+  // year, running serial. The serial is drawn from the database counter
+  // (next_code), which never hands the same number out twice and resets each
+  // year.
+  var TYPE = 'BIL';
+
+  function yearTag() {
+    return String(new Date().getFullYear() % 100).padStart(2, '0');
+  }
+
+  function codeFor(n) {
+    return 'AN-' + TYPE + '-' + yearTag() + '-' + String(n).padStart(4, '0');
+  }
+
+  function serialFromCode(code) {
+    var m = /(\d+)\s*$/.exec(code || '');
+    return m ? parseInt(m[1], 10) : null;
+  }
+
+  function highestSerial() {
     return sb().from('bills')
       .select('code')
+      .ilike('code', 'AN-' + TYPE + '-' + yearTag() + '-*')
       .order('code', false)
       .limit(1)
       .then(function (res) {
         var n = 1;
         if (res && !res.error && res.data && res.data.length) {
-          var m = /(\d+)\s*$/.exec(res.data[0].code || '');
-          if (m) n = parseInt(m[1], 10) + 1;
+          var s = serialFromCode(res.data[0].code);
+          if (s != null) n = s + 1;
         }
-        return 'BILL-' + new Date().getFullYear() + '-' + String(n).padStart(4, '0');
+        return n;
       });
   }
 
+  // Prefer the counter. Fall back to the highest visible serial when the RPC
+  // is not present - an older database, or a test double with no rpc().
+  function nextCode(serial) {
+    if (serial != null) return Promise.resolve(codeFor(serial));
+    var client = sb();
+    if (client && typeof client.rpc === 'function') {
+      return client.rpc('next_code', { p_type: TYPE }).then(function (res) {
+        if (res && !res.error && typeof res.data === 'string' && res.data) {
+          return res.data;
+        }
+        return highestSerial().then(codeFor);
+      });
+    }
+    return highestSerial().then(codeFor);
+  }
+
+  // A 409 from PostgREST is a unique violation (Postgres 23505). The message is
+  // checked as well so the retry keeps working if the status is ever dropped.
   function isDuplicate(res) {
-    var m = String((res && res.error && res.error.message) || '').toLowerCase();
+    if (!res || !res.error) return false;
+    if (res.error.status === 409) return true;
+    var m = String(res.error.message || '').toLowerCase();
     return m.indexOf('duplicate') > -1 || m.indexOf('unique') > -1;
   }
 
@@ -832,10 +868,11 @@ window.ANT.bills = (function () {
   }
 
   // The code is read, then written. Two people saving at the same moment can read
-  // the same next number, so a clash on the unique code is retried once with a
-  // fresh number instead of being reported as a failure the user cannot act on.
-  function createBill(orderIds, t, pay, retried) {
-    return nextCode().then(function (code) {
+  // the same next number, so a clash on the unique code steps to the next number
+  // and retries instead of being reported as a failure the user cannot act on.
+  function createBill(orderIds, t, pay, attempt, serial) {
+    attempt = attempt || 0;
+    return nextCode(serial).then(function (code) {
       return sb().from('bills')
         .insert({
           code: code,
@@ -853,8 +890,9 @@ window.ANT.bills = (function () {
         .single()
         .then(function (res) {
           if (res.error || !res.data) {
-            if (!retried && isDuplicate(res)) {
-              return createBill(orderIds, t, pay, true);
+            if (attempt < 50 && isDuplicate(res)) {
+              var s = serialFromCode(code);
+              if (s != null) return createBill(orderIds, t, pay, attempt + 1, s + 1);
             }
             return { failed: true, message: 'The bill was not created: ' + reason(res) };
           }

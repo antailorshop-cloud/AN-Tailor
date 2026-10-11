@@ -249,6 +249,15 @@ create table if not exists dress_types (
   unique (category, dress_type)
 );
 
+-- Serial numbers behind the readable record codes (AN-CUS-26-0001 and friends).
+-- Only ever touched through next_code(), which runs as its owner, so a number
+-- is never handed out twice and resets each year.
+create table if not exists code_counters (
+  prefix     text primary key,
+  year       int  not null,
+  last_value int  not null default 0
+);
+
 -- ============================================================
 -- ROW LEVEL SECURITY
 -- Every table above is switched on here. Phase 4 supplies and
@@ -269,6 +278,7 @@ alter table bills          enable row level security;
 alter table bill_orders    enable row level security;
 alter table prices         enable row level security;
 alter table dress_types    enable row level security;
+alter table code_counters  enable row level security;
 
 -- ============================================================
 -- GRANTS
@@ -295,3 +305,49 @@ alter default privileges in schema public
 -- is_owner() and is_member() are created in rls.sql, which grants
 -- execute on them. They are deliberately not referenced here, because
 -- this file has to run before rls.sql exists.
+
+-- ============================================================
+-- RECORD CODES
+-- next_code('CUS'|'MEA'|'ORD'|'BIL') hands out AN-<TYPE>-<YY>-<NNNN>.
+-- It is SECURITY DEFINER so the counter can be read and bumped even
+-- though code_counters has RLS on with no policies (no API path to
+-- it at all). The client falls back to the highest visible code when
+-- this function is missing, which is close but can reuse a number.
+-- ============================================================
+
+create or replace function next_code(p_type text)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_prefix text := case upper(p_type)
+                     when 'CUS' then 'CUS'
+                     when 'MEA' then 'MEA'
+                     when 'ORD' then 'ORD'
+                     when 'BIL' then 'BIL'
+                     else null
+                   end;
+  v_year   int  := extract(year from now())::int;
+  v_yy     text := to_char(now(), 'YY');
+  v_value  int;
+begin
+  if v_prefix is null then
+    raise exception 'next_code: unknown record type %', p_type;
+  end if;
+
+  insert into code_counters (prefix, year, last_value)
+  values (v_prefix, v_year, 1)
+  on conflict (prefix) do update
+    set last_value = case when code_counters.year = v_year
+                          then code_counters.last_value + 1
+                          else 1 end,
+        year = v_year
+  returning last_value into v_value;
+
+  return 'AN-' || v_prefix || '-' || v_yy || '-' || lpad(v_value::text, 4, '0');
+end;
+$$;
+
+grant execute on function next_code(text) to authenticated;

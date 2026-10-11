@@ -45,34 +45,62 @@ window.ANT.customers = (function () {
 
   /* Customer code ----------------------------------------------------- */
 
-  // Codes are C0001 upward, zero padded so a lexicographic sort matches the
-  // numeric order.
-  //
+  // Codes read AN-CUS-<YY>-<NNNN>: brand, type, two-digit year, running serial.
+  // The serial is drawn from the database counter (next_code), which never
+  // hands the same number out twice and resets each year. A unique violation -
+  // whether from a hidden row, from two people saving at once, or from a
+  // counter that has not been seeded - steps to the next number and tries
+  // again, instead of asking the same question and failing on it.
+  var TYPE = 'CUS';
+
+  function yearTag() {
+    return String(new Date().getFullYear() % 100).padStart(2, '0');
+  }
+
+  function codeFor(n) {
+    return 'AN-' + TYPE + '-' + yearTag() + '-' + String(n).padStart(4, '0');
+  }
+
+  function serialFromCode(code) {
+    var m = /(\d+)\s*$/.exec(code || '');
+    return m ? parseInt(m[1], 10) : null;
+  }
+
   // The unique index on customers.code is global, but the read below only
   // returns the rows the signed-in user is allowed to see. The customers_read
   // policy hides archived customers from staff, so the highest code on the
   // shelf can already be taken by a row that never appears in this result.
-  // The readable maximum is therefore only a starting point: a unique
-  // violation - whether from a hidden row or from two people saving at the same
-  // moment - steps to the next number and tries again, instead of asking the
-  // same question and failing on it.
-  function highestCode() {
+  // This maximum is therefore only a starting point.
+  function highestSerial() {
     return sb().from('customers')
       .select('code')
+      .ilike('code', 'AN-' + TYPE + '-' + yearTag() + '-*')
       .order('code', false)
       .limit(1)
       .then(function (res) {
         var n = 1;
         if (res && !res.error && res.data && res.data.length) {
-          var m = /(\d+)\s*$/.exec(res.data[0].code || '');
-          if (m) n = parseInt(m[1], 10) + 1;
+          var s = serialFromCode(res.data[0].code);
+          if (s != null) n = s + 1;
         }
         return n;
       });
   }
 
-  function codeFor(n) {
-    return 'C' + String(n).padStart(4, '0');
+  // Prefer the counter. Fall back to the highest visible serial when the RPC
+  // is not present - an older database, or a test double with no rpc().
+  function nextCode(serial) {
+    if (serial != null) return Promise.resolve(codeFor(serial));
+    var client = sb();
+    if (client && typeof client.rpc === 'function') {
+      return client.rpc('next_code', { p_type: TYPE }).then(function (res) {
+        if (res && !res.error && typeof res.data === 'string' && res.data) {
+          return res.data;
+        }
+        return highestSerial().then(codeFor);
+      });
+    }
+    return highestSerial().then(codeFor);
   }
 
   // A 409 from PostgREST is a unique violation (Postgres 23505). The message is
@@ -84,12 +112,11 @@ window.ANT.customers = (function () {
     return m.indexOf('duplicate') > -1 || m.indexOf('unique') > -1;
   }
 
-  function insertCustomer(values, attempt, number) {
+  function insertCustomer(values, attempt, serial) {
     attempt = attempt || 0;
-    var base = (number == null) ? highestCode() : Promise.resolve(number);
-    return base.then(function (n) {
+    return nextCode(serial).then(function (code) {
       var payload = {
-        code: codeFor(n),
+        code: code,
         name: values.name,
         mobile: values.mobile || '',
         address: values.address || '',
@@ -98,7 +125,8 @@ window.ANT.customers = (function () {
       };
       return sb().from('customers').insert(payload).single().then(function (res) {
         if (isDuplicateCode(res) && attempt < 50) {
-          return insertCustomer(values, attempt + 1, n + 1);
+          var s = serialFromCode(code);
+          if (s != null) return insertCustomer(values, attempt + 1, s + 1);
         }
         return res;
       });

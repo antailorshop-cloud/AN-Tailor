@@ -399,10 +399,60 @@ window.ANT.measurements = (function () {
     return res;
   }
 
-  function insertMeasurement(payload, attempt, number) {
+  // Codes read AN-MEA-<YY>-<NNNN>: brand, type, two-digit year, running serial.
+  // The serial is drawn from the database counter (next_code), which never
+  // hands the same number out twice and resets each year.
+  var TYPE = 'MEA';
+
+  function yearTag() {
+    return String(new Date().getFullYear() % 100).padStart(2, '0');
+  }
+
+  function codeFor(n) {
+    return 'AN-' + TYPE + '-' + yearTag() + '-' + String(n).padStart(4, '0');
+  }
+
+  function serialFromCode(code) {
+    var m = /(\d+)\s*$/.exec(code || '');
+    return m ? parseInt(m[1], 10) : null;
+  }
+
+  function highestSerial() {
+    return sb().from('measurements')
+      .select('code')
+      .ilike('code', 'AN-' + TYPE + '-' + yearTag() + '-*')
+      .order('code', false)
+      .limit(1)
+      .then(function (res) {
+        if (res.error) return null;
+        var n = 1;
+        if (res.data && res.data.length) {
+          var s = serialFromCode(res.data[0].code);
+          if (s != null) n = s + 1;
+        }
+        return n;
+      });
+  }
+
+  // Prefer the counter. Fall back to the highest visible serial when the RPC
+  // is not present - an older database, or a test double with no rpc().
+  function nextCode(serial) {
+    if (serial != null) return Promise.resolve(codeFor(serial));
+    var client = sb();
+    if (client && typeof client.rpc === 'function') {
+      return client.rpc('next_code', { p_type: TYPE }).then(function (res) {
+        if (res && !res.error && typeof res.data === 'string' && res.data) {
+          return res.data;
+        }
+        return highestSerial().then(function (n) { return n == null ? null : codeFor(n); });
+      });
+    }
+    return highestSerial().then(function (n) { return n == null ? null : codeFor(n); });
+  }
+
+  function insertMeasurement(payload, attempt, serial) {
     attempt = attempt || 0;
-    var base = (number == null) ? nextCode() : Promise.resolve('M' + String(number).padStart(4, '0'));
-    return base.then(function (code) {
+    return nextCode(serial).then(function (code) {
       if (code === null) {
         return { error: { message: 'Could not work out a new code. Try again.' } };
       }
@@ -421,8 +471,8 @@ window.ANT.measurements = (function () {
           // highest readable code may already be taken. Step to the next number
           // rather than fail on a key the user cannot act on.
           if (isDuplicateCode(res) && attempt < 50) {
-            var m = /(\d+)\s*$/.exec(code || '');
-            if (m) return insertMeasurement(payload, attempt + 1, parseInt(m[1], 10) + 1);
+            var s = serialFromCode(code);
+            if (s != null) return insertMeasurement(payload, attempt + 1, s + 1);
           }
           return res;
         });
@@ -433,22 +483,6 @@ window.ANT.measurements = (function () {
     if (GENTS.indexOf(dress) !== -1) return 'Gents';
     if (LADIES.indexOf(dress) !== -1) return 'Ladies';
     return '';
-  }
-
-  function nextCode() {
-    return sb().from('measurements')
-      .select('code')
-      .order('code', false)
-      .limit(1)
-      .then(function (res) {
-        if (res.error) return null;
-        var n = 1;
-        if (res.data && res.data.length) {
-          var m = /(\d+)\s*$/.exec(res.data[0].code || '');
-          if (m) n = parseInt(m[1], 10) + 1;
-        }
-        return 'M' + String(n).padStart(4, '0');
-      });
   }
 
   // A 409 from PostgREST is a unique violation (Postgres 23505). The message is
