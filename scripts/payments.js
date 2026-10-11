@@ -568,8 +568,20 @@ window.ANT.payments = (function () {
       state.selected = null;
       state.page = 0;
       toast('Payment of ' + money(amount) + ' recorded.', 'success');
-      return loadPayments().then(function () { return loadOrders(); });
+      return refreshBillsForOrder(o.id).then(function () {
+        return loadPayments().then(function () { return loadOrders(); });
+      });
     });
+  }
+
+  function refreshBillsForOrder(orderId) {
+    try {
+      var bills = window.ANT && window.ANT.bills;
+      if (bills && bills.refreshForOrder) {
+        return Promise.resolve(bills.refreshForOrder(orderId)).catch(function () {});
+      }
+    } catch (e) {}
+    return Promise.resolve();
   }
 
   // The order row is updated in the same breath as the payment, because the

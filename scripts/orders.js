@@ -132,9 +132,9 @@ window.ANT.orders = (function () {
   }
 
   function dateLabel(iso) {
-    if (!iso) return 'ÔÇö';
+    if (!iso) return '—';
     var d = new Date(iso);
-    if (isNaN(d.getTime())) return 'ÔÇö';
+    if (isNaN(d.getTime())) return '—';
     return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
   }
 
@@ -440,7 +440,7 @@ window.ANT.orders = (function () {
 
   function summarise(order) {
     var items = state.items[order.id] || [];
-    if (!items.length) return 'ÔÇö';
+    if (!items.length) return '—';
     var dress = items.map(function (i) { return i.dress_type; }).filter(Boolean);
     var head = dress.length ? dress[0] : 'Item';
     var rest = dress.length - 1;
@@ -640,7 +640,7 @@ window.ANT.orders = (function () {
   function customerName(o) {
     if (o.customer && o.customer.name) return o.customer.name;
     if (o.customer_name) return o.customer_name;
-    return 'ÔÇö';
+    return '—';
   }
 
   function pager() {
@@ -718,7 +718,7 @@ window.ANT.orders = (function () {
             '<div class="msr-cust-name">' + esc(customerName(state.form)) + '</div>' +
             '<div class="msr-cust-meta">' +
               esc(state.form.customer ? state.form.customer.code : '') +
-              (state.form.customer && state.form.customer.mobile ? ' ┬À ' + esc(state.form.customer.mobile) : '') +
+              (state.form.customer && state.form.customer.mobile ? ' · ' + esc(state.form.customer.mobile) : '') +
             '</div>' +
           '</div>' +
         '</div>' +
@@ -731,7 +731,7 @@ window.ANT.orders = (function () {
         state.customers.map(function (c) {
           return '<button class="msr-result" data-ord-cust="' + esc(c.id) + '">' +
             '<span class="msr-result-name">' + esc(c.name) + '</span>' +
-            '<span class="msr-result-meta">' + esc(c.code) + (c.mobile ? ' ┬À ' + esc(c.mobile) : '') + '</span>' +
+            '<span class="msr-result-meta">' + esc(c.code) + (c.mobile ? ' · ' + esc(c.mobile) : '') + '</span>' +
           '</button>';
         }).join('') +
       '</div>';
@@ -793,7 +793,7 @@ window.ANT.orders = (function () {
 
     var dressCell;
     if (resale) {
-      dressCell = '<td class="ord-na">ÔÇö</td>';
+      dressCell = '<td class="ord-na">—</td>';
     } else {
       var dressOpts = ['<option value="">Choose a dress</option>'];
       ['Gents', 'Ladies', 'Other'].forEach(function (cat) {
@@ -813,7 +813,7 @@ window.ANT.orders = (function () {
         '</td>';
     }
 
-    var variantCell = '<td class="ord-na">ÔÇö</td>';
+    var variantCell = '<td class="ord-na">—</td>';
     if (tailoring) {
       variantCell = '<td><select class="ui-input" data-ord-item="' + i + '" data-f="variant">' +
         VARIANT_OPTIONS.map(function (v) {
@@ -823,7 +823,7 @@ window.ANT.orders = (function () {
         '</select></td>';
     }
 
-    var liningCell = '<td class="ord-na">ÔÇö</td>';
+    var liningCell = '<td class="ord-na">—</td>';
     if (tailoring) {
       liningCell = '<td><select class="ui-input" data-ord-item="' + i + '" data-f="lining">' +
         LINING_OPTIONS.map(function (l) {
@@ -833,13 +833,13 @@ window.ANT.orders = (function () {
         '</select></td>';
     }
 
-    var resaleCell = '<td class="ord-na">ÔÇö</td>';
+    var resaleCell = '<td class="ord-na">—</td>';
     if (resale) {
       var stock = availableResale();
       var rOpts = ['<option value="">Choose a stock item</option>'];
       stock.forEach(function (r) {
         rOpts.push('<option value="' + esc(r.item) + '"' + (r.item === it.resale_item ? ' selected' : '') + '>' +
-          esc(r.item) + ' ÔÇö ' + money(r.sell_price) + ' (' + r.qty + ' left)</option>');
+          esc(r.item) + ' — ' + money(r.sell_price) + ' (' + r.qty + ' left)</option>');
       });
 
       // An order already on screen may name a garment that has since sold out.
@@ -850,7 +850,7 @@ window.ANT.orders = (function () {
       if (chosen && !stock.some(function (r) { return r.item === chosen; })) {
         var sold = state.resale.filter(function (r) { return r.item === chosen; })[0];
         rOpts.push('<option value="' + esc(chosen) + '" selected>' +
-          esc(chosen) + ' ÔÇö ' + money(sold ? sold.sell_price : 0) + ' (none left)</option>');
+          esc(chosen) + ' — ' + money(sold ? sold.sell_price : 0) + ' (none left)</option>');
         stock = stock.concat([{ item: chosen, qty: 0, sell_price: sold ? num(sold.sell_price) : 0 }]);
       }
 
@@ -859,11 +859,11 @@ window.ANT.orders = (function () {
         : '<span class="ord-fixed">No stock yet</span>') + '</td>';
     }
 
-    var mCell = '<td class="ord-na">ÔÇö</td>';
+    var mCell = '<td class="ord-na">—</td>';
     if (tailoring) {
       var mOpts = ['<option value="">None</option>'];
       state.measurements.forEach(function (m) {
-        var label = m.code + ' ┬À ' + m.dress_type + ' ┬À ' + dateLabel(m.created_at);
+        var label = m.code + ' · ' + m.dress_type + ' · ' + dateLabel(m.created_at);
         mOpts.push('<option value="' + esc(m.id) + '"' + (m.id === it.measurement_id ? ' selected' : '') + '>' + esc(label) + '</option>');
       });
       mCell = '<td>' + (state.measurements.length
@@ -900,7 +900,7 @@ window.ANT.orders = (function () {
         // label, so picking a suggestion types 450 into the rate box rather
         // than a rupee sign that the numeric cleaner would have to strip.
         var amount = num(p.price);
-        var label = p.item + (p.option ? ' - ' + p.option : '') + ' ÔÇö ' + money(amount);
+        var label = p.item + (p.option ? ' - ' + p.option : '') + ' — ' + money(amount);
         return '<option value="' + amount + '">' + esc(label) + '</option>';
       }).join('') +
     '</datalist>';
@@ -1317,6 +1317,7 @@ window.ANT.orders = (function () {
         state.form = null;
         state.formItems = [];
         state.page = 0;
+        if (editing) refreshBillsForOrder(orderId);
         toast('Order saved', 'success');
         return loadOrders();
       })
@@ -1336,6 +1337,16 @@ window.ANT.orders = (function () {
     toast(orderId ? 'Order saved but the items failed: ' + msg : msg, 'error');
     state.saveError = msg;
     paint();
+  }
+
+  function refreshBillsForOrder(orderId) {
+    try {
+      var bills = window.ANT && window.ANT.bills;
+      if (bills && bills.refreshForOrder) {
+        return Promise.resolve(bills.refreshForOrder(orderId)).catch(function () {});
+      }
+    } catch (e) {}
+    return Promise.resolve();
   }
 
   function guardEmpty(message) {

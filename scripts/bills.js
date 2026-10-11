@@ -197,6 +197,59 @@ window.ANT.bills = (function () {
     return computeTotals(selectedOrders());
   }
 
+  function refreshForOrder(orderId) {
+    if (!orderId) return Promise.resolve();
+
+    return sb().from('bill_orders')
+      .select('bill_id')
+      .eq('order_id', orderId)
+      .then(function (res) {
+        if (res.error || !res.data || !res.data.length) return;
+
+        var seen = [];
+        var bills = [];
+        res.data.forEach(function (r) {
+          if (r.bill_id && seen.indexOf(r.bill_id) === -1) {
+            seen.push(r.bill_id);
+            bills.push(r.bill_id);
+          }
+        });
+
+        return bills.reduce(function (chain, billId) {
+          return chain.then(function () { return recomputeBill(billId); });
+        }, Promise.resolve());
+      });
+  }
+
+  function recomputeBill(billId) {
+    return sb().from('bill_orders')
+      .select('order_id')
+      .eq('bill_id', billId)
+      .then(function (res) {
+        if (res.error) return null;
+        var orderIds = (res.data || []).map(function (r) { return r.order_id; });
+        if (!orderIds.length) return null;
+
+        return sb().from('orders')
+          .select('total,discount,advance')
+          .in('id', orderIds)
+          .then(function (ores) {
+            if (ores.error) return null;
+            var t = computeTotals(ores.data || []);
+            return sb().from('bills')
+              .update({
+                total: t.total,
+                discount: t.discount,
+                advance: t.advance,
+                bill_amount: t.billAmount,
+                balance: t.balance
+              })
+              .eq('id', billId)
+              .select('id');
+          });
+      });
+  }
+
   /* Loading --------------------------------------------------------------- */
 
   function searchCustomer(term) {
@@ -2460,6 +2513,7 @@ window.ANT.bills = (function () {
   return {
     mount: mount,
     render: render,
+    refreshForOrder: refreshForOrder,
     /* The bill as markup. The PDF renderer draws this rather than a second
      * description of the same page, which is what keeps a printed bill and a
      * shared PDF identical when one of them is changed. */
