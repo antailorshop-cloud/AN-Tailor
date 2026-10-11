@@ -194,7 +194,7 @@ window.ANT.dashboard = (function () {
 
     var resale = wantResale
       ? sb().from('resale_stock')
-          .select('id,name,available')
+          .select('id,item,quantity')
       : withheld('resale');
 
     return Promise.all([orders, bills, payments, resale]).then(function (res) {
@@ -330,9 +330,9 @@ window.ANT.dashboard = (function () {
       state.lowStock = stockRows
         .map(function (r) {
           return {
-            name: r.name,
+            name: r.item || r.name,
             variant: r.variant || null,
-            available: num(r.available),
+            available: num(r.quantity !== undefined && r.quantity !== null ? r.quantity : r.available),
             min_qty: r.min_qty != null && r.min_qty !== undefined ? num(r.min_qty) : 0,
             unit: r.unit || null
           };
