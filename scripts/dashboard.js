@@ -182,8 +182,7 @@ window.ANT.dashboard = (function () {
 
     var bills = wantBills
       ? sb().from('bills')
-          .select('id,balance,status')
-          .neq('status', 'VOID')
+          .select('id,balance')
           .is('archived_at', null)
       : withheld('bills');
 
