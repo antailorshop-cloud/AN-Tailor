@@ -140,7 +140,7 @@ window.ANT.settings = (function () {
 
   function money(v) {
     var n = Number(v || 0);
-    return 'â‚¹' + (Math.round(n * 100) / 100).toLocaleString('en-IN');
+    return '₹' + (Math.round(n * 100) / 100).toLocaleString('en-IN');
   }
 
   // Prices are numeric(12,2). A blank field means zero rather than an error,
