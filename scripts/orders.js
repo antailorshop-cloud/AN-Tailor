@@ -1942,7 +1942,12 @@ window.ANT.orders = (function () {
       loadReference().then(loadResale).then(loadWaShop).then(function () {
         return loadOrders();
       });
-    }
+    },
+
+    // Lets another screen advance an order along the same straight line the
+    // Orders page uses. The bench on the dashboard calls this so a status tap
+    // there means exactly what it means on the list.
+    applyStatus: applyStatus
   };
 
   function announceStatusChange(order, wasAuto, before, after) {

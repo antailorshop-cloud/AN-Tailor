@@ -103,6 +103,7 @@ window.ANT.dashboard = (function () {
      * person can read everything the dashboard reports. */
     held: null,
     ordersToday: 0,
+    pending: 0,
     inProgress: 0,
     ready: 0,
     deliveredWeek: 0,
@@ -129,7 +130,7 @@ window.ANT.dashboard = (function () {
     lowStock: []
   };
 
-  var BENCH_LIMIT = 6;
+  var BENCH_LIMIT = 12;
 
   /* A blocked or failed query must not read as zero. "0" is a real answer and
    * means nothing is owed; "could not load" is a different thing entirely, and
@@ -226,6 +227,10 @@ window.ANT.dashboard = (function () {
         return o.order_date === today;
       }).length;
 
+      state.pending = rows.filter(function (o) {
+        return o.status === 'Pending';
+      }).length;
+
       state.inProgress = rows.filter(function (o) {
         return o.status === 'Process';
       }).length;
@@ -269,11 +274,12 @@ window.ANT.dashboard = (function () {
           && (o.status === 'Pending' || o.status === 'Process' || o.status === 'Finish');
       }).length;
 
-      // The bench is what is still to be cut or finished. A Pending order has
-      // not been started, so it is not on the bench yet; Process and Finish
-      // are both work in hand, and Finish is the one a customer is waiting on.
+      // The bench is every live order: Pending has been taken but not started,
+      // Process is on the machine, Finish is done and waiting to be handed over.
+      // All three are work the shop still owes, and the bench is where a tailor
+      // moves each one along, so none of them is left off.
       state.bench = rows.filter(function (o) {
-        return o.status === 'Process' || o.status === 'Finish';
+        return o.status === 'Pending' || o.status === 'Process' || o.status === 'Finish';
       }).sort(function (a, b) {
         var ad = String(a.delivery_date || '9999-99-99');
         var bd = String(b.delivery_date || '9999-99-99');
@@ -563,6 +569,35 @@ window.ANT.dashboard = (function () {
       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][Number(parts[1]) - 1];
   }
 
+  /* The status of a benched order and the steps still ahead of it - the same
+   * straight line Orders uses, Pending -> Process -> Finish -> Delivery, with
+   * Cancel alongside. A tap advances the order and the dashboard reloads, so
+   * the bench is where the day's work gets moved along, not just read. */
+  function benchStatus(o) {
+    var kind = o.status === 'Finish' ? 'chip-success'
+      : (o.status === 'Pending' ? 'chip-warn' : 'chip-info');
+    var chip = '<span class="chip ' + kind + '">' + esc(o.status) + '</span>';
+
+    var flow = ['Pending', 'Process', 'Finish', 'Delivery'];
+    var at = flow.indexOf(o.status);
+    var ahead = at >= 0 ? flow.slice(at + 1) : [];
+    var buttons = ahead.map(function (st) {
+      var cls = st === 'Delivery' ? 'btn-success' : 'btn-secondary';
+      return '<button type="button" class="btn btn-sm ' + cls + ' bench-set" ' +
+        'data-bench-id="' + esc(o.id) + '" data-bench-cur="' + esc(o.status) +
+        '" data-bench-next="' + esc(st) + '">' + esc(st) + '</button>';
+    }).join('');
+
+    if (o.status !== 'Delivery' && o.status !== 'Cancelled') {
+      buttons += '<button type="button" class="btn btn-sm btn-danger bench-set" ' +
+        'data-bench-id="' + esc(o.id) + '" data-bench-cur="' + esc(o.status) +
+        '" data-bench-next="Cancelled">Cancel</button>';
+    }
+
+    return '<div class="ord-status-wrap">' + chip +
+      (buttons ? '<span class="ord-status-actions">' + buttons + '</span>' : '') + '</div>';
+  }
+
   /* The bench list. A tailor opening the shop wants to know which job to pick
    * up, so this names the customer, the order and when it is due, and marks
    * the one that is finished and only waiting to be handed over. */
@@ -579,9 +614,11 @@ window.ANT.dashboard = (function () {
     if (!state.bench.length) {
       return '<div class="ui-card" style="margin-top:var(--gap)">' +
         '<h2 class="ui-card-title">Nothing on the bench</h2>' +
-        '<p class="ui-card-sub">No order is in progress or waiting for pickup right now.</p>' +
+        '<p class="ui-card-sub">No order is open right now.</p>' +
       '</div>';
     }
+
+    var onBench = state.pending + state.inProgress + state.ready;
 
     var rows = state.bench.map(function (o) {
       var c = o.customer || {};
@@ -592,21 +629,19 @@ window.ANT.dashboard = (function () {
       if (o.priority === 'Urgent' && !waiting) dueText += ' \u00b7 Urgent';
 
       return '<tr>' +
-        '<td>' + (waiting
-          ? '<span class="chip chip-success">Finish</span>'
-          : '<span class="chip">' + esc(o.status) + '</span>') + '</td>' +
+        '<td>' + benchStatus(o) + '</td>' +
         '<td><span class="ord-sub-strong">' + esc(c.name || 'Unknown customer') + '</span></td>' +
         '<td>' + esc(o.code) + '</td>' +
         '<td>' + esc(dueText) + '</td>' +
       '</tr>';
     }).join('');
 
-    var more = state.inProgress + state.ready - state.bench.length;
+    var more = onBench - state.bench.length;
 
     return '<div class="ui-card" style="margin-top:var(--gap)">' +
       '<h2 class="ui-card-title">On the bench</h2>' +
-      '<p class="ui-card-sub">' + (state.inProgress + state.ready) +
-        ' order' + (state.inProgress + state.ready === 1 ? '' : 's') +
+      '<p class="ui-card-sub">' + onBench +
+        ' order' + (onBench === 1 ? '' : 's') +
         ' in hand, soonest due first.</p>' +
       '<div class="table-wrap"><table class="ui-table"><thead><tr>' +
         '<th>Status</th><th>Customer</th><th>Order</th><th>Due</th>' +
@@ -658,6 +693,20 @@ window.ANT.dashboard = (function () {
         render();
       });
     }
+
+    Array.prototype.forEach.call(host.querySelectorAll('.bench-set'), function (btn) {
+      btn.addEventListener('click', function () {
+        var id = btn.getAttribute('data-bench-id');
+        var next = btn.getAttribute('data-bench-next');
+        var cur = btn.getAttribute('data-bench-cur');
+        var orders = window.ANT.orders;
+        if (!orders || typeof orders.applyStatus !== 'function') return;
+        btn.disabled = true;
+        orders.applyStatus(id, next, cur, function () { render(); }, function () {
+          btn.disabled = false;
+        });
+      });
+    });
   }
 
   function mount() {
