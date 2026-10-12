@@ -2002,7 +2002,17 @@ window.ANT.bills = (function () {
    * is the bill as it was raised - and so a file exported and cleared can be
    * produced again later without the orders having to stay untouched since. */
   function billSnapshot(bill, list) {
-    var due = window.ANT.upi ? window.ANT.upi.balanceDue(bill) : num(bill.balance);
+    // What a bill IS - the garments, the shop, the customer, the amount raised -
+    // is fixed when it is raised. What has been PAID is not: money is recorded
+    // against an order on the Payments page, one order at a time, and the bill
+    // row is only rewritten afterwards by a best-effort refresh that never runs
+    // for staff. So the paid figure is read from the orders on the bill here -
+    // the same list this page is about to draw - and a reprint shows the true
+    // status for owner and staff alike without anyone editing the bill.
+    var paid = round2(computeTotals(list || []).advance);
+    var balance = round2(num(bill.bill_amount) - paid);
+    var liveBill = Object.assign({}, bill, { advance: paid, balance: balance });
+    var due = window.ANT.upi ? window.ANT.upi.balanceDue(liveBill) : Math.max(0, balance);
 
     return {
       takenAt: new Date().toISOString(),
@@ -2040,9 +2050,9 @@ window.ANT.bills = (function () {
         paid_on: bill.paid_on,
         total: num(bill.total),
         discount: num(bill.discount),
-        advance: num(bill.advance),
+        advance: paid,
         bill_amount: num(bill.bill_amount),
-        balance: num(bill.balance)
+        balance: balance
       },
       orders: (list || []).map(function (o) {
         return {
@@ -2065,11 +2075,29 @@ window.ANT.bills = (function () {
           })
         };
       }),
-      payLink: payLink(bill),
+      payLink: payLink(liveBill),
       dueLabel: due,
       instagramUrl: instagramUrl(),
       words: amountInWords(num(bill.bill_amount))
     };
+  }
+
+  /* The same live paid figure, applied to a snapshot that was already drawn.
+   *
+   * A saved snapshot is the bill as it was raised, and everything on it is kept
+   * that way except the two figures that move after it was raised: what has been
+   * paid and what is still owed. A payment lands on the orders, never on the
+   * bill, so a PDF rebuilt from the snapshot months later has to take those two
+   * from the orders again or it asks the customer for money already received. */
+  function withLivePaid(snap, list) {
+    var paid = round2(computeTotals(list || []).advance);
+    var balance = round2(num(snap.bill && snap.bill.bill_amount) - paid);
+    var bill = Object.assign({}, snap.bill, { advance: paid, balance: balance });
+    return Object.assign({}, snap, {
+      bill: bill,
+      dueLabel: window.ANT.upi ? window.ANT.upi.balanceDue(bill) : Math.max(0, balance),
+      payLink: payLink(bill)
+    });
   }
 
   /* A bill is drawn on one sheet and shared on another, and the two defaults are
@@ -2134,7 +2162,11 @@ window.ANT.bills = (function () {
   /* Rebuilds a bill whose file is gone or was never made. The saved snapshot is
    * used when there is one, so the bill that comes back is the bill that was
    * raised. Only a bill too old to have a snapshot is rebuilt from live orders,
-   * which can differ from the original if the orders have been edited since. */
+   * which can differ from the original if the orders have been edited since.
+   *
+   * Whichever is used, the paid figure is taken from the orders again: that is
+   * the one part of a bill that changes after it is raised, and a snapshot that
+   * froze it would reprint a settled bill as unpaid. */
   function regenerateBillPdf(billId) {
     var bill = null;
     for (var i = 0; i < state.bills.length; i++) {
@@ -2155,8 +2187,10 @@ window.ANT.bills = (function () {
         if (res.error) throw res.error;
         var saved = res.data && res.data[0] && res.data[0].pdf_snapshot;
 
-        if (saved) return writeBlob(bill, saved, path);
-
+        // The orders are read whether or not a snapshot was saved, because the
+        // paid figure always comes from them now - a snapshot frozen at the
+        // moment the bill was raised would otherwise reprint asking for money
+        // the customer has since paid.
         return sb().from('bill_orders')
           .select('order_id')
           .eq('bill_id', billId)
@@ -2164,7 +2198,9 @@ window.ANT.bills = (function () {
             if (link.error) throw link.error;
             return ordersForPrint((link.data || []).map(function (r) { return r.order_id; }));
           })
-          .then(function (list) { return writeBlob(bill, billSnapshot(bill, list), path); });
+          .then(function (list) {
+            return writeBlob(bill, saved ? withLivePaid(saved, list) : billSnapshot(bill, list), path);
+          });
       })
       .then(function (url) { return { url: url, error: '' }; })
       .catch(function (e) {
