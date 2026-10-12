@@ -1791,13 +1791,15 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 /* The area boxes wrap on a phone, and tapping the word counts as well as the
    square, because the word is what the tailor is looking at. */
-.staff-areas {
+.staff-areas,
+.clear-areas {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
 }
 
-.staff-area {
+.staff-area,
+.clear-area {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1810,7 +1812,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
   cursor: pointer;
 }
 
-.staff-area.is-on {
+.staff-area.is-on,
+.clear-area.is-on {
   border-color: var(--brand-gold);
   background: var(--brand-gold-tint);
   color: var(--text-strong);

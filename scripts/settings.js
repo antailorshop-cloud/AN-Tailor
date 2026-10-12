@@ -27,6 +27,39 @@ window.ANT.settings = (function () {
   var CATEGORIES = ['Gents', 'Ladies'];
   var GROUPS = ['TAILORING', 'SERVICE', 'RESALE'];
 
+  /* Clear data -----------------------------------------------------------
+   *
+   * The owner's one way to start the shop again on a clean slate. The records
+   * it removes are the ones a shop builds up by using the app - customers,
+   * measurements, orders, bills and payments, and resale stock - not master
+   * data such as prices, dress types, the shop details or the staff list, which
+   * are configuration and are edited in their own tabs.
+   *
+   * Each area names the tables it clears. A child table travels with its parent:
+   * an order carries its items and its bill links, a bill carries its links.
+   * Customers cannot be removed on their own - orders, bills, payments and
+   * measurements name a customer with ON DELETE RESTRICT - so ticking Customers
+   * pulls those in too, and the panel says so.
+   */
+  var CLEAR_AREAS = [
+    { key: 'customers', label: 'Customers', tables: ['customers'] },
+    { key: 'measurements', label: 'Measurements', tables: ['measurements'] },
+    { key: 'orders', label: 'Orders', tables: ['orders', 'order_items', 'bill_orders'] },
+    { key: 'bills', label: 'Bills', tables: ['bills', 'bill_orders'] },
+    { key: 'payments', label: 'Payments', tables: ['payments'] },
+    { key: 'resale', label: 'Resale stock', tables: ['resale_stock'] }
+  ];
+
+  // Children before parents, customers last: the orders, bills, payments and
+  // measurements that name a customer block its removal. order_items is gone
+  // before resale_stock because an item may point at a resale row.
+  var CLEAR_ORDER = ['payments', 'bill_orders', 'order_items', 'bills', 'orders',
+    'measurements', 'resale_stock', 'customers'];
+
+  // The column each delete names. Every table has an id except bill_orders,
+  // which is a link pair keyed by bill_id.
+  var CLEAR_KEY = { bill_orders: 'bill_id' };
+
   // Bill payment uses the first three. The last is the wording of the WhatsApp
   // bill message; an empty value means the standard wording, which is why it is
   // kept here beside the UPI id rather than hardcoded in the message builder.
@@ -52,6 +85,7 @@ window.ANT.settings = (function () {
       wa_reminder_message: '', wa_ready_message: '', bill_print_size: '',
       wa_bill_size: '', receipt_print_size: '' },
     staff: { rows: [], access: {}, loading: false, error: null },
+    clear: { picked: {}, busy: false },
     loading: false,
     error: null,
     form: null   // null = closed, {kind:'dress'|'price', row:{}|null}
@@ -178,6 +212,9 @@ window.ANT.settings = (function () {
       '<button class="set-tab' + (state.tab === 'shop' ? ' is-active' : '') + '" data-set-tab="shop">Shop &amp; UPI</button>' +
       '<button class="set-tab' + (state.tab === 'whatsapp' ? ' is-active' : '') + '" data-set-tab="whatsapp">WhatsApp</button>' +
       '<button class="set-tab' + (state.tab === 'staff' ? ' is-active' : '') + '" data-set-tab="staff">Staff</button>' +
+      (isOwner()
+        ? '<button class="set-tab' + (state.tab === 'data' ? ' is-active' : '') + '" data-set-tab="data">Clear data</button>'
+        : '') +
     '</div>';
   }
 
@@ -229,6 +266,7 @@ window.ANT.settings = (function () {
     if (state.tab === 'shop') return shopPanel();
     if (state.tab === 'whatsapp') return whatsappPanel();
     if (state.tab === 'staff') return staffPanel();
+    if (state.tab === 'data') return clearPanel();
     return state.tab === 'dress' ? dressPanel() : pricePanel();
   }
 
@@ -1150,6 +1188,153 @@ window.ANT.settings = (function () {
       });
   }
 
+  /* Clear data --------------------------------------------------------- */
+
+  // The tables a selection actually removes, in the order they must go. Ticking
+  // a parent drags in the children and the rows that point at it, so a ticked
+  // area never fails on a foreign key halfway through.
+  function clearTables() {
+    var want = {};
+    CLEAR_AREAS.forEach(function (a) {
+      if (state.clear.picked[a.key]) {
+        a.tables.forEach(function (t) { want[t] = true; });
+      }
+    });
+    if (want.customers) {
+      want.measurements = want.orders = want.bills = want.payments = true;
+    }
+    if (want.orders) want.bill_orders = true;
+    if (want.bills) want.bill_orders = true;
+    return CLEAR_ORDER.filter(function (t) { return want[t]; });
+  }
+
+  function clearPanel() {
+    if (!isOwner()) {
+      return '<div class="ui-card"><div class="empty">' +
+        '<div class="empty-title">Only the Owner can see this</div>' +
+        '<p class="empty-text">Clearing the shop&#39;s records is the Owner&#39;s alone.</p>' +
+      '</div></div>';
+    }
+
+    var picked = state.clear.picked;
+    var boxes = CLEAR_AREAS.map(function (a) {
+      var on = !!picked[a.key];
+      return '<label class="clear-area' + (on ? ' is-on' : '') + '">' +
+        '<input type="checkbox" data-clear-area="' + esc(a.key) + '"' + (on ? ' checked' : '') + '>' +
+        '<span>' + esc(a.label) + '</span>' +
+      '</label>';
+    }).join('');
+
+    var all = CLEAR_AREAS.every(function (a) { return picked[a.key]; });
+
+    return '<div class="ui-card cust-form">' +
+      '<h2 class="ui-card-title">Clear data</h2>' +
+      '<p class="ui-hint">Permanently removes the shop&#39;s records. There is no undo and no ' +
+        'bin to restore from, so this is the Owner&#39;s alone. What it does not touch: ' +
+        'prices, dress types, the shop details and the staff list, which are set up again ' +
+        'in their own tabs.</p>' +
+      '<div class="ui-field">' +
+        '<span class="ui-label">What to clear</span>' +
+        '<div class="clear-areas">' + boxes + '</div>' +
+        '<p class="ui-hint">Ticking Customers also clears their measurements, orders, bills ' +
+          'and payments, because a customer with history cannot be removed on its own.</p>' +
+      '</div>' +
+      '<div class="form-grid">' +
+        '<div class="ui-field">' +
+          '<label class="ui-label" for="clearPhrase">Type CLEAR to confirm</label>' +
+          '<input class="ui-input" id="clearPhrase" autocomplete="off" spellcheck="false">' +
+        '</div>' +
+        '<div class="ui-field">' +
+          '<label class="ui-label" for="clearPassword">Your password</label>' +
+          '<input class="ui-input" id="clearPassword" type="password" autocomplete="current-password">' +
+          '<p class="ui-hint">Asked again because a phone can be left signed in.</p>' +
+        '</div>' +
+      '</div>' +
+      '<div class="form-actions">' +
+        '<button type="button" class="btn btn-danger" id="clearRun"' +
+          (state.clear.busy ? ' disabled' : '') + '>' +
+          (state.clear.busy ? 'Clearing...' : 'Clear selected data') +
+        '</button>' +
+        '<button type="button" class="btn btn-secondary" id="clearAll">' +
+          (all ? 'Untick all' : 'Tick all') +
+        '</button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  // Deletes the chosen tables one after another, children first. A stop is a
+  // real error rather than an empty result: RLS answers a refused multi-row
+  // delete with no rows and no error, but a genuine failure (a foreign key that
+  // was not accounted for, a lost connection) raises and is reported. Every
+  // table deletes with a filter - `id is not null` matches every row - because
+  // PostgREST will not run an unfiltered delete.
+  function wipe(tables) {
+    var counts = {};
+    return tables.reduce(function (chain, t) {
+      return chain.then(function () {
+        var key = CLEAR_KEY[t] || 'id';
+        return sb().from(t)
+          .delete()
+          .not(key, 'is', null)
+          .select('*')
+          .then(function (res) {
+            if (res.error) throw new Error(res.error.message || ('Could not clear ' + t));
+            counts[t] = (res.data || []).length;
+          });
+      });
+    }, Promise.resolve()).then(function () { return counts; });
+  }
+
+  function clearSelected() {
+    if (!isOwner()) return;
+
+    var tables = clearTables();
+    if (!tables.length) {
+      toast('Tick what to clear first.', 'error');
+      return;
+    }
+
+    var phrase = String((byId('clearPhrase') || {}).value || '').trim();
+    if (phrase.toUpperCase() !== 'CLEAR') {
+      toast('Type CLEAR in the box to confirm.', 'error');
+      return;
+    }
+
+    var password = String((byId('clearPassword') || {}).value || '');
+    if (!password) {
+      toast('Enter your password to confirm.', 'error');
+      return;
+    }
+
+    var names = tables.map(function (t) { return t.replace('_', ' '); }).join(', ');
+    if (!window.confirm('Permanently delete: ' + names + '?\n\nThis cannot be undone.')) return;
+
+    state.clear.busy = true;
+    paint();
+
+    window.ANT.auth.verifyPassword(password).then(function (auth) {
+      if (!auth || !auth.ok) {
+        state.clear.busy = false;
+        paint();
+        toast((auth && auth.error) || 'Could not confirm it is you.', 'error');
+        return;
+      }
+      return wipe(tables).then(function (counts) {
+        state.clear.busy = false;
+        state.clear.picked = {};
+        toast('Cleared ' + tables.map(function (t) {
+          return counts[t] + ' ' + t.replace('_', ' ');
+        }).join(', '), 'success');
+        paint();
+        load();
+      });
+    }).catch(function (e) {
+      state.clear.busy = false;
+      paint();
+      toast('Could not clear the data: ' + (e && e.message ? e.message : e), 'error');
+    });
+  }
+
   /* Events ------------------------------------------------------------- */
 
   function wire() {
@@ -1260,6 +1445,30 @@ window.ANT.settings = (function () {
         toggleArea(box.getAttribute('data-staff-user'), box.getAttribute('data-staff-area'), box.checked);
       });
     });
+
+    Array.prototype.forEach.call(document.querySelectorAll('[data-clear-area]'), function (box) {
+      box.addEventListener('change', function () {
+        var key = box.getAttribute('data-clear-area');
+        if (box.checked) state.clear.picked[key] = true;
+        else delete state.clear.picked[key];
+        paint();
+      });
+    });
+
+    var clearAll = byId('clearAll');
+    if (clearAll) {
+      clearAll.addEventListener('click', function () {
+        var all = CLEAR_AREAS.every(function (a) { return state.clear.picked[a.key]; });
+        state.clear.picked = {};
+        if (!all) CLEAR_AREAS.forEach(function (a) { state.clear.picked[a.key] = true; });
+        paint();
+      });
+    }
+
+    var clearRun = byId('clearRun');
+    if (clearRun) {
+      clearRun.addEventListener('click', clearSelected);
+    }
   }
 
   return {
@@ -1271,6 +1480,7 @@ window.ANT.settings = (function () {
       state.tab = 'dress';
       state.search = '';
       state.form = null;
+      state.clear = { picked: {}, busy: false };
       paint();
       load();
     },

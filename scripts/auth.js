@@ -402,6 +402,31 @@ window.ANT.auth = (function () {
       });
     },
 
+    /* Confirm the person at the keyboard before an irreversible action.
+     *
+     * Clearing the shop's records cannot be undone, and a counter phone can be
+     * left signed in. Which role may do it is enforced by RLS; this re-checks the
+     * password so the person pressing the button proves they are the account
+     * holder and not merely whoever found an open session. It is the same
+     * sign-in the app already trusts, so it needs nothing new in the database,
+     * and a success also refreshes the token the deletes are then made with.
+     */
+    verifyPassword: function (password) {
+      var user = readCache();
+      if (!user || user.preview) {
+        return Promise.resolve({ ok: false, error: 'This needs a real signed-in account, not preview mode.' });
+      }
+      if (!password) {
+        return Promise.resolve({ ok: false, error: 'Enter your password.' });
+      }
+      return window.ANT.sb.signIn(user.email, password).then(function (res) {
+        if (res.error) return { ok: false, error: 'That password is not correct.' };
+        return { ok: true, error: '' };
+      }, function () {
+        return { ok: false, error: 'Could not check the password. Check your connection and try again.' };
+      });
+    },
+
     previewSignIn: function (role) {
       var user = {
         id: 'preview-' + role,
