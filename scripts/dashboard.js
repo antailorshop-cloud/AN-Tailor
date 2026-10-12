@@ -115,6 +115,10 @@ window.ANT.dashboard = (function () {
      * how many. Capped: this is a glance, not a work list, and the full list
      * already exists on the Orders page. */
     bench: [],
+    /* How many orders are still owed to a customer, split by status. The bench
+     * itself is capped; these are the whole book, so the subtitle can say what
+     * is counted even when the list is shortened. */
+    live: { total: 0, pending: 0, process: 0, finish: 0 },
     /* Every open order split by the day the customer expects it, so the shop can
      * see at a glance what is late and what is coming. Counted on the order's
      * delivery_date - the latest of its items - the same date a bill prints. */
@@ -274,13 +278,23 @@ window.ANT.dashboard = (function () {
           && (o.status === 'Pending' || o.status === 'Process' || o.status === 'Finish');
       }).length;
 
-      // The bench is every live order: Pending has been taken but not started,
-      // Process is on the machine, Finish is done and waiting to be handed over.
-      // All three are work the shop still owes, and the bench is where a tailor
-      // moves each one along, so none of them is left off.
-      state.bench = rows.filter(function (o) {
-        return o.status === 'Pending' || o.status === 'Process' || o.status === 'Finish';
-      }).sort(function (a, b) {
+      // The bench is every order still owed to a customer: not yet handed over
+      // (Delivery) and not called off (Cancelled, already dropped by the query).
+      // That is Pending, Process and Finish - and it does not hinge on those
+      // three strings being spelled exactly, so an order with no status yet
+      // appears too rather than quietly going missing.
+      var live = rows.filter(function (o) {
+        return o.status !== 'Delivery' && o.status !== 'Cancelled';
+      });
+
+      state.live = { total: live.length, pending: 0, process: 0, finish: 0 };
+      live.forEach(function (o) {
+        if (o.status === 'Process') state.live.process++;
+        else if (o.status === 'Finish') state.live.finish++;
+        else state.live.pending++;
+      });
+
+      state.bench = live.sort(function (a, b) {
         var ad = String(a.delivery_date || '9999-99-99');
         var bd = String(b.delivery_date || '9999-99-99');
         if (ad === bd) return String(a.code) < String(b.code) ? -1 : 1;
@@ -574,23 +588,25 @@ window.ANT.dashboard = (function () {
    * Cancel alongside. A tap advances the order and the dashboard reloads, so
    * the bench is where the day's work gets moved along, not just read. */
   function benchStatus(o) {
-    var kind = o.status === 'Finish' ? 'chip-success'
-      : (o.status === 'Pending' ? 'chip-warn' : 'chip-info');
-    var chip = '<span class="chip ' + kind + '">' + esc(o.status) + '</span>';
+    var status = o.status || 'Pending';
+    var kind = status === 'Finish' ? 'chip-success'
+      : (status === 'Pending' ? 'chip-warn' : 'chip-info');
+    var chip = '<span class="chip ' + kind + '">' + esc(status) + '</span>';
 
     var flow = ['Pending', 'Process', 'Finish', 'Delivery'];
-    var at = flow.indexOf(o.status);
-    var ahead = at >= 0 ? flow.slice(at + 1) : [];
+    var at = flow.indexOf(status);
+    if (at < 0) at = 0;
+    var ahead = flow.slice(at + 1);
     var buttons = ahead.map(function (st) {
       var cls = st === 'Delivery' ? 'btn-success' : 'btn-secondary';
       return '<button type="button" class="btn btn-sm ' + cls + ' bench-set" ' +
-        'data-bench-id="' + esc(o.id) + '" data-bench-cur="' + esc(o.status) +
+        'data-bench-id="' + esc(o.id) + '" data-bench-cur="' + esc(status) +
         '" data-bench-next="' + esc(st) + '">' + esc(st) + '</button>';
     }).join('');
 
-    if (o.status !== 'Delivery' && o.status !== 'Cancelled') {
+    if (status !== 'Delivery' && status !== 'Cancelled') {
       buttons += '<button type="button" class="btn btn-sm btn-danger bench-set" ' +
-        'data-bench-id="' + esc(o.id) + '" data-bench-cur="' + esc(o.status) +
+        'data-bench-id="' + esc(o.id) + '" data-bench-cur="' + esc(status) +
         '" data-bench-next="Cancelled">Cancel</button>';
     }
 
@@ -618,7 +634,7 @@ window.ANT.dashboard = (function () {
       '</div>';
     }
 
-    var onBench = state.pending + state.inProgress + state.ready;
+    var onBench = state.live.total;
 
     var rows = state.bench.map(function (o) {
       var c = o.customer || {};
@@ -642,7 +658,9 @@ window.ANT.dashboard = (function () {
       '<h2 class="ui-card-title">On the bench</h2>' +
       '<p class="ui-card-sub">' + onBench +
         ' order' + (onBench === 1 ? '' : 's') +
-        ' in hand, soonest due first.</p>' +
+        ' in hand: ' + state.live.pending + ' Pending \u00b7 ' +
+        state.live.process + ' Process \u00b7 ' + state.live.finish +
+        ' Finish, soonest due first.</p>' +
       '<div class="table-wrap"><table class="ui-table"><thead><tr>' +
         '<th>Status</th><th>Customer</th><th>Order</th><th>Due</th>' +
       '</tr></thead><tbody>' + rows + '</tbody></table></div>' +
