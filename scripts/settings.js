@@ -86,6 +86,7 @@ window.ANT.settings = (function () {
       wa_bill_size: '', receipt_print_size: '' },
     staff: { rows: [], access: {}, loading: false, error: null },
     clear: { picked: {}, busy: false },
+    exporting: false,
     loading: false,
     error: null,
     form: null   // null = closed, {kind:'dress'|'price', row:{}|null}
@@ -213,7 +214,8 @@ window.ANT.settings = (function () {
       '<button class="set-tab' + (state.tab === 'whatsapp' ? ' is-active' : '') + '" data-set-tab="whatsapp">WhatsApp</button>' +
       '<button class="set-tab' + (state.tab === 'staff' ? ' is-active' : '') + '" data-set-tab="staff">Staff</button>' +
       (isOwner()
-        ? '<button class="set-tab' + (state.tab === 'data' ? ' is-active' : '') + '" data-set-tab="data">Clear data</button>'
+        ? '<button class="set-tab' + (state.tab === 'backup' ? ' is-active' : '') + '" data-set-tab="backup">Backup</button>' +
+          '<button class="set-tab' + (state.tab === 'data' ? ' is-active' : '') + '" data-set-tab="data">Clear data</button>'
         : '') +
     '</div>';
   }
@@ -267,6 +269,7 @@ window.ANT.settings = (function () {
     if (state.tab === 'whatsapp') return whatsappPanel();
     if (state.tab === 'staff') return staffPanel();
     if (state.tab === 'data') return clearPanel();
+    if (state.tab === 'backup') return backupPanel();
     return state.tab === 'dress' ? dressPanel() : pricePanel();
   }
 
@@ -1188,6 +1191,63 @@ window.ANT.settings = (function () {
       });
   }
 
+  /* Backup ------------------------------------------------------------- */
+
+  // A copy of everything, as CSV files in one zip. Only the Owner sees the tab,
+  // and the read is the same one the app makes all day, so RLS decides what ends
+  // up in it.
+  function backupPanel() {
+    if (!isOwner()) {
+      return '<div class="ui-card"><div class="empty">' +
+        '<div class="empty-title">Only the Owner can see this</div>' +
+        '<p class="empty-text">Downloading the shop&#39;s records is the Owner&#39;s alone.</p>' +
+      '</div></div>';
+    }
+
+    var list = 'Customers, measurements, orders and their items, bills and the orders ' +
+      'they cover, payments and resale stock - with the setup behind them: prices, ' +
+      'dress types, the shop details and the staff list.';
+
+    return '<div class="ui-card cust-form">' +
+      '<h2 class="ui-card-title">Backup</h2>' +
+      '<p class="ui-hint">Downloads a copy of the shop as a zip of CSV files, one file per ' +
+        'table, which opens in Excel or Google Sheets. Worth taking before a clear-out, ' +
+        'or at the end of each month.</p>' +
+      '<p class="ui-hint">' + esc(list) + '</p>' +
+      '<div class="form-actions">' +
+        '<button type="button" class="btn btn-primary" id="backupRun"' +
+          (state.exporting ? ' disabled' : '') + '>' +
+          (state.exporting ? 'Preparing...' : 'Download backup (.zip)') +
+        '</button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  // Reads every table a page at a time, hands the files to the zip writer and
+  // saves the result. Anything that fails stops the whole thing: a half backup
+  // that looks complete is worse than none.
+  function runExport() {
+    if (!isOwner() || state.exporting) return;
+    if (!window.ANT.export || !window.ANT.zip) {
+      toast('Backup is not available.', 'error');
+      return;
+    }
+
+    state.exporting = true;
+    paint();
+
+    window.ANT.export.run().then(function (res) {
+      state.exporting = false;
+      var total = res.counts.reduce(function (a, n) { return a + n; }, 0);
+      toast('Backup ready: ' + total + ' rows across ' + res.counts.length + ' tables.', 'success');
+    }).catch(function (e) {
+      state.exporting = false;
+      toast('Could not make the backup: ' + (e && e.message ? e.message : e), 'error');
+    }).then(function () {
+      paint();
+    });
+  }
+
   /* Clear data --------------------------------------------------------- */
 
   // The tables a selection actually removes, in the order they must go. Ticking
@@ -1469,6 +1529,11 @@ window.ANT.settings = (function () {
     if (clearRun) {
       clearRun.addEventListener('click', clearSelected);
     }
+
+    var backupRun = byId('backupRun');
+    if (backupRun) {
+      backupRun.addEventListener('click', runExport);
+    }
   }
 
   return {
@@ -1481,6 +1546,7 @@ window.ANT.settings = (function () {
       state.search = '';
       state.form = null;
       state.clear = { picked: {}, busy: false };
+      state.exporting = false;
       paint();
       load();
     },
