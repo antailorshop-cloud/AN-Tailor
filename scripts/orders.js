@@ -87,7 +87,6 @@ window.ANT.orders = (function () {
     customers: [],
     customerQuery: '',
     dressTypes: [],
-    prices: [],
     resale: [],
     measurements: [],
     // The shop name and the ready-message wording, so the WhatsApp button says
@@ -208,28 +207,6 @@ window.ANT.orders = (function () {
           return;
         }
         state.dressTypes = res.data || [];
-      });
-  }
-
-  // Prices are only offered as suggestions on the rate box. They are not applied
-  // automatically, because the rate agreed with the customer is what matters,
-  // not the list price.
-  function loadPrices() {
-    if (state.prices.length) return Promise.resolve();
-    return sb().from('prices')
-      .select('item,option,price,group_name')
-      .eq('status', 'ACTIVE')
-      .then(function (res) {
-        // A failure here used to be swallowed, which left the rate box offering
-        // no suggestions and nothing on screen to say why. A broken column name
-        // or a renamed status is a code or schema mismatch, not something the
-        // tailor can fix, so it is surfaced rather than hidden.
-        if (res.error) {
-          console.warn('Orders: the price list could not be loaded, so the rate box has no suggestions.', res.error);
-          toast('Price list unavailable. Type the agreed rate.', 'error');
-          return;
-        }
-        state.prices = res.data || [];
       });
   }
 
@@ -883,7 +860,7 @@ window.ANT.orders = (function () {
       // editable, or the sell price would be quietly overwritten.
       '<td class="num">' + (resale
         ? '<input class="ui-input" data-ord-item="' + i + '" data-f="rate" inputmode="decimal" value="' + esc(it.rate) + '" readonly title="Rate comes from the stock item">'
-        : '<input class="ui-input" data-ord-item="' + i + '" data-f="rate" inputmode="decimal" list="ordPriceList" value="' + esc(it.rate) + '">') + '</td>' +
+        : '<input class="ui-input" data-ord-item="' + i + '" data-f="rate" inputmode="decimal" value="' + esc(it.rate) + '">') + '</td>' +
       '<td class="num"><input class="ui-input" data-ord-item="' + i + '" data-f="extra" inputmode="decimal" value="' + esc(it.extra) + '"></td>' +
       '<td class="num ord-line-total"><strong>' + money(lineTotal(it)) + '</strong></td>' +
       '<td><input class="ui-input" data-ord-item="' + i + '" data-f="delivery_date" type="date" value="' + esc(it.delivery_date || '') + '"></td>' +
@@ -892,26 +869,11 @@ window.ANT.orders = (function () {
     '</tr>';
   }
 
-  function priceDatalist() {
-    if (!state.prices.length) return '';
-    return '<datalist id="ordPriceList">' +
-      state.prices.map(function (p) {
-        // The value is the bare number and the formatted money goes in the
-        // label, so picking a suggestion types 450 into the rate box rather
-        // than a rupee sign that the numeric cleaner would have to strip.
-        var amount = num(p.price);
-        var label = p.item + (p.option ? ' - ' + p.option : '') + ' — ' + money(amount);
-        return '<option value="' + amount + '">' + esc(label) + '</option>';
-      }).join('') +
-    '</datalist>';
-  }
-
   function totalsCard(order, t) {
     var editing = state.form !== 'new';
 
     return '<div class="ui-card">' +
       '<h2 class="ui-card-title">Order details</h2>' +
-      priceDatalist() +
       '<div class="form-grid">' +
         '<div class="ui-field">' +
           '<label class="ui-label" for="ordDate">Order date</label>' +
@@ -1632,7 +1594,6 @@ window.ANT.orders = (function () {
             state.formCustomer = order.customer || null;
             state.view = 'edit';
             return loadReference()
-              .then(loadPrices)
               .then(loadResale)
               .then(function () { return loadMeasurements(order.customer_id); })
               .then(paint);
@@ -1649,7 +1610,7 @@ window.ANT.orders = (function () {
     state.measurements = [];
     state.resale = [];
     state.view = 'edit';
-    loadReference().then(loadPrices).then(loadResale).then(paint);
+    loadReference().then(loadResale).then(paint);
   }
 
   function searchCustomers(term) {
@@ -1990,11 +1951,10 @@ window.ANT.orders = (function () {
       state.customerQuery = '';
       state.measurements = [];
       state.dressTypes = [];
-      state.prices = [];
       state.resale = [];
       state.waShop = { name: '', waReadyMessage: '' };
       paint();
-      loadReference().then(loadPrices).then(loadResale).then(loadWaShop).then(function () {
+      loadReference().then(loadResale).then(loadWaShop).then(function () {
         return loadOrders();
       });
     }
