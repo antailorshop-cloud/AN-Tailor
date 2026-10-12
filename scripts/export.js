@@ -17,25 +17,25 @@
   // a column added later does not silently reorder an old backup.
   var TABLES = [
     { file: 'customers', table: 'customers', order: ['code'],
-      cols: ['code', 'name', 'mobile', 'address', 'notes', 'status',
+      cols: ['id', 'code', 'name', 'mobile', 'address', 'notes', 'status',
         'created_at', 'updated_at', 'archived_at'] },
 
     { file: 'measurements', table: 'measurements', order: ['code'],
-      cols: ['code', 'customer_id', 'category', 'dress_type', 'values', 'notes',
+      cols: ['id', 'code', 'customer_id', 'category', 'dress_type', 'values', 'notes',
         'created_at', 'updated_at', 'archived_at'] },
 
     { file: 'orders', table: 'orders', order: ['code'],
-      cols: ['code', 'customer_id', 'measurement_id', 'order_date', 'delivery_date',
+      cols: ['id', 'code', 'customer_id', 'measurement_id', 'order_date', 'delivery_date',
         'status', 'priority', 'total', 'discount', 'advance', 'balance', 'notes',
         'line_model', 'item_count', 'created_at', 'updated_at', 'archived_at'] },
 
     { file: 'order_items', table: 'order_items', order: ['order_id', 'line_no'],
-      cols: ['order_id', 'line_no', 'measurement_id', 'category', 'dress_type',
+      cols: ['id', 'order_id', 'line_no', 'measurement_id', 'category', 'dress_type',
         'service', 'variant', 'lining', 'resale_item_id', 'quantity', 'rate',
         'discount', 'extra_charge', 'line_total', 'delivery_date', 'archived_at'] },
 
     { file: 'bills', table: 'bills', order: ['code'],
-      cols: ['code', 'customer_id', 'total', 'discount', 'advance', 'bill_amount',
+      cols: ['id', 'code', 'customer_id', 'total', 'discount', 'advance', 'bill_amount',
         'balance', 'bill_date', 'notes', 'method', 'paid_on', 'print_size',
         'created_at', 'updated_at', 'archived_at'] },
 
@@ -43,26 +43,26 @@
       cols: ['bill_id', 'order_id'] },
 
     { file: 'payments', table: 'payments', order: ['code'],
-      cols: ['code', 'order_id', 'customer_id', 'amount', 'method', 'reference',
+      cols: ['id', 'code', 'order_id', 'customer_id', 'amount', 'method', 'reference',
         'previous_balance', 'new_balance', 'notes', 'paid_on', 'created_at',
         'updated_at'] },
 
     { file: 'resale_stock', table: 'resale_stock', order: ['code'],
-      cols: ['code', 'item', 'quantity', 'buy_price', 'sell_price', 'total_cost',
+      cols: ['id', 'code', 'item', 'quantity', 'buy_price', 'sell_price', 'total_cost',
         'buy_date', 'notes', 'created_at', 'updated_at'] },
 
     { file: 'prices', table: 'prices', order: ['code'],
-      cols: ['code', 'group_name', 'item', 'option', 'price', 'extra_charge',
+      cols: ['id', 'code', 'group_name', 'item', 'option', 'price', 'extra_charge',
         'status', 'created_at', 'updated_at'] },
 
     { file: 'dress_types', table: 'dress_types', order: ['category', 'dress_type'],
-      cols: ['category', 'dress_type', 'is_default', 'created_at'] },
+      cols: ['id', 'category', 'dress_type', 'is_default', 'created_at'] },
 
     { file: 'shop_settings', table: 'shop_settings', order: ['key'],
       cols: ['key', 'value', 'updated_at'] },
 
     { file: 'staff', table: 'profiles', order: ['display_name'],
-      cols: ['email', 'display_name', 'role', 'phone', 'address', 'active',
+      cols: ['id', 'email', 'display_name', 'role', 'phone', 'address', 'active',
         'created_at', 'updated_at'] },
 
     { file: 'staff_access', table: 'staff_access', order: ['user_id', 'area'],

@@ -87,6 +87,7 @@ window.ANT.settings = (function () {
     staff: { rows: [], access: {}, loading: false, error: null },
     clear: { picked: {}, busy: false },
     exporting: false,
+    imp: { busy: false, plan: null, tables: null, report: null, error: null },
     loading: false,
     error: null,
     form: null   // null = closed, {kind:'dress'|'price', row:{}|null}
@@ -215,6 +216,7 @@ window.ANT.settings = (function () {
       '<button class="set-tab' + (state.tab === 'staff' ? ' is-active' : '') + '" data-set-tab="staff">Staff</button>' +
       (isOwner()
         ? '<button class="set-tab' + (state.tab === 'backup' ? ' is-active' : '') + '" data-set-tab="backup">Backup</button>' +
+          '<button class="set-tab' + (state.tab === 'imp' ? ' is-active' : '') + '" data-set-tab="imp">Import</button>' +
           '<button class="set-tab' + (state.tab === 'data' ? ' is-active' : '') + '" data-set-tab="data">Clear data</button>'
         : '') +
     '</div>';
@@ -270,6 +272,7 @@ window.ANT.settings = (function () {
     if (state.tab === 'staff') return staffPanel();
     if (state.tab === 'data') return clearPanel();
     if (state.tab === 'backup') return backupPanel();
+    if (state.tab === 'imp') return importPanel();
     return state.tab === 'dress' ? dressPanel() : pricePanel();
   }
 
@@ -1248,6 +1251,165 @@ window.ANT.settings = (function () {
     });
   }
 
+  /* Import ------------------------------------------------------------- */
+
+  function importPanel() {
+    if (!isOwner()) {
+      return '<div class="ui-card"><div class="empty">' +
+        '<div class="empty-title">Only the Owner can see this</div>' +
+        '<p class="empty-text">Bringing records in is the Owner&#39;s alone.</p>' +
+      '</div></div>';
+    }
+
+    if (state.imp.report) return importReport();
+    if (state.imp.plan) return importPlan();
+
+    return '<div class="ui-card cust-form">' +
+      '<h2 class="ui-card-title">Import</h2>' +
+      '<p class="ui-hint">Restores records from a Backup zip, or from the CSV files inside ' +
+        'one. Rows are added to what is already here; a record that is already in the shop ' +
+        'is left exactly as it is, and only the new rows are added.</p>' +
+      '<p class="ui-hint">Customers, measurements, orders, bills, payments, resale stock, ' +
+        'prices and dress types. Staff sign-ins are not restored.</p>' +
+      '<div class="ui-field">' +
+        '<label class="ui-label" for="impFile">Backup file</label>' +
+        '<input class="ui-input" id="impFile" type="file" accept=".zip,.csv" multiple>' +
+      '</div>' +
+      (state.imp.error
+        ? '<p class="ui-hint" style="color:var(--danger)">' + esc(state.imp.error) + '</p>'
+        : '') +
+      '<div class="form-actions">' +
+        '<button type="button" class="btn btn-primary" id="impReview"' +
+          (state.imp.busy ? ' disabled' : '') + '>' +
+          (state.imp.busy ? 'Reading...' : 'Review file') +
+        '</button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function importPlan() {
+    var plan = state.imp.plan;
+    var t = plan.totals;
+    var rows = plan.tables.filter(function (r) { return r.found; }).map(function (r) {
+      return '<tr><td>' + esc(r.table) + '</td><td>' + r.found + '</td>' +
+        '<td>' + r.add + '</td><td>' + r.skip + '</td></tr>';
+    }).join('');
+
+    return '<div class="ui-card cust-form">' +
+      '<h2 class="ui-card-title">Import</h2>' +
+      '<p class="ui-hint">Found ' + t.found + ' rows. ' + t.add + ' are new and will be added; ' +
+        t.skip + ' already exist and will be left alone.</p>' +
+      (rows
+        ? '<div class="table-wrap"><table class="ui-table"><thead><tr>' +
+            '<th>Table</th><th>In file</th><th>New</th><th>Skip</th>' +
+          '</tr></thead><tbody>' + rows + '</tbody></table></div>'
+        : '<p class="ui-hint">Nothing in that file could be read.</p>') +
+      (state.imp.error
+        ? '<p class="ui-hint" style="color:var(--danger)">' + esc(state.imp.error) + '</p>'
+        : '') +
+      '<div class="form-actions">' +
+        (t.add
+          ? '<button type="button" class="btn btn-primary" id="impRun"' +
+              (state.imp.busy ? ' disabled' : '') + '>' +
+              (state.imp.busy ? 'Importing...' : 'Import ' + t.add + ' rows') +
+            '</button>'
+          : '') +
+        '<button type="button" class="btn btn-secondary" id="impReset">Choose another file</button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function importReport() {
+    var r = state.imp.report;
+    var t = r.totals;
+    var rows = r.tables.filter(function (x) { return x.inserted || x.skip; }).map(function (x) {
+      return '<tr><td>' + esc(x.table) + '</td><td>' + x.inserted + '</td>' +
+        '<td>' + x.skip + '</td></tr>';
+    }).join('');
+    var fail = r.failures.length
+      ? '<p class="ui-hint" style="color:var(--danger)">' + r.failures.length +
+          ' row(s) could not be added: ' + esc(r.failures.slice(0, 5).map(function (f) {
+            return f.table + ' ' + f.code; }).join(', ')) +
+          (r.failures.length > 5 ? ' ...' : '') + '</p>'
+      : '';
+
+    return '<div class="ui-card cust-form">' +
+      '<h2 class="ui-card-title">Import done</h2>' +
+      '<p class="ui-hint">Added ' + t.inserted + ' rows; ' + t.skip +
+        ' were already here and were left alone.</p>' +
+      (rows
+        ? '<div class="table-wrap"><table class="ui-table"><thead><tr>' +
+            '<th>Table</th><th>Added</th><th>Skipped</th></tr></thead><tbody>' + rows +
+          '</tbody></table></div>'
+        : '') +
+      fail +
+      '<p class="ui-hint">Reload the app to see the new records on every screen.</p>' +
+      '<div class="form-actions">' +
+        '<button type="button" class="btn btn-primary" id="impReload">Reload</button>' +
+        '<button type="button" class="btn btn-secondary" id="impDone">Close</button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function impResetState() {
+    state.imp = { busy: false, plan: null, tables: null, report: null, error: null };
+  }
+
+  function reviewImport() {
+    var input = byId('impFile');
+    var files = input && input.files;
+    if (!files || !files.length) {
+      state.imp.error = 'Choose a backup file first.';
+      paint();
+      return;
+    }
+
+    state.imp.busy = true;
+    state.imp.error = null;
+    state.imp.plan = null;
+    state.imp.report = null;
+    paint();
+
+    window.ANT.restore.readBackup(files).then(function (found) {
+      if (!found.names.length) {
+        throw new Error('No CSV files were found in that file.');
+      }
+      state.imp.tables = found.tables;
+      return window.ANT.restore.preview(found.tables);
+    }).then(function (plan) {
+      state.imp.busy = false;
+      state.imp.plan = plan;
+      paint();
+    }).catch(function (e) {
+      state.imp.busy = false;
+      state.imp.error = (e && e.message) ? e.message : String(e);
+      paint();
+    });
+  }
+
+  function runImport() {
+    if (!state.imp.plan || state.imp.busy) return;
+    var add = state.imp.plan.totals.add;
+    if (!window.confirm('Add ' + add + ' rows to the shop?\n\nNothing that is already ' +
+      'here will change.')) return;
+
+    state.imp.busy = true;
+    state.imp.error = null;
+    paint();
+
+    window.ANT.restore.run(state.imp.tables).then(function (report) {
+      state.imp.busy = false;
+      state.imp.report = report;
+      toast('Imported ' + report.totals.inserted + ' rows.', 'success');
+      paint();
+      load();
+    }).catch(function (e) {
+      state.imp.busy = false;
+      state.imp.error = (e && e.message) ? e.message : String(e);
+      paint();
+    });
+  }
+
   /* Clear data --------------------------------------------------------- */
 
   // The tables a selection actually removes, in the order they must go. Ticking
@@ -1534,6 +1696,17 @@ window.ANT.settings = (function () {
     if (backupRun) {
       backupRun.addEventListener('click', runExport);
     }
+
+    var impReview = byId('impReview');
+    if (impReview) impReview.addEventListener('click', reviewImport);
+    var impRun = byId('impRun');
+    if (impRun) impRun.addEventListener('click', runImport);
+    var impReset = byId('impReset');
+    if (impReset) impReset.addEventListener('click', function () { impResetState(); paint(); });
+    var impDone = byId('impDone');
+    if (impDone) impDone.addEventListener('click', function () { impResetState(); paint(); });
+    var impReload = byId('impReload');
+    if (impReload) impReload.addEventListener('click', function () { window.location.reload(); });
   }
 
   return {
@@ -1547,6 +1720,7 @@ window.ANT.settings = (function () {
       state.form = null;
       state.clear = { picked: {}, busy: false };
       state.exporting = false;
+      impResetState();
       paint();
       load();
     },

@@ -144,6 +144,71 @@
     return new Blob(parts, { type: 'application/zip' });
   }
 
+  /* Reading ------------------------------------------------------------- */
+
+  function u16(a, i) { return a[i] | (a[i + 1] << 8); }
+  function u32(a, i) {
+    return (a[i] | (a[i + 1] << 8) | (a[i + 2] << 16) | (a[i + 3] << 24)) >>> 0;
+  }
+
+  function findEOCD(a) {
+    // The end-of-central-directory record is within the last 22 bytes plus the
+    // optional comment, which is at most 65535. Search back for the signature.
+    var min = Math.max(0, a.length - 22 - 65535);
+    for (var i = a.length - 22; i >= min; i--) {
+      if (u32(a, i) === 0x06054B50) return i;
+    }
+    return -1;
+  }
+
+  // Inflate a raw deflate stream (method 8) using the browser's own decoder.
+  // Nothing here compresses, so most entries are stored; this only matters if
+  // the zip came from somewhere else, such as a desktop "Compress" action.
+  function inflateRaw(bytes) {
+    if (typeof DecompressionStream === 'undefined') {
+      return Promise.reject(new Error('This zip is compressed and this browser cannot open it.'));
+    }
+    var stream = new Blob([bytes]).stream()
+      .pipeThrough(new DecompressionStream('deflate-raw'));
+    return new Response(stream).arrayBuffer().then(function (b) {
+      return new Uint8Array(b);
+    });
+  }
+
+  /* buffer: an ArrayBuffer. Resolves with [{ name, data: Uint8Array }]. */
+  function read(buffer) {
+    var bytes = new Uint8Array(buffer);
+    var eocd = findEOCD(bytes);
+    if (eocd < 0) return Promise.reject(new Error('That is not a zip file.'));
+
+    var count = u16(bytes, eocd + 10);
+    var p = u32(bytes, eocd + 16);   // offset of the central directory
+
+    var jobs = [];
+    for (var n = 0; n < count; n++) {
+      if (u32(bytes, p) !== 0x02014B50) break;
+      var method = u16(bytes, p + 10);
+      var compSize = u32(bytes, p + 20);
+      var nameLen = u16(bytes, p + 28);
+      var extraLen = u16(bytes, p + 30);
+      var commentLen = u16(bytes, p + 32);
+      var localAt = u32(bytes, p + 42);
+      var name = new TextDecoder('utf-8').decode(bytes.subarray(p + 46, p + 46 + nameLen));
+
+      var dataAt = localAt + 30 + u16(bytes, localAt + 26) + u16(bytes, localAt + 28);
+      var raw = bytes.subarray(dataAt, dataAt + compSize);
+
+      (function (name, method, raw) {
+        jobs.push((method === 0 ? Promise.resolve(raw) : inflateRaw(raw))
+          .then(function (data) { return { name: name, data: data }; }));
+      })(name, method, raw);
+
+      p += 46 + nameLen + extraLen + commentLen;
+    }
+
+    return Promise.all(jobs);
+  }
+
   window.ANT = window.ANT || {};
-  window.ANT.zip = { build: build, crc32: crc32, utf8: utf8 };
+  window.ANT.zip = { build: build, read: read, crc32: crc32, utf8: utf8 };
 })();
