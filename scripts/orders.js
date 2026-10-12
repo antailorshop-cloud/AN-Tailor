@@ -38,9 +38,9 @@ window.ANT.orders = (function () {
   var STATUSES = ['Pending', 'Process', 'Finish', 'Delivery', 'Cancelled'];
   var PRIORITIES = ['Normal', 'Urgent'];
 
-  // Service, variant and lining lists are taken verbatim from the legacy
-  // Orders.html so the shop sees the same words it always has. A renamed option
-  // is a different thing in the shop's head, so these are not invented here.
+  // Service and lining lists are taken verbatim from the legacy Orders.html so
+  // the shop sees the same words it always has. A renamed option is a different
+  // thing in the shop's head, so these are not invented here.
   var SERVICES = [
     'Tailoring',
     'Aari Work',
@@ -51,13 +51,12 @@ window.ANT.orders = (function () {
     'Resale'
   ];
 
-  var VARIANT_OPTIONS = ['', 'Blouse', 'Salwar / Churidar', 'Chudi', 'Kurthi'];
   var LINING_OPTIONS = ['', 'Without Lining', 'With Lining'];
 
-  // The legacy system only keeps variant and lining for a Tailoring order, and
-  // only shows a measurement when a measurement can actually apply. These two
-  // predicates drive which columns a row shows, so the rule lives in one place
-  // instead of being repeated in every branch.
+  // The legacy system only keeps lining for a Tailoring order, and only shows a
+  // measurement when a measurement can actually apply. These two predicates
+  // drive which columns a row shows, so the rule lives in one place instead of
+  // being repeated in every branch.
   function isTailoring(service) {
     return service === 'Tailoring';
   }
@@ -739,7 +738,7 @@ window.ANT.orders = (function () {
         : '') +
       (anyDress ? '<div class="table-wrap"><table class="ui-table ord-items">' +
         '<thead><tr>' +
-          '<th>Service</th><th>Dress</th><th>Variant</th><th>Lining</th><th>Resale item</th>' +
+          '<th>Service</th><th>Dress</th><th>Lining</th><th>Resale item</th>' +
           '<th class="num">Qty</th><th class="num">Rate</th><th class="num">Extra</th>' +
           '<th class="num">Total</th><th>Delivery</th><th>Measurements</th><th></th>' +
         '</tr></thead>' +
@@ -758,11 +757,11 @@ window.ANT.orders = (function () {
   }
 
   // The columns a row shows depend on the service, matching the legacy editor:
-  //   Tailoring  -> dress, variant, lining, measurement
+  //   Tailoring  -> dress, lining, measurement
   //   Resale     -> stock item only, with the rate taken from its sell price
   //   anything else (Aari Work, Ironing, Saree Pre-Pleating, Alteration,
-  //   Embroidery) -> dress and delivery date, with no variant, lining or
-  //   measurement, because none of them describe a garment being cut
+  //   Embroidery) -> dress and delivery date, with no lining or measurement,
+  //   because none of them describe a garment being cut
   function itemRow(it, i, groups) {
     var service = it.service || 'Tailoring';
     var tailoring = isTailoring(service);
@@ -788,16 +787,6 @@ window.ANT.orders = (function () {
         ? '<span class="ord-fixed">' + esc(it.dress_type || 'From measurement') + '</span>'
         : '<select class="ui-input" data-ord-item="' + i + '" data-f="dress_type">' + dressOpts.join('') + '</select>') +
         '</td>';
-    }
-
-    var variantCell = '<td class="ord-na">—</td>';
-    if (tailoring) {
-      variantCell = '<td><select class="ui-input" data-ord-item="' + i + '" data-f="variant">' +
-        VARIANT_OPTIONS.map(function (v) {
-          return '<option value="' + esc(v) + '"' + (v === (it.variant || '') ? ' selected' : '') + '>' +
-            (v === '' ? 'None' : esc(v)) + '</option>';
-        }).join('') +
-        '</select></td>';
     }
 
     var liningCell = '<td class="ord-na">—</td>';
@@ -854,7 +843,7 @@ window.ANT.orders = (function () {
             return '<option value="' + esc(s) + '"' + (s === service ? ' selected' : '') + '>' + esc(s) + '</option>';
           }).join('') +
         '</select></td>' +
-      dressCell + variantCell + liningCell + resaleCell +
+      dressCell + liningCell + resaleCell +
       '<td class="num"><input class="ui-input" data-ord-item="' + i + '" data-f="qty" inputmode="decimal" value="' + esc(it.qty) + '"></td>' +
       // A resale rate comes from the stock item, so it is locked rather than
       // editable, or the sell price would be quietly overwritten.
@@ -937,7 +926,6 @@ window.ANT.orders = (function () {
       category: '',
       dress_type: '',
       service: 'Tailoring',
-      variant: '',
       lining: '',
       resale_item: '',
       qty: 1,
@@ -958,7 +946,6 @@ window.ANT.orders = (function () {
     item.extra = 0;
 
     if (!isTailoring(service)) {
-      item.variant = '';
       item.lining = '';
     }
 
@@ -968,7 +955,6 @@ window.ANT.orders = (function () {
       item.measurement_id = '';
       item.dress_type = '';
       item.category = '';
-      item.variant = '';
       item.lining = '';
     }
 
@@ -1074,8 +1060,8 @@ window.ANT.orders = (function () {
         if (!it.resale_item) return 'Choose the stock item being sold on item ' + n + '.';
       } else if (!it.dress_type) {
         // The dress box is on screen for everything except a resale, so it is
-        // required for everything except a resale. Variant and lining stay
-        // optional: they are Tailoring extras, not part of every job.
+        // required for everything except a resale. Lining stays optional: it is
+        // a Tailoring extra, not part of every job.
         return 'Choose a dress for item ' + n + '.';
       }
     }
@@ -1145,7 +1131,7 @@ window.ANT.orders = (function () {
       category: category,
       dress_type: dress,
       service: it.service,
-      variant: isResale(it.service) ? (it.resale_item || '') : (it.variant || ''),
+      variant: isResale(it.service) ? (it.resale_item || '') : '',
       lining: isTailoring(it.service) ? (it.lining || '') : '',
       resale_item_id: resaleId,
       quantity: num(it.qty),
@@ -1574,7 +1560,6 @@ window.ANT.orders = (function () {
                 category: it.category,
                 dress_type: it.dress_type,
                 service: it.service || 'Tailoring',
-                variant: it.variant || '',
                 lining: it.lining || '',
                 // A resale line keeps the item name in variant and the stock
                 // row's key in resale_item_id. The box offers names, so the name
@@ -1893,9 +1878,9 @@ window.ANT.orders = (function () {
     var rows = document.querySelectorAll('.ord-items tbody tr');
     var row = rows[i];
     if (!row) return;
-    // Columns: Service, Dress, Variant, Lining, Resale item, Qty, Rate, Extra,
-    // Total. index() is used rather than a fixed number so a future column
-    // change cannot silently write the total into the wrong cell.
+    // Columns: Service, Dress, Lining, Resale item, Qty, Rate, Extra, Total.
+    // index() is used rather than a fixed number so a future column change
+    // cannot silently write the total into the wrong cell.
     var cell = row.querySelector('td.ord-line-total');
     if (cell) cell.innerHTML = '<strong>' + money(lineTotal(state.formItems[i])) + '</strong>';
   }
