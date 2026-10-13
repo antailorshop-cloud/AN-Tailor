@@ -2073,9 +2073,27 @@ window.ANT.orders = (function () {
     if (!id || !next || next === cur) { if (onDone) onDone(); return; }
     if (next === 'Cancelled' && !confirm('Cancel this order?')) { if (onFail) onFail(); return; }
 
+    var order = orderObj || state.orders.find(function (o) { return o.id === id; });
+
+    // Finish and Delivery are the two steps whose message carries the bill, so
+    // the order is put on a bill first. Without one the customer would be told
+    // the work is done with no bill to look at, so the status is held back and
+    // the tailor is offered the Bills page with this order already ticked.
+    if (next === 'Finish' || next === 'Delivery') {
+      orderOnBill(id).then(function (onBill) {
+        if (onBill) { saveStatus(id, next, cur, onDone, onFail, order); return; }
+        if (onFail) onFail();
+        askForBill(order, id, next);
+      });
+      return;
+    }
+
+    saveStatus(id, next, cur, onDone, onFail, order);
+  }
+
+  function saveStatus(id, next, cur, onDone, onFail, order) {
     // The chat is opened before the save so it still counts as the tap's own
     // doing; a phone blocks a chat opened on the far side of an await.
-    var order = orderObj || state.orders.find(function (o) { return o.id === id; });
     sendStatusWhatsApp(order, next);
 
     updateStatus(id, next, cur, order).then(function () {
@@ -2085,6 +2103,31 @@ window.ANT.orders = (function () {
       try { if (typeof window.showToast === 'function') window.showToast('Update failed', { type: 'error', duration: 1500 }); } catch (e) {}
       if (onFail) onFail();
     });
+  }
+
+  /* Whether the order already sits on a bill, asked of the Bills page's reader.
+   * A lookup that cannot be made counts as "on a bill": a check the app cannot
+   * complete must never stop the tailor from updating an order. */
+  function orderOnBill(orderId) {
+    var bills = window.ANT && window.ANT.bills;
+    if (!bills || typeof bills.orderBillId !== 'function') return Promise.resolve(true);
+    return Promise.resolve(bills.orderBillId(orderId))
+      .then(function (billId) { return !!billId; })
+      .catch(function () { return true; });
+  }
+
+  /* The order is not on a bill: say so, and offer to open the Bills page with it
+   * already ticked so the bill is one more press and the status is set after. */
+  function askForBill(order, id, next) {
+    var code = (order && order.code) ? order.code : 'This order';
+    var go = confirm(code + ' is not on a bill yet.\n\n' +
+      'A bill is needed before the ' + next + ' message can carry it. ' +
+      'Create the bill first, then set ' + next + '.\n\n' +
+      'Open the Bills page with this order selected?');
+    if (!go) return;
+    var bills = window.ANT && window.ANT.bills;
+    if (bills && typeof bills.focusOrder === 'function') bills.focusOrder(id);
+    else location.hash = '#/bills';
   }
 
 })();

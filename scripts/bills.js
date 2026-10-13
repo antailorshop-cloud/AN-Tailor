@@ -102,6 +102,11 @@ window.ANT.bills = (function () {
     storage: null
   };
 
+  // An order the app was asked to open this page on - the Orders page sends one
+  // here when a status needs a bill first. Read and cleared once the page has
+  // loaded, so it survives the navigation but never lingers into a later visit.
+  var pendingOrderId = null;
+
   function byId(id) { return document.getElementById(id); }
 
   function num(value) {
@@ -2301,6 +2306,23 @@ window.ANT.bills = (function () {
       .then(function (url) { return url || ''; });
   }
 
+  /* The bill the order is on, as an id, or '' when it is on none. Read by the
+   * Orders page to hold a Finish or Delivery back until a bill exists, so it is
+   * deliberately cheap: one lookup, no drawing. A failed read is left to the
+   * caller to treat as "cannot check", never as "no bill". */
+  function orderBillId(orderId) {
+    if (!orderId || !sb()) return Promise.resolve('');
+
+    return sb().from('bill_orders')
+      .select('bill_id')
+      .eq('order_id', orderId)
+      .limit(1)
+      .then(function (res) {
+        if (res.error || !res.data || !res.data.length) return '';
+        return res.data[0].bill_id || '';
+      });
+  }
+
   /* How much of the allowance is used. Storage answers a page of object names at
    * a time, so this walks the pages rather than trusting the first one, and says
    * so when it stopped early instead of reporting a confident wrong total. */
@@ -2637,12 +2659,67 @@ window.ANT.bills = (function () {
     resetFor();
     paint();
     loadShop();
+
+    var pending = pendingOrderId;
+    pendingOrderId = null;
+    if (pending) return selectOrderForBill(pending);
+    return Promise.resolve();
+  }
+
+  /* Opens the page on one order: finds its customer, loads them, and ticks the
+   * order so the bill it was sent here to make is already staged. Every step
+   * that fails simply leaves the plain Bills page, which is still usable by
+   * hand, so a deep link can never strand the tailor on an empty screen. */
+  function selectOrderForBill(orderId) {
+    return sb().from('orders')
+      .select('customer_id')
+      .eq('id', orderId)
+      .limit(1)
+      .then(function (res) {
+        if (res.error || !res.data || !res.data.length) return;
+        var customerId = res.data[0].customer_id;
+        if (!customerId) return;
+
+        return sb().from('customers')
+          .select('id,code,name,mobile,address')
+          .eq('id', customerId)
+          .limit(1)
+          .then(function (cres) {
+            if (cres.error || !cres.data || !cres.data.length) return;
+            return openCustomer(cres.data[0]).then(function () {
+              var here = state.orders.some(function (o) { return o.id === orderId; });
+              if (!here) return;
+              state.selected[orderId] = true;
+              paint();
+            });
+          });
+      })
+      .catch(function () { return null; });
+  }
+
+  /* Sent here from the Orders page when a Finish or Delivery was held back for
+   * want of a bill. The order is remembered and applied once the page loads, so
+   * the tailor lands on the customer with the order already ticked. */
+  function focusOrder(orderId) {
+    if (!orderId) return Promise.resolve();
+    pendingOrderId = orderId;
+
+    var here = (location.hash || '').replace(/^#\/?/, '').split('/')[0];
+    if (here === 'bills') return render();
+    location.hash = '#/bills';
+    return Promise.resolve();
   }
 
   return {
     mount: mount,
     render: render,
     refreshForOrder: refreshForOrder,
+    /* The order's bill, as an id, or '' when it is on none. The Orders page
+     * reads this to hold a Finish or Delivery back until a bill exists. */
+    orderBillId: orderBillId,
+    /* Opens this page on one order with it ticked, used by the same hold-back so
+     * the bill is one press away. */
+    focusOrder: focusOrder,
     /* The order's bill, as a public PDF link, for the ready and delivered
      * messages. Draws the file first when it has never been shared, and returns
      * '' when the order is on no bill. */
