@@ -1211,7 +1211,7 @@ window.ANT.bills = (function () {
       });
   }
 
-  function ordersForPrint(ids) {
+  function ordersForPrint(ids, fresh) {
     if (!ids.length) return Promise.resolve([]);
 
     var byId2 = {};
@@ -1219,8 +1219,14 @@ window.ANT.bills = (function () {
 
     ids.forEach(function (id) {
       var hit = null;
-      for (var i = 0; i < state.orders.length; i++) {
-        if (state.orders[i].id === id) hit = state.orders[i];
+      // `fresh` is for callers that must see the orders as they are now, not as
+      // this page last loaded them - the ready and delivered messages draw a
+      // bill whose paid figure has to come from the orders, and a payment made
+      // since the page was opened would not be in the loaded copy.
+      if (!fresh) {
+        for (var i = 0; i < state.orders.length; i++) {
+          if (state.orders[i].id === id) hit = state.orders[i];
+        }
       }
       if (hit) byId2[id] = hit;
       else missing.push(id);
@@ -2153,7 +2159,15 @@ window.ANT.bills = (function () {
     var bucket = sb().storage.from(PDF_BUCKET);
     return window.ANT.billpdf.render(sharedSnapshot(snap))
       .then(function (blob) {
-        return bucket.upload(path, blob, { contentType: 'application/pdf' });
+        // A bill that has been shared once already has a file at this path, and
+        // a redraw replaces it - so the upload overwrites rather than refusing,
+        // and is stored with nothing cached, because a bill whose paid figure
+        // has moved must read as current the moment it is fetched again.
+        return bucket.upload(path, blob, {
+          contentType: 'application/pdf',
+          upsert: true,
+          cacheControl: '0'
+        });
       })
       .then(function (res) {
         if (res.error) throw res.error;
@@ -2227,6 +2241,17 @@ window.ANT.bills = (function () {
       });
   }
 
+  /* The public URL for a stored bill, tagged with the moment it was drawn. A
+   * storage URL is cached under its exact address - by Supabase's CDN and by
+   * whoever fetched it - so an address that never changes can keep handing back
+   * the bill as it was when it was first shared. The tag changes only when the
+   * file is drawn again, so an unchanged bill is still a cache hit. */
+  function versioned(url, snap) {
+    if (!url) return '';
+    var at = snap && snap.takenAt;
+    return at ? url + '?v=' + encodeURIComponent(at) : url;
+  }
+
   /* The bill PDF for the order, as a link the shop can send on WhatsApp.
    *
    * An order that is on a bill has a file the shop shared when the bill went
@@ -2262,7 +2287,7 @@ window.ANT.bills = (function () {
             if (bres.error || !bres.data || !bres.data.length) return '';
             var bill = bres.data[0];
             var stored = bill.pdf_path
-              ? sb().storage.from(PDF_BUCKET).publicUrl(bill.pdf_path)
+              ? versioned(sb().storage.from(PDF_BUCKET).publicUrl(bill.pdf_path), bill.pdf_snapshot)
               : '';
 
             // The orders carry what has been paid, so they are read even when a
@@ -2272,7 +2297,7 @@ window.ANT.bills = (function () {
               .select('order_id')
               .eq('bill_id', billId)
               .then(function (link) {
-                return ordersForPrint((link.data || []).map(function (r) { return r.order_id; }));
+                return ordersForPrint((link.data || []).map(function (r) { return r.order_id; }), true);
               })
               .then(function (list) {
                 var paidNow = round2(computeTotals(list || []).advance);
@@ -2293,12 +2318,11 @@ window.ANT.bills = (function () {
                       { code: '', name: '', mobile: '', address: '' };
 
                     return fetchShop().then(function (shop) {
-                      return writeBlob(bill,
-                        billSnapshot(bill, list, { shop: shop, customer: customer }),
-                        pdfPath(bill.id));
+                      var snap = billSnapshot(bill, list, { shop: shop, customer: customer });
+                      return writeBlob(bill, snap, pdfPath(bill.id))
+                        .then(function (url) { return versioned(url, snap) || stored; });
                     });
-                  })
-                  .then(function (url) { return url || stored; });
+                  });
               });
           });
       })
