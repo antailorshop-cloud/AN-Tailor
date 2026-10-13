@@ -2224,12 +2224,14 @@ window.ANT.bills = (function () {
 
   /* The bill PDF for the order, as a link the shop can send on WhatsApp.
    *
-   * An order that is on a bill already has a file the shop shared when the bill
-   * went out; that stored file is handed back as-is. An order that was billed
-   * but never shared has no file yet, so one is drawn here - from the same
-   * snapshot the Bills page would draw - so the ready or delivered message can
-   * still carry it. An order that is on no bill has nothing to link, and an
-   * empty string is returned.
+   * An order that is on a bill has a file the shop shared when the bill went
+   * out. What has been PAID is not part of that file's fixed content: money is
+   * recorded against the orders, and a customer who settles between the ready
+   * message and the delivery message would otherwise be handed a bill that still
+   * shows a balance. So the orders are read here and the file is redrawn with
+   * the live paid figure whenever it has moved since the file was drawn; the
+   * file already on storage is reused, unchanged, when nothing has moved. An
+   * order on no bill has nothing to link, and an empty string is returned.
    *
    * This runs from the Orders page, where the Bills page's state is not loaded,
    * so the shop settings and the customer are fetched here and handed to the
@@ -2248,39 +2250,50 @@ window.ANT.bills = (function () {
         var billId = res.data[0].bill_id;
 
         return sb().from('bills')
-          .select('id,code,customer_id,total,discount,advance,bill_amount,balance,bill_date,notes,method,paid_on,pdf_path')
+          .select('id,code,customer_id,total,discount,advance,bill_amount,balance,bill_date,notes,method,paid_on,pdf_path,pdf_snapshot')
           .eq('id', billId)
           .limit(1)
           .then(function (bres) {
             if (bres.error || !bres.data || !bres.data.length) return '';
             var bill = bres.data[0];
+            var stored = bill.pdf_path
+              ? sb().storage.from(PDF_BUCKET).publicUrl(bill.pdf_path)
+              : '';
 
-            // Already drawn and stored: the file the shop shared, unchanged.
-            if (bill.pdf_path) {
-              return sb().storage.from(PDF_BUCKET).publicUrl(bill.pdf_path);
-            }
-            if (!window.ANT.billpdf) return '';
+            // The orders carry what has been paid, so they are read even when a
+            // file is already stored - a payment since it was drawn is exactly
+            // what would leave it showing a balance the customer has settled.
+            return sb().from('bill_orders')
+              .select('order_id')
+              .eq('bill_id', billId)
+              .then(function (link) {
+                return ordersForPrint((link.data || []).map(function (r) { return r.order_id; }));
+              })
+              .then(function (list) {
+                var paidNow = round2(computeTotals(list || []).advance);
+                var drawnPaid = round2(num(bill.pdf_snapshot && bill.pdf_snapshot.bill.advance));
 
-            return sb().from('customers')
-              .select('id,code,name,mobile,address')
-              .eq('id', bill.customer_id)
-              .limit(1)
-              .then(function (cres) {
-                var customer = (cres.data && cres.data[0]) ||
-                  { code: '', name: '', mobile: '', address: '' };
+                // The stored file is still the truth when the money has not moved.
+                if (stored && paidNow === drawnPaid) return stored;
+                // With no PDF renderer the stored file is all there is; a stale
+                // balance on the link beats no link at all.
+                if (!window.ANT.billpdf) return stored;
 
-                return fetchShop().then(function (shop) {
-                  return sb().from('bill_orders')
-                    .select('order_id')
-                    .eq('bill_id', billId)
-                    .then(function (link) {
-                      return ordersForPrint((link.data || []).map(function (r) { return r.order_id; }));
-                    })
-                    .then(function (list) {
-                      return writeBlob(bill, billSnapshot(bill, list, { shop: shop, customer: customer }),
+                return sb().from('customers')
+                  .select('id,code,name,mobile,address')
+                  .eq('id', bill.customer_id)
+                  .limit(1)
+                  .then(function (cres) {
+                    var customer = (cres.data && cres.data[0]) ||
+                      { code: '', name: '', mobile: '', address: '' };
+
+                    return fetchShop().then(function (shop) {
+                      return writeBlob(bill,
+                        billSnapshot(bill, list, { shop: shop, customer: customer }),
                         pdfPath(bill.id));
                     });
-                });
+                  })
+                  .then(function (url) { return url || stored; });
               });
           });
       })
