@@ -347,7 +347,7 @@ window.ANT.bills = (function () {
   // rather than copied onto the bill, so changing the shop in Settings changes the
   // next bill printed with no re-save of anything. A missing row is simply blank
   // and the bill prints without that part of the letterhead.
-  function loadShop() {
+  function fetchShop() {
     return sb().from('shop_settings')
       .select('key,value')
       .then(function (res) {
@@ -371,8 +371,12 @@ window.ANT.bills = (function () {
           });
         }
 
-        state.shop = shop;
+        return shop;
       });
+  }
+
+  function loadShop() {
+    return fetchShop().then(function (shop) { state.shop = shop; });
   }
 
   // Cancelled orders are left out. The legacy billing sheet listed every order
@@ -1918,9 +1922,10 @@ window.ANT.bills = (function () {
 
   // The profile the QR opens. Built from the bare username so that whatever the
   // shop typed in Settings - an @handle or a pasted link - ends at the same URL.
-  function instagramUrl() {
-    return state.shop.instagram
-      ? 'https://www.instagram.com/' + encodeURIComponent(state.shop.instagram)
+  function instagramUrl(shopOverride) {
+    var shop = shopOverride || state.shop;
+    return shop.instagram
+      ? 'https://www.instagram.com/' + encodeURIComponent(shop.instagram)
       : '';
   }
 
@@ -1928,12 +1933,14 @@ window.ANT.bills = (function () {
    * can never disagree about the account or the amount. Returns '' when there is
    * nothing owed or no usable id, which is also how the Pay button knows to stay
    * off the row. */
-  function payLink(bill) {
+  function payLink(bill, shopOverride) {
     if (!window.ANT.upi) return '';
 
+    var shop = shopOverride || state.shop;
+
     return window.ANT.upi.link({
-      vpa: state.shop.upiId,
-      payee: state.shop.payee || state.shop.name || 'AN TAILOR',
+      vpa: shop.upiId,
+      payee: shop.payee || shop.name || 'AN TAILOR',
       amount: window.ANT.upi.balanceDue(bill),
       note: bill.code
     });
@@ -2001,7 +2008,7 @@ window.ANT.bills = (function () {
    * file rather than being rebuilt on demand from live orders, so the stored PDF
    * is the bill as it was raised - and so a file exported and cleared can be
    * produced again later without the orders having to stay untouched since. */
-  function billSnapshot(bill, list) {
+  function billSnapshot(bill, list, ctx) {
     // What a bill IS - the garments, the shop, the customer, the amount raised -
     // is fixed when it is raised. What has been PAID is not: money is recorded
     // against an order on the Payments page, one order at a time, and the bill
@@ -2009,6 +2016,13 @@ window.ANT.bills = (function () {
     // for staff. So the paid figure is read from the orders on the bill here -
     // the same list this page is about to draw - and a reprint shows the true
     // status for owner and staff alike without anyone editing the bill.
+    //
+    // The shop and the customer come from this page's state, except when a
+    // caller hands them over: a bill linked from the orders page has to be drawn
+    // with the shop settings and the customer that belong to it, not with
+    // whatever the Bills page happens to be showing.
+    var shop = (ctx && ctx.shop) || state.shop;
+    var customer = (ctx && ctx.customer) || state.customer;
     var paid = round2(computeTotals(list || []).advance);
     var balance = round2(num(bill.bill_amount) - paid);
     var liveBill = Object.assign({}, bill, { advance: paid, balance: balance });
@@ -2016,7 +2030,7 @@ window.ANT.bills = (function () {
 
     return {
       takenAt: new Date().toISOString(),
-      printSize: window.ANT.printsize.normalize(state.shop.printSize,
+      printSize: window.ANT.printsize.normalize(shop.printSize,
         window.ANT.printsize.DEFAULT),
       // The sheet a bill is shared on is chosen separately from the sheet it is
       // printed on, because the two are read in different places: a bill printed
@@ -2024,23 +2038,23 @@ window.ANT.bills = (function () {
       // a phone is read on a phone. Both are saved here, so a PDF that has to be
       // drawn again months later is still the size the shop chose then and not
       // the size it happens to prefer today.
-      waPrintSize: window.ANT.printsize.normalize(state.shop.waPrintSize,
+      waPrintSize: window.ANT.printsize.normalize(shop.waPrintSize,
         window.ANT.printsize.SHARE_DEFAULT),
       logoUrl: logoUrl(),
       shop: {
-        name: state.shop.name,
-        address: state.shop.address,
-        phone: state.shop.phone,
-        email: state.shop.email,
-        instagram: state.shop.instagram,
-        upiId: state.shop.upiId,
-        payee: state.shop.payee
+        name: shop.name,
+        address: shop.address,
+        phone: shop.phone,
+        email: shop.email,
+        instagram: shop.instagram,
+        upiId: shop.upiId,
+        payee: shop.payee
       },
       customer: {
-        code: state.customer.code,
-        name: state.customer.name,
-        mobile: state.customer.mobile,
-        address: state.customer.address
+        code: customer.code,
+        name: customer.name,
+        mobile: customer.mobile,
+        address: customer.address
       },
       bill: {
         code: bill.code,
@@ -2075,9 +2089,9 @@ window.ANT.bills = (function () {
           })
         };
       }),
-      payLink: payLink(liveBill),
+      payLink: payLink(liveBill, shop),
       dueLabel: due,
-      instagramUrl: instagramUrl(),
+      instagramUrl: instagramUrl(shop),
       words: amountInWords(num(bill.bill_amount))
     };
   }
@@ -2206,6 +2220,72 @@ window.ANT.bills = (function () {
       .catch(function (e) {
         return { url: '', error: (e && e.message) ? e.message : String(e) };
       });
+  }
+
+  /* The bill PDF for the order, as a link the shop can send on WhatsApp.
+   *
+   * An order that is on a bill already has a file the shop shared when the bill
+   * went out; that stored file is handed back as-is. An order that was billed
+   * but never shared has no file yet, so one is drawn here - from the same
+   * snapshot the Bills page would draw - so the ready or delivered message can
+   * still carry it. An order that is on no bill has nothing to link, and an
+   * empty string is returned.
+   *
+   * This runs from the Orders page, where the Bills page's state is not loaded,
+   * so the shop settings and the customer are fetched here and handed to the
+   * snapshot rather than read from state. It never rejects: a bill that cannot
+   * be linked is a reason to send the message without a link, not to keep the
+   * tailor from messaging the customer. */
+  function orderBillLink(orderId) {
+    if (!orderId || !sb() || !sb().storage) return Promise.resolve('');
+
+    return sb().from('bill_orders')
+      .select('bill_id')
+      .eq('order_id', orderId)
+      .limit(1)
+      .then(function (res) {
+        if (res.error || !res.data || !res.data.length) return '';
+        var billId = res.data[0].bill_id;
+
+        return sb().from('bills')
+          .select('id,code,customer_id,total,discount,advance,bill_amount,balance,bill_date,notes,method,paid_on,pdf_path')
+          .eq('id', billId)
+          .limit(1)
+          .then(function (bres) {
+            if (bres.error || !bres.data || !bres.data.length) return '';
+            var bill = bres.data[0];
+
+            // Already drawn and stored: the file the shop shared, unchanged.
+            if (bill.pdf_path) {
+              return sb().storage.from(PDF_BUCKET).publicUrl(bill.pdf_path);
+            }
+            if (!window.ANT.billpdf) return '';
+
+            return sb().from('customers')
+              .select('id,code,name,mobile,address')
+              .eq('id', bill.customer_id)
+              .limit(1)
+              .then(function (cres) {
+                var customer = (cres.data && cres.data[0]) ||
+                  { code: '', name: '', mobile: '', address: '' };
+
+                return fetchShop().then(function (shop) {
+                  return sb().from('bill_orders')
+                    .select('order_id')
+                    .eq('bill_id', billId)
+                    .then(function (link) {
+                      return ordersForPrint((link.data || []).map(function (r) { return r.order_id; }));
+                    })
+                    .then(function (list) {
+                      return writeBlob(bill, billSnapshot(bill, list, { shop: shop, customer: customer }),
+                        pdfPath(bill.id));
+                    });
+                });
+              });
+          });
+      })
+      .catch(function () { return ''; })
+      .then(function (url) { return url || ''; });
   }
 
   /* How much of the allowance is used. Storage answers a page of object names at
@@ -2550,6 +2630,10 @@ window.ANT.bills = (function () {
     mount: mount,
     render: render,
     refreshForOrder: refreshForOrder,
+    /* The order's bill, as a public PDF link, for the ready and delivered
+     * messages. Draws the file first when it has never been shared, and returns
+     * '' when the order is on no bill. */
+    orderBillLink: orderBillLink,
     /* The bill as markup. The PDF renderer draws this rather than a second
      * description of the same page, which is what keeps a printed bill and a
      * shared PDF identical when one of them is changed. */

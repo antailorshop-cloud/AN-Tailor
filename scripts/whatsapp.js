@@ -7,10 +7,11 @@
  * name, and the tailor never has to read a total off one screen and retype it
  * into another. A retyped number is a number that can disagree with the bill.
  *
- * There is deliberately no link into the app in any message. A public bill
- * page would publish a customer's name and what they owe to anyone who held
- * the link, and the shop decided that cost was not worth paying. The messages
- * carry the figures themselves, which is the whole of what is being said.
+ * A ready or delivered message can also carry the bill PDF as a link, but only
+ * when the order is on a bill and only to that one file in the shop's own
+ * storage. There is no link into the app itself: a public page listing a
+ * customer's orders and what they owe is still not something the shop wanted to
+ * publish, and the messages carry the figures themselves either way.
  *
  * Each wording lives in shop_settings - wa_bill_message, wa_reminder_message,
  * wa_ready_message - so the owner can say it in their own voice. An empty or
@@ -54,6 +55,7 @@ window.ANT.whatsapp = (function () {
     'Your order {orders} is ready.\n' +
     'Delivery Date: {delivery}\n\n' +
     '{balanceBlock}\n\n' +
+    '{billBlock}\n\n' +
     'Please collect it from our shop.\n\n' +
     'Thank you for choosing {shop}.';
 
@@ -64,6 +66,7 @@ window.ANT.whatsapp = (function () {
     'Hello {customer}, thank you from {shop}!\n\n' +
     'Your order {orders} has been delivered.\n\n' +
     '{balanceBlock}\n\n' +
+    '{billBlock}\n\n' +
     'Thank you for choosing {shop}.';
 
   /* What the owner may type into the template, and what the reader sees it as.
@@ -78,7 +81,8 @@ window.ANT.whatsapp = (function () {
     ['{paid}', 'Already paid'],
     ['{balance}', 'Balance still due'],
     ['{balanceBlock}', 'A whole sentence for the balance'],
-    ['{delivery}', 'Delivery date']
+    ['{delivery}', 'Delivery date'],
+    ['{billBlock}', 'Bill PDF link, when the order is on a bill']
   ];
 
   var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -197,6 +201,7 @@ window.ANT.whatsapp = (function () {
     var order = o.order || {};
 
     var due = Math.max(0, num(order.balance));
+    var billLink = String(o.billLink == null ? '' : o.billLink).trim();
 
     return {
       shop: String(shop.name || 'AN TAILOR'),
@@ -208,7 +213,12 @@ window.ANT.whatsapp = (function () {
       balance: money(due),
       due: money(due),
       balanceBlock: balanceBlock(due),
-      delivery: dateText(order.delivery_date) || '-'
+      delivery: dateText(order.delivery_date) || '-',
+      // The bill PDF, linked only when the order is on a bill the app can point
+      // at. The block is the whole "Download PDF: ..." line so a custom template
+      // can place it, and it is blank - not a broken line - when there is none.
+      billLink: billLink,
+      billBlock: billLink ? 'Download PDF: ' + billLink : ''
     };
   }
 
@@ -243,6 +253,8 @@ window.ANT.whatsapp = (function () {
       .replace(/\{due\}/g, put(t.due))
       .replace(/\{balanceBlock\}/g, put(t.balanceBlock))
       .replace(/\{delivery\}/g, put(t.delivery))
+      .replace(/\{billLink\}/g, put(t.billLink))
+      .replace(/\{billBlock\}/g, put(t.billBlock))
       // The scrub, after the known tokens are gone. Dropping a placeholder
       // leaves the spaces and the blank line that sat around it, so the
       // leftovers are tidied rather than sent.

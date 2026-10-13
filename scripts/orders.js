@@ -560,6 +560,18 @@ window.ANT.orders = (function () {
       o.customer && window.ANT.whatsapp.canSend(o.customer.mobile));
   }
 
+  /* The order's bill, as a public PDF link, or '' when it is on no bill or the
+   * bill could not be drawn. Resolved here so both the ready message and the
+   * auto-send share one path, and made to never reject: a bill that cannot be
+   * linked must not stop the customer being messaged. */
+  function orderBillLink(orderId) {
+    if (!orderId) return Promise.resolve('');
+    if (window.ANT.bills && typeof window.ANT.bills.orderBillLink === 'function') {
+      return window.ANT.bills.orderBillLink(orderId).catch(function () { return ''; });
+    }
+    return Promise.resolve('');
+  }
+
   /* The ready message is built from the order row itself, which already holds
    * the order number, the delivery date, the balance and the customer's mobile.
    * No extra query is needed and nothing can be retyped wrongly. */
@@ -579,20 +591,29 @@ window.ANT.orders = (function () {
       return;
     }
 
-    var message = window.ANT.whatsapp.readyMessage({
-      shop: state.waShop,
-      customer: order.customer,
-      order: order
-    });
+    var customer = order.customer;
 
-    var url = window.ANT.whatsapp.link(order.customer.mobile, message);
-    if (!url) {
-      toast('That mobile number is not one WhatsApp can use.', 'error');
-      return;
-    }
+    var open = function (billLink) {
+      var message = window.ANT.whatsapp.readyMessage({
+        shop: state.waShop,
+        customer: customer,
+        order: order,
+        billLink: billLink || ''
+      });
 
-    openChat(url);
-    toast('Opening WhatsApp for ' + (order.customer.name || 'this customer') + '.', 'success');
+      var url = window.ANT.whatsapp.link(customer.mobile, message);
+      if (!url) {
+        toast('That mobile number is not one WhatsApp can use.', 'error');
+        return;
+      }
+
+      openChat(url);
+      toast('Opening WhatsApp for ' + (customer.name || 'this customer') + '.', 'success');
+    };
+
+    // The bill, if the order is on one, is looked up - and drawn if it was never
+    // shared - before the chat opens, so the message can carry the link.
+    orderBillLink(order.id).then(open);
   }
 
   /* wa.me is handed to the phone by clicking a real anchor, in a new tab, so the
@@ -1964,12 +1985,14 @@ window.ANT.orders = (function () {
    * from the order record itself so it can never disagree with the shop's own
    * figures.
    *
-   * It is opened here, synchronously inside the tap that changed the status,
-   * because a phone only lets a chat be opened while it still counts the tap as
-   * the user's. Deferring it until after the save would open nothing on iOS.
+   * It is opened from the tap that changed the status, but the bill link is
+   * looked up first - and the PDF drawn if it was never shared - so the message
+   * can carry it. That lookup is a round trip, so the chat opens a beat after
+   * the tap rather than instantly; the caller does not depend on the return
+   * value, so a phone that refuses the late open still saves the status.
    *
-   * Returns true when a chat was opened, false when there was no status worth
-   * messaging or no usable mobile to send to. */
+   * Returns true when there is a status worth messaging and a usable mobile to
+   * send to, false otherwise. */
   function sendStatusWhatsApp(order, status) {
     if (!order || !window.ANT.whatsapp) return false;
     if (status !== 'Finish' && status !== 'Delivery') return false;
@@ -1978,14 +2001,24 @@ window.ANT.orders = (function () {
     if (!window.ANT.whatsapp.canSend(customer.mobile)) return false;
 
     var shop = state.waShop || {};
-    var message = status === 'Finish'
-      ? window.ANT.whatsapp.readyMessage({ shop: shop, customer: customer, order: order })
-      : window.ANT.whatsapp.deliveredMessage({ shop: shop, customer: customer, order: order });
 
-    var url = window.ANT.whatsapp.link(customer.mobile, message);
-    if (!url) return false;
+    var open = function (billLink) {
+      var message = status === 'Finish'
+        ? window.ANT.whatsapp.readyMessage({ shop: shop, customer: customer, order: order, billLink: billLink || '' })
+        : window.ANT.whatsapp.deliveredMessage({ shop: shop, customer: customer, order: order, billLink: billLink || '' });
 
-    openChat(url);
+      var url = window.ANT.whatsapp.link(customer.mobile, message);
+      if (url) openChat(url);
+      return !!url;
+    };
+
+    // With no bill reader in this build, behave exactly as before: open at once,
+    // with a message that carries no link.
+    if (!window.ANT.bills || typeof window.ANT.bills.orderBillLink !== 'function') {
+      return open('');
+    }
+
+    orderBillLink(order.id).then(open);
     return true;
   }
 
