@@ -352,7 +352,18 @@ window.ANT.bills = (function () {
   // rather than copied onto the bill, so changing the shop in Settings changes the
   // next bill printed with no re-save of anything. A missing row is simply blank
   // and the bill prints without that part of the letterhead.
-  function fetchShop() {
+  // Shop settings change on the Settings page, not while a message is being
+  // sent. Once they have been read for a couple of minutes they are reused, so
+  // a second or third bill sent in that time does not make another round trip;
+  // loadShop forces a fresh read, so opening this page always catches a change.
+  var shopCache = null;
+  var shopCacheAt = 0;
+
+  function fetchShop(force) {
+    if (!force && shopCache && (Date.now() - shopCacheAt) < 120000) {
+      return Promise.resolve(shopCache);
+    }
+
     return sb().from('shop_settings')
       .select('key,value')
       .then(function (res) {
@@ -376,12 +387,14 @@ window.ANT.bills = (function () {
           });
         }
 
+        shopCache = shop;
+        shopCacheAt = Date.now();
         return shop;
       });
   }
 
   function loadShop() {
-    return fetchShop().then(function (shop) { state.shop = shop; });
+    return fetchShop(true).then(function (shop) { state.shop = shop; });
   }
 
   // Cancelled orders are left out. The legacy billing sheet listed every order
@@ -1211,7 +1224,7 @@ window.ANT.bills = (function () {
       });
   }
 
-  function ordersForPrint(ids, fresh) {
+  function ordersForPrint(ids, fresh, noItems) {
     if (!ids.length) return Promise.resolve([]);
 
     var byId2 = {};
@@ -1251,7 +1264,7 @@ window.ANT.bills = (function () {
       .then(function () {
         return ids.map(function (id) { return byId2[id]; }).filter(Boolean);
       })
-      .then(function (list) {
+      .then(noItems ? function (list) { return list; } : function (list) {
         // The items are attached when they can be read and left empty when they
         // cannot. Either way the list comes back, so the caller never has to
         // decide whether a failure here should stop a bill from printing.
@@ -2279,52 +2292,66 @@ window.ANT.bills = (function () {
         if (res.error || !res.data || !res.data.length) return '';
         var billId = res.data[0].bill_id;
 
-        return sb().from('bills')
-          .select('id,code,customer_id,total,discount,advance,bill_amount,balance,bill_date,notes,method,paid_on,pdf_path,pdf_snapshot')
-          .eq('id', billId)
-          .limit(1)
-          .then(function (bres) {
-            if (bres.error || !bres.data || !bres.data.length) return '';
-            var bill = bres.data[0];
-            var stored = bill.pdf_path
-              ? versioned(sb().storage.from(PDF_BUCKET).publicUrl(bill.pdf_path), bill.pdf_snapshot)
-              : '';
+        // The bill row and the orders on it are independent once the bill is
+        // known, so they are read together instead of one after the other.
+        return Promise.all([
+          sb().from('bills')
+            .select('id,code,customer_id,total,discount,advance,bill_amount,balance,bill_date,notes,method,paid_on,pdf_path,pdf_snapshot')
+            .eq('id', billId)
+            .limit(1),
+          sb().from('bill_orders')
+            .select('order_id')
+            .eq('bill_id', billId)
+        ]).then(function (pair) {
+          var bres = pair[0];
+          var link = pair[1];
+          if (bres.error || !bres.data || !bres.data.length) return '';
+          var bill = bres.data[0];
+          var orderIds = (link.data || []).map(function (r) { return r.order_id; });
+          var stored = bill.pdf_path
+            ? versioned(sb().storage.from(PDF_BUCKET).publicUrl(bill.pdf_path), bill.pdf_snapshot)
+            : '';
 
-            // The orders carry what has been paid, so they are read even when a
-            // file is already stored - a payment since it was drawn is exactly
-            // what would leave it showing a balance the customer has settled.
-            return sb().from('bill_orders')
-              .select('order_id')
-              .eq('bill_id', billId)
-              .then(function (link) {
-                return ordersForPrint((link.data || []).map(function (r) { return r.order_id; }), true);
-              })
-              .then(function (list) {
-                var paidNow = round2(computeTotals(list || []).advance);
-                var drawnPaid = round2(num(bill.pdf_snapshot && bill.pdf_snapshot.bill.advance));
+          // The orders carry what has been paid, so they are read even when a
+          // file is already stored - a payment since it was drawn is exactly
+          // what would leave it showing a balance the customer has settled.
+          // Only the money matters for that decision, so the garment lines are
+          // not fetched unless the stored file has to be redrawn.
+          return ordersForPrint(orderIds, true, true)
+            .then(function (list) {
+              var paidNow = round2(computeTotals(list || []).advance);
+              var drawnPaid = round2(num(bill.pdf_snapshot && bill.pdf_snapshot.bill.advance));
 
-                // The stored file is still the truth when the money has not moved.
-                if (stored && paidNow === drawnPaid) return stored;
-                // With no PDF renderer the stored file is all there is; a stale
-                // balance on the link beats no link at all.
-                if (!window.ANT.billpdf) return stored;
+              // The stored file is still the truth when the money has not moved.
+              if (stored && paidNow === drawnPaid) return stored;
+              // With no PDF renderer the stored file is all there is; a stale
+              // balance on the link beats no link at all.
+              if (!window.ANT.billpdf) return stored;
 
-                return sb().from('customers')
+              // The file is redrawn. The garment lines, the customer and the
+              // shop are each needed and none depends on another, so they are
+              // read together.
+              return Promise.all([
+                itemsForPrint(orderIds),
+                sb().from('customers')
                   .select('id,code,name,mobile,address')
                   .eq('id', bill.customer_id)
-                  .limit(1)
-                  .then(function (cres) {
-                    var customer = (cres.data && cres.data[0]) ||
-                      { code: '', name: '', mobile: '', address: '' };
+                  .limit(1),
+                fetchShop()
+              ]).then(function (parts) {
+                var byItems = parts[0];
+                var cres = parts[1];
+                var shop = parts[2];
+                list.forEach(function (o) { o.items = byItems[o.id] || []; });
+                var customer = (cres.data && cres.data[0]) ||
+                  { code: '', name: '', mobile: '', address: '' };
 
-                    return fetchShop().then(function (shop) {
-                      var snap = billSnapshot(bill, list, { shop: shop, customer: customer });
-                      return writeBlob(bill, snap, pdfPath(bill.id))
-                        .then(function (url) { return versioned(url, snap) || stored; });
-                    });
-                  });
+                var snap = billSnapshot(bill, list, { shop: shop, customer: customer });
+                return writeBlob(bill, snap, pdfPath(bill.id))
+                  .then(function (url) { return versioned(url, snap) || stored; });
               });
-          });
+            });
+        });
       })
       .catch(function () { return ''; })
       .then(function (url) { return url || ''; });
