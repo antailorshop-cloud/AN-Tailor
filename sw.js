@@ -6,7 +6,7 @@
 // network-first falls back to the cache, and the cache still holds the old
 // copy. That is how a "Save order" fix reached the server and never reached
 // the shop phone.
-var CACHE = 'an-tailor-v55';
+var CACHE = 'an-tailor-v56';
 
 // Every module index.html loads, so a first visit that is online and then goes
 // offline still has the whole app rather than a shell that cannot open Bills.
@@ -34,6 +34,7 @@ var SHELL = [
   './scripts/bills.js',
   './scripts/zip.js',
   './scripts/export.js',
+  './scripts/excel.js',
   './scripts/restore.js',
   './scripts/settings.js',
   './scripts/account.js',

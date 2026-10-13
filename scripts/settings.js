@@ -1270,14 +1270,15 @@ window.ANT.settings = (function () {
 
     return '<div class="ui-card cust-form">' +
       '<h2 class="ui-card-title">Import</h2>' +
-      '<p class="ui-hint">Restores records from a Backup zip, or from the CSV files inside ' +
-        'one. Rows are added to what is already here; a record that is already in the shop ' +
-        'is left exactly as it is, and only the new rows are added.</p>' +
-      '<p class="ui-hint">Customers, measurements, orders, bills, payments, resale stock, ' +
-        'prices and dress types. Staff sign-ins are not restored.</p>' +
+      '<p class="ui-hint">Bring in old records two ways: upload a Backup zip, or fill in the ' +
+        'Excel template below and upload that. Rows are added to what is already here; a ' +
+        'record that is already in the shop is left exactly as it is, and only the new rows ' +
+        'are added.</p>' +
+      '<p class="ui-hint">The Excel template carries Customers, Orders (with their items) and ' +
+        'Payments, linked by the codes you type. A Backup zip carries every table.</p>' +
       '<div class="ui-field">' +
-        '<label class="ui-label" for="impFile">Backup file</label>' +
-        '<input class="ui-input" id="impFile" type="file" accept=".zip,.csv" multiple>' +
+        '<label class="ui-label" for="impFile">File</label>' +
+        '<input class="ui-input" id="impFile" type="file" accept=".zip,.csv,.xlsx" multiple>' +
       '</div>' +
       (state.imp.error
         ? '<p class="ui-hint" style="color:var(--danger)">' + esc(state.imp.error) + '</p>'
@@ -1287,6 +1288,7 @@ window.ANT.settings = (function () {
           (state.imp.busy ? ' disabled' : '') + '>' +
           (state.imp.busy ? 'Reading...' : 'Review file') +
         '</button>' +
+        '<button type="button" class="btn btn-secondary" id="impTemplate">Download template</button>' +
       '</div>' +
     '</div>';
   }
@@ -1374,9 +1376,18 @@ window.ANT.settings = (function () {
     state.imp.report = null;
     paint();
 
-    window.ANT.restore.readBackup(files).then(function (found) {
+    var hasXlsx = Array.prototype.some.call(files, function (f) {
+      return /\.xlsx$/i.test(f.name || '');
+    });
+    var reading = (hasXlsx && window.ANT.excel)
+      ? window.ANT.excel.read(files)
+      : window.ANT.restore.readBackup(files);
+
+    reading.then(function (found) {
       if (!found.names.length) {
-        throw new Error('No CSV files were found in that file.');
+        throw new Error(hasXlsx
+          ? 'No sheets were found in that Excel file.'
+          : 'No CSV files were found in that file.');
       }
       state.imp.tables = found.tables;
       return window.ANT.restore.preview(found.tables);
@@ -1412,6 +1423,27 @@ window.ANT.settings = (function () {
       state.imp.error = (e && e.message) ? e.message : String(e);
       paint();
     });
+  }
+
+  function downloadTemplate() {
+    if (!window.ANT.excel) return;
+    try {
+      var blob = window.ANT.excel.template();
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = 'AN-Tailor-Import-Template.xlsx';
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(function () {
+        if (a.parentNode) a.parentNode.removeChild(a);
+        try { URL.revokeObjectURL(url); } catch (e) {}
+      }, 100);
+      toast('Template downloaded. Open it in Excel, fill it in, then upload it here.', 'success');
+    } catch (e) {
+      toast('Could not build the template.', 'error');
+    }
   }
 
   /* Clear data --------------------------------------------------------- */
@@ -1703,6 +1735,8 @@ window.ANT.settings = (function () {
 
     var impReview = byId('impReview');
     if (impReview) impReview.addEventListener('click', reviewImport);
+    var impTemplate = byId('impTemplate');
+    if (impTemplate) impTemplate.addEventListener('click', downloadTemplate);
     var impRun = byId('impRun');
     if (impRun) impRun.addEventListener('click', runImport);
     var impReset = byId('impReset');
