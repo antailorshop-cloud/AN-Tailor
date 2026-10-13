@@ -180,7 +180,7 @@ window.ANT.dashboard = (function () {
 
     var orders = wantOrders
       ? sb().from('orders')
-          .select('id,code,status,order_date,delivery_date,balance,priority,customer:customers(id,code,name)')
+          .select('id,code,status,order_date,delivery_date,balance,total,advance,priority,customer:customers(id,code,name,mobile)')
           .neq('status', 'Cancelled')
           .is('archived_at', null)
       : withheld('orders');
@@ -719,10 +719,12 @@ window.ANT.dashboard = (function () {
         var cur = btn.getAttribute('data-bench-cur');
         var orders = window.ANT.orders;
         if (!orders || typeof orders.applyStatus !== 'function') return;
+        var order = null;
+        state.bench.forEach(function (o) { if (o.id === id) order = o; });
         btn.disabled = true;
         orders.applyStatus(id, next, cur, function () { render(); }, function () {
           btn.disabled = false;
-        });
+        }, order);
       });
     });
   }

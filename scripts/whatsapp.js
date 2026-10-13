@@ -57,6 +57,15 @@ window.ANT.whatsapp = (function () {
     'Please collect it from our shop.\n\n' +
     'Thank you for choosing {shop}.';
 
+  /* Sent when an order is handed over. A different moment from "ready", so it
+   * says so rather than repeating the collect-it line on a garment the customer
+   * already has. */
+  var DEFAULT_DELIVERED =
+    'Hello {customer}, thank you from {shop}!\n\n' +
+    'Your order {orders} has been delivered.\n\n' +
+    '{balanceBlock}\n\n' +
+    'Thank you for choosing {shop}.';
+
   /* What the owner may type into the template, and what the reader sees it as.
    * Kept in one place so the legend in Settings cannot drift from the
    * replacement in fill(). */
@@ -266,6 +275,15 @@ window.ANT.whatsapp = (function () {
     return fill(template(shop.waReadyMessage, DEFAULT_READY), orderTokens(o));
   }
 
+  /* An order handed over to the customer. Reads the same order record as the
+   * ready message, so the balance it names can never differ from the one the
+   * ready message named. */
+  function deliveredMessage(opts) {
+    var o = opts || {};
+    var shop = o.shop || {};
+    return fill(template(shop.waDeliveredMessage, DEFAULT_DELIVERED), orderTokens(o));
+  }
+
   /* The wa.me link. Returns '' when there is no usable number, so a caller can
    * treat '' as "do not offer WhatsApp" rather than opening a broken chat. */
   function link(mobile, message) {
@@ -278,6 +296,7 @@ window.ANT.whatsapp = (function () {
     DEFAULT_BILL: DEFAULT_BILL,
     DEFAULT_REMINDER: DEFAULT_REMINDER,
     DEFAULT_READY: DEFAULT_READY,
+    DEFAULT_DELIVERED: DEFAULT_DELIVERED,
     TOKENS: TOKENS,
     normalizeMobile: normalizeMobile,
     canSend: canSend,
@@ -288,6 +307,7 @@ window.ANT.whatsapp = (function () {
     billMessage: billMessage,
     reminderMessage: reminderMessage,
     readyMessage: readyMessage,
+    deliveredMessage: deliveredMessage,
     link: link
   };
 })();

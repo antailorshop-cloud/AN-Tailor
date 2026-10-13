@@ -72,8 +72,8 @@ window.ANT.settings = (function () {
   // garment bag still names the shop.
   var SHOP_KEYS = ['shop_name', 'shop_address', 'shop_phone', 'shop_email',
     'shop_instagram', 'upi_id', 'upi_payee_name', 'wa_bill_message',
-    'wa_reminder_message', 'wa_ready_message', 'bill_print_size',
-    'wa_bill_size', 'receipt_print_size'];
+    'wa_reminder_message', 'wa_ready_message', 'wa_delivered_message',
+    'bill_print_size', 'wa_bill_size', 'receipt_print_size'];
 
   var state = {
     tab: 'dress',
@@ -82,8 +82,8 @@ window.ANT.settings = (function () {
     priceRows: [],
     shop: { shop_name: '', shop_address: '', shop_phone: '', shop_email: '',
       shop_instagram: '', upi_id: '', upi_payee_name: '', wa_bill_message: '',
-      wa_reminder_message: '', wa_ready_message: '', bill_print_size: '',
-      wa_bill_size: '', receipt_print_size: '' },
+      wa_reminder_message: '', wa_ready_message: '', wa_delivered_message: '',
+      bill_print_size: '', wa_bill_size: '', receipt_print_size: '' },
     staff: { rows: [], access: {}, loading: false, error: null },
     clear: { picked: {}, busy: false },
     exporting: false,
@@ -154,8 +154,8 @@ window.ANT.settings = (function () {
   function applyShop(rows) {
     var shop = { shop_name: '', shop_address: '', shop_phone: '', shop_email: '',
       shop_instagram: '', upi_id: '', upi_payee_name: '', wa_bill_message: '',
-      wa_reminder_message: '', wa_ready_message: '', bill_print_size: '',
-      wa_bill_size: '', receipt_print_size: '' };
+      wa_reminder_message: '', wa_ready_message: '', wa_delivered_message: '',
+      bill_print_size: '', wa_bill_size: '', receipt_print_size: '' };
     rows.forEach(function (row) {
       if (SHOP_KEYS.indexOf(row.key) !== -1) {
         shop[row.key] = String(row.value == null ? '' : row.value);
@@ -648,6 +648,8 @@ window.ANT.settings = (function () {
           'Sent from a bill that still owes money.') +
         waBox('waReadyMessage', 'Order ready', 'wa_ready_message', 'DEFAULT_READY',
           'Sent from an order that is marked Finish.') +
+        waBox('waDeliveredMessage', 'Order delivered', 'wa_delivered_message', 'DEFAULT_DELIVERED',
+          'Sent from an order that is marked Delivery.') +
         tokenLegend() +
         '<div class="form-actions">' +
           '<button type="submit" class="btn btn-primary">Save WhatsApp messages</button>' +
@@ -660,11 +662,13 @@ window.ANT.settings = (function () {
     var bill = byId('waBillMessage').value.trim();
     var reminder = byId('waReminderMessage').value.trim();
     var ready = byId('waReadyMessage').value.trim();
+    var delivered = byId('waDeliveredMessage').value.trim();
 
     Promise.all([
       putSetting('wa_bill_message', bill),
       putSetting('wa_reminder_message', reminder),
-      putSetting('wa_ready_message', ready)
+      putSetting('wa_ready_message', ready),
+      putSetting('wa_delivered_message', delivered)
     ]).then(function (results) {
       var bad = results.filter(function (r) { return r && r.error; })[0];
       if (bad) {

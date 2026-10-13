@@ -1953,25 +1953,51 @@ window.ANT.orders = (function () {
   function announceStatusChange(order, wasAuto, before, after) {
     if (!order || !after) return;
     try {
-      if (typeof window.notifyOrderStatus === 'function') window.notifyOrderStatus(order, after, before || order.status, wasAuto);
-    } catch (e) {}
-    try {
-      var msg = null;
-      if (after === 'Finish') msg = (window._ORDERS_READY_MSG || 'Order ready - can send for pickup/delivery?');
-      else if (after === 'Delivery') msg = (window._ORDERS_DELIVERED_MSG || 'Order delivered?');
-      if (msg && order && order.phone && typeof openWhatsApp === 'function') openWhatsApp(order.phone, msg);
+      if (typeof window.notifyOrderStatus === 'function') {
+        window.notifyOrderStatus(order, after, before || order.status, wasAuto);
+      }
     } catch (e) {}
   }
 
-  function updateStatus(orderId, newStatus, beforeStatus) {
+  /* The message a customer is waiting for when their order reaches Finish or
+   * Delivery. It is the same wording the "Tell customer" button sends, built
+   * from the order record itself so it can never disagree with the shop's own
+   * figures.
+   *
+   * It is opened here, synchronously inside the tap that changed the status,
+   * because a phone only lets a chat be opened while it still counts the tap as
+   * the user's. Deferring it until after the save would open nothing on iOS.
+   *
+   * Returns true when a chat was opened, false when there was no status worth
+   * messaging or no usable mobile to send to. */
+  function sendStatusWhatsApp(order, status) {
+    if (!order || !window.ANT.whatsapp) return false;
+    if (status !== 'Finish' && status !== 'Delivery') return false;
+
+    var customer = order.customer || {};
+    if (!window.ANT.whatsapp.canSend(customer.mobile)) return false;
+
+    var shop = state.waShop || {};
+    var message = status === 'Finish'
+      ? window.ANT.whatsapp.readyMessage({ shop: shop, customer: customer, order: order })
+      : window.ANT.whatsapp.deliveredMessage({ shop: shop, customer: customer, order: order });
+
+    var url = window.ANT.whatsapp.link(customer.mobile, message);
+    if (!url) return false;
+
+    openChat(url);
+    return true;
+  }
+
+  function updateStatus(orderId, newStatus, beforeStatus, orderObj) {
     if (!orderId || !newStatus) return Promise.reject(new Error('Missing'));
-    var order = state.orders.find(function (o) { return o.id === orderId; });
+    var order = orderObj || state.orders.find(function (o) { return o.id === orderId; });
     var before = beforeStatus || (order ? order.status : null);
     if (order) order.status = newStatus;
     return sb().from('orders').update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', orderId).then(function (res) {
       if (res.error) throw res.error;
       try { if (typeof audit === 'function') audit('order.status', 'orders', orderId, { from: before, to: newStatus }); } catch (e) {}
-      try { if (order) announceStatusChange(order, true, before, newStatus); } catch (e) {}
+      try { announceStatusChange(order, true, before, newStatus); } catch (e) {}
       return res;
     }).catch(function (err) {
       if (order) order.status = before;
@@ -1998,10 +2024,16 @@ window.ANT.orders = (function () {
       (buttons ? '<span class="ord-status-actions">' + buttons + '</span>' : '') + '</div>';
   }
 
-  function applyStatus(id, next, cur, onDone, onFail) {
+  function applyStatus(id, next, cur, onDone, onFail, orderObj) {
     if (!id || !next || next === cur) { if (onDone) onDone(); return; }
     if (next === 'Cancelled' && !confirm('Cancel this order?')) { if (onFail) onFail(); return; }
-    updateStatus(id, next, cur).then(function () {
+
+    // The chat is opened before the save so it still counts as the tap's own
+    // doing; a phone blocks a chat opened on the far side of an await.
+    var order = orderObj || state.orders.find(function (o) { return o.id === id; });
+    sendStatusWhatsApp(order, next);
+
+    updateStatus(id, next, cur, order).then(function () {
       try { if (typeof window.showToast === 'function') window.showToast('Status updated', { duration: 1000 }); } catch (e) {}
       if (onDone) onDone();
     }).catch(function (err) {
