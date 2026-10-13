@@ -83,10 +83,51 @@
       aliases: ['notes', 'note', 'remarks'] }
   ];
 
+  // Measurements are stored as one row per customer and dress type, with the
+  // field names and numbers in a json object. A spreadsheet is flatter than
+  // that, so this sheet is written one line per field - "Chest, 40" - and the
+  // rows sharing a Customer Code and Dress Type are folded into a single
+  // measurement, exactly as order lines sharing an Order Code fold into one
+  // order.
+  var MEASUREMENT_COLS = [
+    { key: 'customer_code', label: 'Customer Code', sample: 'C001',
+      aliases: ['customercode', 'custcode', 'customerno', 'custno'] },
+    { key: 'category', label: 'Category', sample: 'Gents',
+      aliases: ['category', 'gender', 'for', 'type'] },
+    { key: 'dress_type', label: 'Dress Type', sample: 'Shirt',
+      aliases: ['dresstype', 'dress', 'garment', 'item', 'clothing'] },
+    { key: 'measure', label: 'Measure', sample: 'Chest',
+      aliases: ['measure', 'measurement', 'field', 'parameter', 'part', 'particulars', 'name'] },
+    { key: 'value', label: 'Value', sample: '40',
+      aliases: ['value', 'size', 'inch', 'inches', 'measurementvalue', 'result', 'reading'] },
+    { key: 'notes', label: 'Notes', sample: '',
+      aliases: ['notes', 'note', 'remarks'] }
+  ];
+
+  // Which dress types a tailor cuts for whom, matching dress_types.category.
+  var GENTS = ['Shirt', 'T-Shirt', 'Kurta', 'Pant / Trouser', 'Dhoti', 'Waistcoat',
+    'Sherwani', 'Safari Suit', 'Suit / Blazer'];
+  var LADIES = ['Blouse', 'Churidar / Salwar', 'Kurti', 'Salwar Kameez', 'Anarkali',
+    'Lehenga Blouse', 'Pant', 'Palazzo', 'Maxi', 'Nighty'];
+
+  function categoryFor(dress) {
+    if (GENTS.indexOf(dress) !== -1) return 'Gents';
+    if (LADIES.indexOf(dress) !== -1) return 'Ladies';
+    return '';
+  }
+
   var SHEETS = [
-    { table: 'customers', names: ['customers', 'customer'], cols: CUSTOMER_COLS },
-    { table: 'orders', names: ['orders', 'order'], cols: ORDER_COLS },
-    { table: 'payments', names: ['payments', 'payment'], cols: PAYMENT_COLS }
+    { table: 'customers', title: 'Customers', names: ['customers', 'customer'],
+      cols: CUSTOMER_COLS },
+    { table: 'measurements', title: 'Measurements', names: ['measurements', 'measurement'],
+      cols: MEASUREMENT_COLS,
+      sampleRows: [
+        ['C001', 'Gents', 'Shirt', 'Chest', '40', ''],
+        ['C001', 'Gents', 'Shirt', 'Waist', '34', ''],
+        ['C001', 'Gents', 'Shirt', 'Sleeve Length', '24', '']
+      ] },
+    { table: 'orders', title: 'Orders', names: ['orders', 'order'], cols: ORDER_COLS },
+    { table: 'payments', title: 'Payments', names: ['payments', 'payment'], cols: PAYMENT_COLS }
   ];
 
   // A lookup from every accepted spelling to the column it means, built once per
@@ -322,6 +363,14 @@
     return null;
   }
 
+  // The sheet for a named table, by its definition rather than its position.
+  function findTable(sheets, table) {
+    for (var i = 0; i < SHEETS.length; i++) {
+      if (SHEETS[i].table === table) return findSheet(sheets, SHEETS[i].names);
+    }
+    return null;
+  }
+
   /* Turning sheets into rows restore can use ----------------------------- */
 
   function splitHeader(sheet) {
@@ -333,10 +382,12 @@
   function buildTables(sheets) {
     var tables = {};
     var custByCode = {};
+    var custCodeById = {};
     var orderByCode = {};
-    var custSeq = 0, ordSeq = 0, paySeq = 0;
+    var usedMeaCodes = {};
+    var custSeq = 0, meaSeq = 0, ordSeq = 0, paySeq = 0;
 
-    var cs = findSheet(sheets, SHEETS[0].names);
+    var cs = findTable(sheets, 'customers');
     if (cs) {
       var ch = splitHeader(cs);
       var cmap = headerMap(ch.header, CUSTOMER_COLS);
@@ -353,11 +404,58 @@
         if (row.status) rec.status = String(row.status).trim().toUpperCase();
         customers.push(rec);
         custByCode[code.toLowerCase()] = rec.id;
+        custCodeById[rec.id] = code;
       });
       if (customers.length) tables.customers = customers;
     }
 
-    var os = findSheet(sheets, SHEETS[1].names);
+    var ms = findTable(sheets, 'measurements');
+    if (ms) {
+      var mh = splitHeader(ms);
+      var mmap = headerMap(mh.header, MEASUREMENT_COLS);
+      var measurements = [], meaByKey = {};
+      mh.body.forEach(function (cells) {
+        var row = pickRow(cells, mmap);
+        if (!anyValue(row)) return;
+        var dressType = String(row.dress_type || '').trim();
+        var measure = String(row.measure || '').trim();
+        var custCode = String(row.customer_code || '').trim();
+        var custId = custByCode[custCode.toLowerCase()];
+        var groupKey = (custId || custCode.toLowerCase() || '') + '\u0000' + dressType.toLowerCase();
+
+        meaSeq++;
+        var rec = groupKey in meaByKey ? meaByKey[groupKey] : null;
+        if (!rec) {
+          rec = {
+            id: uuid(),
+            code: '',
+            dress_type: dressType,
+            values: {}
+          };
+          var category = String(row.category || '').trim() || categoryFor(dressType);
+          if (category) rec.category = category;
+          if (custId) rec.customer_id = custId;
+          var base = 'MEA-' + (custId ? custCodeById[custId] : ('X' + pad(meaSeq, 4))) +
+            '-' + (dressType.replace(/[^A-Za-z0-9]+/g, '') || 'X');
+          var code = base, n = 1;
+          while (usedMeaCodes[code.toLowerCase()]) { n++; code = base + '-' + n; }
+          usedMeaCodes[code.toLowerCase()] = true;
+          rec.code = code;
+          measurements.push(rec);
+          meaByKey[groupKey] = rec;
+        }
+        if (row.notes) rec.notes = String(row.notes).trim();
+        if (measure && String(row.value == null ? '' : row.value).trim() !== '') {
+          rec.values[measure] = String(row.value).trim();
+        }
+      });
+      for (var mi = measurements.length - 1; mi >= 0; mi--) {
+        if (!Object.keys(measurements[mi].values).length) measurements.splice(mi, 1);
+      }
+      if (measurements.length) tables.measurements = measurements;
+    }
+
+    var os = findTable(sheets, 'orders');
     if (os) {
       var oh = splitHeader(os);
       var omap = headerMap(oh.header, ORDER_COLS);
@@ -422,7 +520,7 @@
       }
     }
 
-    var ps = findSheet(sheets, SHEETS[2].names);
+    var ps = findTable(sheets, 'payments');
     if (ps) {
       var ph = splitHeader(ps);
       var pmap = headerMap(ph.header, PAYMENT_COLS);
@@ -518,13 +616,13 @@
     var lines = [
       ['How to fill this template'],
       ['1. Fill the Customers sheet first. Give each customer a short Customer Code (like C001). You will use it on the other sheets.'],
-      ['2. On the Orders sheet, put that same Customer Code so the order is linked to the right person.'],
-      ['3. One row is one item. If an order has several items, repeat the same Order Code on each row; they become one order with several lines.'],
-      ['4. Dates: type them like 05-01-2026 or 2026-01-05. Amounts: plain numbers, no commas or rupee sign.'],
-      ['5. On the Payments sheet, use the Customer Code (and Order Code if you want the payment tied to one order).'],
+      ['2. Measurements: one line per field, like Chest 40 and Waist 34. Lines with the same Customer Code and Dress Type become one measurement.'],
+      ['3. Orders: put the Customer Code so the order is linked to the right person. One row is one item; repeat the same Order Code on each row to give one order several items.'],
+      ['4. Payments: use the Customer Code, and the Order Code too if the payment is for a certain order.'],
+      ['5. Dates: type them like 05-01-2026 or 2026-01-05. Amounts: plain numbers, no commas or rupee sign.'],
       ['6. Leave a Customer Code or Order Code blank and the app will make one for you, but then that row cannot be linked to anything.'],
       ['7. Save the file and upload it on Settings, Import, "Review file". Nothing already in the shop is changed.'],
-      ['The sample row on each sheet is an example only. Delete it before you import, or leave it out.']
+      ['The sample rows are examples only. Delete them before you import, or leave them out.']
     ];
     return lines.map(function (r, i) { return rowXml(i + 1, r); }).join('');
   }
@@ -588,10 +686,10 @@
       '</styleSheet>';
   }
 
-  // The blank workbook the shop fills in. One sheet per table, a header row and
-  // one sample row, plus a "How to fill" sheet.
+  // The blank workbook the shop fills in. A "How to fill" sheet, then one sheet
+  // per table in reading order, each with a header row and sample rows.
   function template() {
-    var names = ['How to fill', 'Customers', 'Orders', 'Payments'];
+    var names = ['How to fill'].concat(SHEETS.map(function (s) { return s.title; }));
     var files = [
       { name: '[Content_Types].xml', data: contentTypes(names.length) },
       { name: '_rels/.rels', data: rootRels() },
@@ -601,26 +699,26 @@
       { name: 'xl/worksheets/sheet1.xml',
         data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
           '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
-          '<sheetData>' + infoSheet() + '</sheetData></worksheet>' },
-      { name: 'xl/worksheets/sheet2.xml', data: sheetXml(sampleSheet(SHEETS[0])) },
-      { name: 'xl/worksheets/sheet3.xml', data: sheetXml(sampleSheet(SHEETS[1])) },
-      { name: 'xl/worksheets/sheet4.xml', data: sheetXml(sampleSheet(SHEETS[2])) }
+          '<sheetData>' + infoSheet() + '</sheetData></worksheet>' }
     ];
+    SHEETS.forEach(function (def, i) {
+      files.push({ name: 'xl/worksheets/sheet' + (i + 2) + '.xml',
+        data: sheetXml(sampleSheet(def)) });
+    });
     return window.ANT.zip.build(files);
   }
 
   function sampleSheet(def) {
-    return {
-      columns: def.cols,
-      rows: [def.cols.map(function (c) { return c.sample; })]
-    };
+    var rows = def.sampleRows || [def.cols.map(function (c) { return c.sample; })];
+    return { columns: def.cols, rows: rows };
   }
 
   window.ANT = window.ANT || {};
   window.ANT.excel = {
     read: read,
     template: template,
-    _cols: { customers: CUSTOMER_COLS, orders: ORDER_COLS, payments: PAYMENT_COLS },
+    _cols: { customers: CUSTOMER_COLS, measurements: MEASUREMENT_COLS,
+      orders: ORDER_COLS, payments: PAYMENT_COLS },
     _parse: { uuid: uuid, excelDate: excelDate, status: status, buildTables: buildTables }
   };
 })();
