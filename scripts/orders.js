@@ -572,6 +572,16 @@ window.ANT.orders = (function () {
     return Promise.resolve('');
   }
 
+  /* The bill link is added even when the wording was written by the owner and
+   * has no {billBlock} in it, so a custom ready or delivered message still
+   * carries the bill. A template that already placed {billBlock} has the link,
+   * so it is not appended a second time. */
+  function withBillLink(message, billLink) {
+    if (!billLink) return message;
+    if (message.indexOf(billLink) !== -1) return message;
+    return message + '\n\nDownload PDF: ' + billLink;
+  }
+
   /* The ready message is built from the order row itself, which already holds
    * the order number, the delivery date, the balance and the customer's mobile.
    * No extra query is needed and nothing can be retyped wrongly. */
@@ -600,6 +610,7 @@ window.ANT.orders = (function () {
         order: order,
         billLink: billLink || ''
       });
+      message = withBillLink(message, billLink);
 
       var url = window.ANT.whatsapp.link(customer.mobile, message);
       if (!url) {
@@ -2006,6 +2017,7 @@ window.ANT.orders = (function () {
       var message = status === 'Finish'
         ? window.ANT.whatsapp.readyMessage({ shop: shop, customer: customer, order: order, billLink: billLink || '' })
         : window.ANT.whatsapp.deliveredMessage({ shop: shop, customer: customer, order: order, billLink: billLink || '' });
+      message = withBillLink(message, billLink);
 
       var url = window.ANT.whatsapp.link(customer.mobile, message);
       if (url) openChat(url);
