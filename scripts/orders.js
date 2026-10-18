@@ -581,7 +581,7 @@ window.ANT.orders = (function () {
   function withBillLink(message, billLink) {
     if (!billLink) return message;
     if (message.indexOf(billLink) !== -1) return message;
-    return message + '\n\nDownload PDF: ' + billLink;
+    return message + '\n\nBill PDF: ' + billLink;
   }
 
   /* The ready message is built from the order row itself, which already holds

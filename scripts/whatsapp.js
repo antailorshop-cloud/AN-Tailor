@@ -249,10 +249,10 @@ window.ANT.whatsapp = (function () {
       balanceBlock: balanceBlock(due),
       delivery: dateText(order.delivery_date) || '-',
       // The bill PDF, linked only when the order is on a bill the app can point
-      // at. The block is the whole "Download PDF: ..." line so a custom template
-      // can place it, and it is blank - not a broken line - when there is none.
+      // at. The block is the whole "Bill PDF: ..." line so a custom template can
+      // place it, and it is blank - not a broken line - when there is none.
       billLink: billLink,
-      billBlock: billLink ? 'Download PDF: ' + billLink : '',
+      billBlock: billLink ? 'Bill PDF: ' + billLink : '',
       // The tap-to-pay link, so the customer can pay from the chat itself. Works
       // where a tap on the PDF does not, because the viewer WhatsApp opens
       // documents with ignores links on the page.

@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#f1f5f9">
+<title>Opening bill&#8230;</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: #f1f5f9;
+    color: #0f172a; padding: 16px; }
+  .card { width: 100%; max-width: 380px; background: #fff; border-radius: 16px; padding: 24px;
+    box-shadow: 0 10px 30px rgba(15,23,42,.12); text-align: center; }
+  .brand { font-size: 13px; letter-spacing: .12em; text-transform: uppercase; color: #64748b; }
+  .lead { font-size: 26px; font-weight: 700; margin: 12px 0 4px; }
+  .pay { display: block; margin: 0; padding: 0; color: inherit; text-decoration: none; }
+  .paybtn { display: block; margin: 22px 0 0; padding: 15px 18px; border-radius: 12px; background: #2563eb;
+    color: #fff; font-size: 17px; font-weight: 600; }
+  .pay:active .paybtn { background: #1d4ed8; }
+  .hint { margin-top: 16px; font-size: 13px; color: #64748b; line-height: 1.5; }
+  .err { color: #b91c1c; font-size: 16px; }
+</style>
+</head>
+<body>
+<main class="card" id="card"></main>
+<script src="scripts/viewpage.js"></script>
+<script>
+(function () {
+  var params = new URLSearchParams(window.location.search);
+  var url = (params.get('u') || '').trim();
+  var card = document.getElementById('card');
+  var vp = (window.ANT && window.ANT.viewpage) || {};
+
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  if (!/^https?:\/\//i.test(url)) {
+    card.innerHTML = '<div class="err">This bill link is not valid.</div>' +
+      '<div class="hint">Please ask the shop to send it again.</div>';
+    return;
+  }
+
+  // Only Android can hand a link over to another app. Everywhere else - desktop,
+  // iPhone - show the bill in the browser, the only thing there is to do.
+  if (typeof vp.isAndroid !== 'function' || !vp.isAndroid(navigator.userAgent) ||
+      !/^https?:$/i.test(window.location.protocol)) {
+    window.location.replace(url);
+    return;
+  }
+
+  var intent = vp.intent(url);
+
+  card.innerHTML =
+    '<div class="brand">Bill</div>' +
+    '<div class="lead">Open the bill</div>' +
+    '<a class="pay" id="open" href="' + esc(intent) + '"><span class="paybtn">Open bill</span></a>' +
+    '<div class="hint">Your phone will ask which app to use \u2014 pick Google Drive, Files or a PDF reader. ' +
+    'If you open it in the browser instead, the Pay button on the bill will not respond.</div>';
+
+  // Best effort: take the handoff straight away. A browser that refuses without a
+  // tap simply does nothing here, and the button above is still there. Only when
+  // this page is the top window, so an embedded preview is left alone.
+  if (intent && window.top === window.self) {
+    try {
+      window.setTimeout(function () { window.location.href = intent; }, 400);
+    } catch (e) {}
+  }
+})();
+</script>
+</body>
+</html>

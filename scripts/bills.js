@@ -2254,14 +2254,7 @@ window.ANT.bills = (function () {
       });
   }
 
-  /* The public URL for a stored bill, asked for as a download and tagged with the
-   * moment it was drawn.
-   *
-   * The download is asked for because a browser handed the file inline shows it
-   * in a viewer that ignores the pay link drawn on the page - Chrome's own PDF
-   * viewer and the one WhatsApp opens documents with both do - so a tap on "Tap
-   * to Pay" does nothing there. Asked for as a download the phone saves the file
-   * and opens it in its own PDF app, where the pay link does work.
+  /* The public URL for a stored bill, tagged with the moment it was drawn.
    *
    * The tag is because a storage URL is cached under its exact address - by
    * Supabase's CDN and by whoever fetched it - so an address that never changes
@@ -2270,18 +2263,37 @@ window.ANT.bills = (function () {
    * cache hit. */
   function versioned(url, snap) {
     if (!url) return '';
-    var base = String(url).split('?')[0];
-    var name = base.split('/').pop() || 'bill.pdf';
-    var q = 'download=' + encodeURIComponent(name);
     var at = snap && snap.takenAt;
-    if (at) q += '&v=' + encodeURIComponent(at);
-    return base + '?' + q;
+    return at ? url + '?v=' + encodeURIComponent(at) : url;
   }
 
-  /* The same file, asked for as a download, for a message built on this page from
-   * a freshly stored file rather than from a saved snapshot. */
-  function asDownload(url) {
-    return versioned(url, null);
+  /* The address of the landing page that hands a bill to the phone's own PDF app.
+   *
+   * '' off the shop's own site - a file:// copy, say - because then there is no
+   * page to route a customer through. */
+  function viewBase() {
+    try {
+      if (typeof window === 'undefined' || !window.location) return '';
+      if (!/^https?:$/i.test(window.location.protocol)) return '';
+      return new URL('view.html', window.location.href).toString().split('?')[0].split('#')[0];
+    } catch (e) { return ''; }
+  }
+
+  /* The bill as a link the shop can send on WhatsApp.
+   *
+   * A link to the file itself is shown by the browser, and the browser's viewer
+   * ignores the pay link drawn on the page - Chrome's own and the one WhatsApp
+   * opens documents with both do - so a tap on "Tap to Pay" does nothing there.
+   * The landing page this points at instead tries to hand the file to a real PDF
+   * app, where the pay link works. Where there is no landing page to reach (the
+   * base is '' ), the file's own address is all there is and it is linked
+   * directly. The base is a seam for testing, since a test page has no shop
+   * address of its own. */
+  function viewLink(url, base) {
+    if (!url) return '';
+    var page = base ? String(base).split('?')[0].split('#')[0] : viewBase();
+    if (!page) return url;
+    return page + '?u=' + encodeURIComponent(url);
   }
 
   /* The bill PDF for the order, as a link the shop can send on WhatsApp.
@@ -2373,7 +2385,7 @@ window.ANT.bills = (function () {
         });
       })
       .catch(function () { return ''; })
-      .then(function (url) { return url || ''; });
+      .then(function (url) { return url ? viewLink(url) : ''; });
   }
 
   /* The bill the order is on, as an id, or '' when it is on none. Read by the
@@ -2557,7 +2569,7 @@ window.ANT.bills = (function () {
             return storeBillPdf(bill, list)
               .then(function (result) {
                 if (result.url) {
-                  message += '\n\nDownload PDF: ' + asDownload(result.url);
+                  message += '\n\nBill PDF: ' + viewLink(result.url);
                 } else {
                   // Storage can be full, or the drawing library unreachable, or
                   // the bucket not created yet. None of those are a reason to
@@ -2794,6 +2806,10 @@ window.ANT.bills = (function () {
      * messages. Draws the file first when it has never been shared, and returns
      * '' when the order is on no bill. */
     orderBillLink: orderBillLink,
+    /* A bill's public link, routed through the landing page that hands the file
+     * to the phone's own PDF app. Exposed so the harness can check the address
+     * it builds without a shop address of its own to read it from. */
+    viewLink: viewLink,
     /* The bill as markup. The PDF renderer draws this rather than a second
      * description of the same page, which is what keeps a printed bill and a
      * shared PDF identical when one of them is changed. */
