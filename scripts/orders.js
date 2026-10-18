@@ -91,7 +91,7 @@ window.ANT.orders = (function () {
     // The shop name and the ready-message wording, so the WhatsApp button says
     // the shop's own name and the owner's own words. Kept apart from state.form
     // because it belongs to the list as well as the order.
-    waShop: { name: '', waReadyMessage: '' },
+    waShop: { name: '', waReadyMessage: '', upiId: '', payee: '' },
     saving: false,
     saveError: ''
   };
@@ -293,10 +293,12 @@ window.ANT.orders = (function () {
           console.warn('Orders: the shop WhatsApp wording could not be read; the default message will be used.', res.error);
           return;
         }
-        var shop = { name: '', waReadyMessage: '' };
+        var shop = { name: '', waReadyMessage: '', upiId: '', payee: '' };
         ((res && res.data) || []).forEach(function (row) {
           if (row.key === 'shop_name') shop.name = row.value || '';
           else if (row.key === 'wa_ready_message') shop.waReadyMessage = row.value || '';
+          else if (row.key === 'upi_id') shop.upiId = row.value || '';
+          else if (row.key === 'upi_payee_name') shop.payee = row.value || '';
         });
         state.waShop = shop;
       });
@@ -1969,7 +1971,7 @@ window.ANT.orders = (function () {
       state.measurements = [];
       state.dressTypes = [];
       state.resale = [];
-      state.waShop = { name: '', waReadyMessage: '' };
+      state.waShop = { name: '', waReadyMessage: '', upiId: '', payee: '' };
       paint();
       loadReference().then(loadResale).then(loadWaShop).then(function () {
         return loadOrders();

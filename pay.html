@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#f1f5f9">
+<title>Pay with UPI</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: #f1f5f9;
+    color: #0f172a; padding: 16px; }
+  .card { width: 100%; max-width: 380px; background: #fff; border-radius: 16px; padding: 24px;
+    box-shadow: 0 10px 30px rgba(15,23,42,.12); text-align: center; }
+  .brand { font-size: 13px; letter-spacing: .12em; text-transform: uppercase; color: #64748b; }
+  .amount { font-size: 34px; font-weight: 700; margin: 12px 0 4px; }
+  .to { color: #475569; font-size: 15px; }
+  .id { display: block; margin-top: 6px; font-size: 14px; color: #0f172a; word-break: break-all; }
+  .pay { display: block; margin: 22px 0 0; padding: 15px 18px; border-radius: 12px; background: #16a34a;
+    color: #fff; font-size: 17px; font-weight: 600; text-decoration: none; }
+  .pay:active { background: #15803d; }
+  .hint { margin-top: 16px; font-size: 13px; color: #64748b; line-height: 1.5; }
+  .err { color: #b91c1c; font-size: 16px; }
+  .note { margin-top: 10px; font-size: 13px; color: #475569; }
+</style>
+</head>
+<body>
+<main class="card" id="card"></main>
+<script>
+(function () {
+  var params = new URLSearchParams(window.location.search);
+  var vpa = (params.get('pa') || '').trim();
+  var payee = (params.get('pn') || '').trim();
+  var amount = Math.round((parseFloat(params.get('am')) || 0) * 100) / 100;
+  var note = (params.get('tn') || '').trim();
+
+  var VPA = /^[A-Za-z0-9][A-Za-z0-9._-]{1,63}@[A-Za-z][A-Za-z0-9._-]{1,63}$/;
+  var card = document.getElementById('card');
+
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function rupees(n) {
+    var parts = n.toFixed(2).split('.');
+    var whole = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    return '\u20b9' + whole + '.' + parts[1];
+  }
+
+  if (!VPA.test(vpa) || amount <= 0) {
+    card.innerHTML = '<div class="err">This payment link is not valid.</div>' +
+      '<div class="hint">Please ask the shop to send it again.</div>';
+    return;
+  }
+
+  var query = 'pa=' + encodeURIComponent(vpa) +
+    '&pn=' + encodeURIComponent(payee || 'Merchant') +
+    '&cu=INR&am=' + encodeURIComponent(amount.toFixed(2));
+  if (note) query += '&tn=' + encodeURIComponent(note);
+  var intent = 'upi://pay?' + query;
+
+  card.innerHTML =
+    '<div class="brand">' + esc(payee || 'UPI Payment') + '</div>' +
+    '<div class="amount">' + esc(rupees(amount)) + '</div>' +
+    '<div class="to">to<span class="id">' + esc(vpa) + '</span></div>' +
+    (note ? '<div class="note">' + esc(note) + '</div>' : '') +
+    '<a class="pay" id="pay" href="' + esc(intent) + '">Pay ' + esc(rupees(amount)) + '</a>' +
+    '<div class="hint">Tap Pay to open your UPI app (Google Pay, PhonePe, Paytm\u2026). ' +
+    'If nothing opens, open this page in your phone\u2019s browser and tap Pay again.</div>';
+})();
+</script>
+</body>
+</html>

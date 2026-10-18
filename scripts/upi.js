@@ -97,12 +97,58 @@ window.ANT.upi = (function () {
     return 'upi://pay?' + parts.join('&');
   }
 
+  /* The address of the little pay page, carrying the payee and amount. The
+   * customer taps this https link in the WhatsApp message - WhatsApp makes an
+   * https link tappable but ignores a upi:// one, and it also ignores a link
+   * drawn inside the bill PDF, which is why a tap there did nothing. The page it
+   * opens hands off to the phone's UPI app.
+   *
+   * '' when there is nothing to pay, no usable id, or the app is not served from
+   * a real site: a file:// page has no address a customer's phone could open. */
+  function pageLink(opts) {
+    var o = opts || {};
+    var vpa = normalizeVpa(o.vpa);
+    var due = Math.round((Number(o.amount) || 0) * 100) / 100;
+
+    if (!vpa || !VPA_PATTERN.test(vpa) || due <= 0) return '';
+
+    // The page address is taken from the address bar so the link lands on
+    // whatever copy of the app the shop runs. A base may be given instead, which
+    // is how the tests exercise this with no real address bar.
+    var base = String(o.base == null ? '' : o.base).trim();
+    if (!base) {
+      if (typeof window === 'undefined' || !window.location) return '';
+      if (!/^https?:$/i.test(window.location.protocol)) return '';
+      base = window.location.href;
+    }
+
+    var url;
+    try {
+      url = new URL('pay.html', base);
+    } catch (e) {
+      return '';
+    }
+
+    url.search = '';
+    url.hash = '';
+
+    var query = 'pa=' + encodeURIComponent(vpa) +
+      '&pn=' + encodeURIComponent(cleanPayee(o.payee)) +
+      '&am=' + encodeURIComponent(due.toFixed(2));
+
+    var note = String(o.note == null ? '' : o.note).slice(0, 40);
+    if (note) query += '&tn=' + encodeURIComponent(note);
+
+    return url.toString() + '?' + query;
+  }
+
   return {
     normalizeVpa: normalizeVpa,
     isValidVpa: isValidVpa,
     vpaProblem: vpaProblem,
     cleanPayee: cleanPayee,
     balanceDue: balanceDue,
-    link: link
+    link: link,
+    pageLink: pageLink
   };
 })();

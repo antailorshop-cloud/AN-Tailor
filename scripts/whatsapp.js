@@ -9,9 +9,12 @@
  *
  * A ready or delivered message can also carry the bill PDF as a link, but only
  * when the order is on a bill and only to that one file in the shop's own
- * storage. There is no link into the app itself: a public page listing a
- * customer's orders and what they owe is still not something the shop wanted to
- * publish, and the messages carry the figures themselves either way.
+ * storage. It can carry a tap-to-pay link too, which opens the shop's own pay
+ * page and nothing else: there is still no link into the app itself, because a
+ * public page listing a customer's orders and what they owe is not something the
+ * shop wanted to publish, and the messages carry the figures themselves either
+ * way. The tap-to-pay link exists because a tap on the bill PDF does nothing in
+ * the viewer WhatsApp opens documents with, which ignores links on the page.
  *
  * Each wording lives in shop_settings - wa_bill_message, wa_reminder_message,
  * wa_ready_message - so the owner can say it in their own voice. An empty or
@@ -36,6 +39,7 @@ window.ANT.whatsapp = (function () {
     'Paid: {paid}\n' +
     'Balance Due: {balance}\n' +
     'Delivery Date: {delivery}\n\n' +
+    '{payBlock}\n\n' +
     'Thank you for choosing {shop}.';
 
   /* Sent when a balance is still outstanding. It names the delivery date and
@@ -45,6 +49,7 @@ window.ANT.whatsapp = (function () {
     'Your order {orders} is due for delivery on {delivery}.\n' +
     'Total: {amount}\n\n' +
     '{balanceBlock}\n\n' +
+    '{payBlock}\n\n' +
     'Thank you,\n{shop}';
 
   /* Sent when an order is ready. balanceBlock is used rather than the balance
@@ -55,6 +60,7 @@ window.ANT.whatsapp = (function () {
     'Your order {orders} is ready.\n' +
     'Delivery Date: {delivery}\n\n' +
     '{balanceBlock}\n\n' +
+    '{payBlock}\n\n' +
     '{billBlock}\n\n' +
     'Please collect it from our shop.\n\n' +
     'Thank you for choosing {shop}.';
@@ -66,6 +72,7 @@ window.ANT.whatsapp = (function () {
     'Hello {customer}, thank you from {shop}!\n\n' +
     'Your order {orders} has been delivered.\n\n' +
     '{balanceBlock}\n\n' +
+    '{payBlock}\n\n' +
     '{billBlock}\n\n' +
     'Thank you for choosing {shop}.';
 
@@ -82,7 +89,9 @@ window.ANT.whatsapp = (function () {
     ['{balance}', 'Balance still due'],
     ['{balanceBlock}', 'A whole sentence for the balance'],
     ['{delivery}', 'Delivery date'],
-    ['{billBlock}', 'Bill PDF link, when the order is on a bill']
+    ['{billBlock}', 'Bill PDF link, when the order is on a bill'],
+    ['{payLink}', 'Tap-to-pay link, when a balance is due'],
+    ['{payBlock}', 'A whole sentence with the tap-to-pay link']
   ];
 
   var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -148,6 +157,23 @@ window.ANT.whatsapp = (function () {
       '\n\nPlease pay the balance at the time of delivery.';
   }
 
+  /* The tappable pay link for a message, built from the shop's UPI id and the
+   * amount still owed. '' when there is nothing to collect, so a settled order
+   * never carries an invitation to pay a second time. The link opens the pay
+   * page, which hands off to the customer's UPI app - a chat link works where a
+   * tap inside the bill PDF does not, because the viewer WhatsApp opens
+   * documents with ignores links drawn on the page. */
+  function payLink(shop, due, note, base) {
+    if (!(due > 0) || !window.ANT.upi || !window.ANT.upi.pageLink) return '';
+    return window.ANT.upi.pageLink({
+      vpa: shop.upiId,
+      payee: shop.payee,
+      amount: due,
+      note: note,
+      base: base
+    });
+  }
+
   /* The latest delivery date across the bill's orders, because a bill is not
    * finished until its last order is, and a customer waiting on several
    * garments wants the date the whole lot is ready. */
@@ -176,6 +202,8 @@ window.ANT.whatsapp = (function () {
     var codes = orders.map(function (order) { return order && order.code; })
       .filter(Boolean);
 
+    var pay = payLink(shop, due, String(bill.code || ''), o.payBase);
+
     return {
       shop: String(shop.name || 'AN TAILOR'),
       customer: String(customer.name || 'Customer'),
@@ -186,7 +214,12 @@ window.ANT.whatsapp = (function () {
       balance: money(due),
       due: money(due),
       balanceBlock: balanceBlock(due),
-      delivery: deliveryText(orders)
+      delivery: deliveryText(orders),
+      // The tap-to-pay link and the whole "Tap to pay Rs ...: ..." line around
+      // it, so a custom template can place it and a settled bill leaves both
+      // blank rather than a broken line.
+      payLink: pay,
+      payBlock: pay ? 'Tap to pay ' + money(due) + ': ' + pay : ''
     };
   }
 
@@ -202,6 +235,7 @@ window.ANT.whatsapp = (function () {
 
     var due = Math.max(0, num(order.balance));
     var billLink = String(o.billLink == null ? '' : o.billLink).trim();
+    var pay = payLink(shop, due, String(order.code || ''), o.payBase);
 
     return {
       shop: String(shop.name || 'AN TAILOR'),
@@ -218,7 +252,12 @@ window.ANT.whatsapp = (function () {
       // at. The block is the whole "Download PDF: ..." line so a custom template
       // can place it, and it is blank - not a broken line - when there is none.
       billLink: billLink,
-      billBlock: billLink ? 'Download PDF: ' + billLink : ''
+      billBlock: billLink ? 'Download PDF: ' + billLink : '',
+      // The tap-to-pay link, so the customer can pay from the chat itself. Works
+      // where a tap on the PDF does not, because the viewer WhatsApp opens
+      // documents with ignores links on the page.
+      payLink: pay,
+      payBlock: pay ? 'Tap to pay ' + money(due) + ': ' + pay : ''
     };
   }
 
@@ -255,6 +294,8 @@ window.ANT.whatsapp = (function () {
       .replace(/\{delivery\}/g, put(t.delivery))
       .replace(/\{billLink\}/g, put(t.billLink))
       .replace(/\{billBlock\}/g, put(t.billBlock))
+      .replace(/\{payLink\}/g, put(t.payLink))
+      .replace(/\{payBlock\}/g, put(t.payBlock))
       // The scrub, after the known tokens are gone. Dropping a placeholder
       // leaves the spaces and the blank line that sat around it, so the
       // leftovers are tidied rather than sent.
