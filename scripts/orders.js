@@ -584,6 +584,22 @@ window.ANT.orders = (function () {
     return message + '\n\nBill PDF: ' + billLink;
   }
 
+  /* The tap-to-pay line, when the wording the owner wrote does not place
+   * {payBlock} itself.
+   *
+   * A "your order is ready" or "thank you" message must carry the way to pay
+   * whenever a balance is still due - that is the moment the link matters most -
+   * so it is added the same way the bill link is. A balance already settled adds
+   * nothing, and a template that placed {payBlock} or {payLink} itself is not
+   * given the line twice. */
+  function withPayBlock(message, shop, order, base) {
+    if (!message || !window.ANT.whatsapp) return message;
+
+    var t = window.ANT.whatsapp.orderTokens({ shop: shop || {}, order: order || {}, payBase: base });
+    if (!t.payLink || message.indexOf(t.payLink) !== -1) return message;
+    return message + '\n\n' + t.payBlock;
+  }
+
   /* The ready message is built from the order row itself, which already holds
    * the order number, the delivery date, the balance and the customer's mobile.
    * No extra query is needed and nothing can be retyped wrongly. */
@@ -612,6 +628,7 @@ window.ANT.orders = (function () {
         order: order,
         billLink: billLink || ''
       });
+      message = withPayBlock(message, state.waShop, order);
       message = withBillLink(message, billLink);
 
       var url = window.ANT.whatsapp.link(customer.mobile, message);
@@ -1981,7 +1998,11 @@ window.ANT.orders = (function () {
     // Lets another screen advance an order along the same straight line the
     // Orders page uses. The bench on the dashboard calls this so a status tap
     // there means exactly what it means on the list.
-    applyStatus: applyStatus
+    applyStatus: applyStatus,
+
+    // The tap-to-pay line's appender, exposed so the harness can check it with a
+    // shop address of its own - a file:// test page has none to build a link from.
+    __withPayBlock: withPayBlock
   };
 
   function announceStatusChange(order, wasAuto, before, after) {
@@ -2019,6 +2040,7 @@ window.ANT.orders = (function () {
       var message = status === 'Finish'
         ? window.ANT.whatsapp.readyMessage({ shop: shop, customer: customer, order: order, billLink: billLink || '' })
         : window.ANT.whatsapp.deliveredMessage({ shop: shop, customer: customer, order: order, billLink: billLink || '' });
+      message = withPayBlock(message, shop, order);
       message = withBillLink(message, billLink);
 
       var url = window.ANT.whatsapp.link(customer.mobile, message);
