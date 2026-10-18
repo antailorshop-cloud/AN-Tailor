@@ -18,9 +18,10 @@
   .amount { font-size: 34px; font-weight: 700; margin: 12px 0 4px; }
   .to { color: #475569; font-size: 15px; }
   .id { display: block; margin-top: 6px; font-size: 14px; color: #0f172a; word-break: break-all; }
-  .pay { display: block; margin: 22px 0 0; padding: 15px 18px; border-radius: 12px; background: #16a34a;
-    color: #fff; font-size: 17px; font-weight: 600; text-decoration: none; }
-  .pay:active { background: #15803d; }
+  .pay { display: block; margin: 0; padding: 0; color: inherit; text-decoration: none; }
+  .paybtn { display: block; margin: 22px 0 0; padding: 15px 18px; border-radius: 12px; background: #16a34a;
+    color: #fff; font-size: 17px; font-weight: 600; }
+  .pay:active .paybtn { background: #15803d; }
   .hint { margin-top: 16px; font-size: 13px; color: #64748b; line-height: 1.5; }
   .err { color: #b91c1c; font-size: 16px; }
   .note { margin-top: 10px; font-size: 13px; color: #475569; }
@@ -63,14 +64,27 @@
   if (note) query += '&tn=' + encodeURIComponent(note);
   var intent = 'upi://pay?' + query;
 
+  // The whole card is the button, so tapping the amount, the id or the price
+  // all start the payment - not only the green strip at the bottom.
   card.innerHTML =
-    '<div class="brand">' + esc(payee || 'UPI Payment') + '</div>' +
-    '<div class="amount">' + esc(rupees(amount)) + '</div>' +
-    '<div class="to">to<span class="id">' + esc(vpa) + '</span></div>' +
-    (note ? '<div class="note">' + esc(note) + '</div>' : '') +
-    '<a class="pay" id="pay" href="' + esc(intent) + '">Pay ' + esc(rupees(amount)) + '</a>' +
-    '<div class="hint">Tap Pay to open your UPI app (Google Pay, PhonePe, Paytm\u2026). ' +
-    'If nothing opens, open this page in your phone\u2019s browser and tap Pay again.</div>';
+    '<a class="pay" id="pay" href="' + esc(intent) + '">' +
+      '<div class="brand">' + esc(payee || 'UPI Payment') + '</div>' +
+      '<div class="amount">' + esc(rupees(amount)) + '</div>' +
+      '<div class="to">to<span class="id">' + esc(vpa) + '</span></div>' +
+      (note ? '<div class="note">' + esc(note) + '</div>' : '') +
+      '<span class="paybtn">Pay ' + esc(rupees(amount)) + '</span>' +
+    '</a>' +
+    '<div class="hint">Tap the card above to open your UPI app (Google Pay, PhonePe, Paytm\u2026). ' +
+    'If nothing opens, open this page in your phone\u2019s browser and tap again.</div>';
+
+  // Best effort: open the UPI app straight away. A browser that refuses without a
+  // tap simply does nothing here, and the card above is still there to tap. Only
+  // when this page is the top window, so an embedded preview is left alone.
+  if (window.top === window.self) {
+    try {
+      window.setTimeout(function () { window.location.href = intent; }, 900);
+    } catch (e) {}
+  }
 })();
 </script>
 </body>
