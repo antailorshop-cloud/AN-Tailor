@@ -2254,15 +2254,34 @@ window.ANT.bills = (function () {
       });
   }
 
-  /* The public URL for a stored bill, tagged with the moment it was drawn. A
-   * storage URL is cached under its exact address - by Supabase's CDN and by
-   * whoever fetched it - so an address that never changes can keep handing back
-   * the bill as it was when it was first shared. The tag changes only when the
-   * file is drawn again, so an unchanged bill is still a cache hit. */
+  /* The public URL for a stored bill, asked for as a download and tagged with the
+   * moment it was drawn.
+   *
+   * The download is asked for because a browser handed the file inline shows it
+   * in a viewer that ignores the pay link drawn on the page - Chrome's own PDF
+   * viewer and the one WhatsApp opens documents with both do - so a tap on "Tap
+   * to Pay" does nothing there. Asked for as a download the phone saves the file
+   * and opens it in its own PDF app, where the pay link does work.
+   *
+   * The tag is because a storage URL is cached under its exact address - by
+   * Supabase's CDN and by whoever fetched it - so an address that never changes
+   * can keep handing back the bill as it was when it was first shared. The tag
+   * changes only when the file is drawn again, so an unchanged bill is still a
+   * cache hit. */
   function versioned(url, snap) {
     if (!url) return '';
+    var base = String(url).split('?')[0];
+    var name = base.split('/').pop() || 'bill.pdf';
+    var q = 'download=' + encodeURIComponent(name);
     var at = snap && snap.takenAt;
-    return at ? url + '?v=' + encodeURIComponent(at) : url;
+    if (at) q += '&v=' + encodeURIComponent(at);
+    return base + '?' + q;
+  }
+
+  /* The same file, asked for as a download, for a message built on this page from
+   * a freshly stored file rather than from a saved snapshot. */
+  function asDownload(url) {
+    return versioned(url, null);
   }
 
   /* The bill PDF for the order, as a link the shop can send on WhatsApp.
@@ -2538,7 +2557,7 @@ window.ANT.bills = (function () {
             return storeBillPdf(bill, list)
               .then(function (result) {
                 if (result.url) {
-                  message += '\n\nDownload PDF: ' + result.url;
+                  message += '\n\nDownload PDF: ' + asDownload(result.url);
                 } else {
                   // Storage can be full, or the drawing library unreachable, or
                   // the bucket not created yet. None of those are a reason to
