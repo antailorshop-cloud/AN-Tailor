@@ -60,6 +60,12 @@ window.ANT.settings = (function () {
   // which is a link pair keyed by bill_id.
   var CLEAR_KEY = { bill_orders: 'bill_id' };
 
+  // The record code each table's rows carry. Clearing a table restarts its
+  // number from 0001, so a shop that starts again begins at AN-CUS-26-0001
+  // rather than carrying on from a number whose record is gone. Clearing
+  // customers drags in measurements, orders and bills, so those restart too.
+  var CLEAR_CODE = { customers: 'CUS', measurements: 'MEA', orders: 'ORD', bills: 'BIL' };
+
   // Bill payment uses the first three. The last is the wording of the WhatsApp
   // bill message; an empty value means the standard wording, which is why it is
   // kept here beside the UPI id rather than hardcoded in the message builder.
@@ -1533,7 +1539,8 @@ window.ANT.settings = (function () {
     return '<div class="ui-card cust-form">' +
       '<h2 class="ui-card-title">Clear data</h2>' +
       '<p class="ui-hint">Permanently removes the shop&#39;s records. There is no undo and no ' +
-        'bin to restore from, so this is the Owner&#39;s alone. What it does not touch: ' +
+        'bin to restore from, so this is the Owner&#39;s alone. Record numbers restart at ' +
+        '0001, so a shop started again begins at AN-CUS-26-0001. What it does not touch: ' +
         'prices, dress types, the shop details and the staff list, which are set up again ' +
         'in their own tabs.</p>' +
       '<div class="ui-field">' +
@@ -1588,6 +1595,27 @@ window.ANT.settings = (function () {
     }, Promise.resolve()).then(function () { return counts; });
   }
 
+  // Restart the record numbers for the types whose records just went, so the
+  // shop begins again at 0001 instead of carrying on from a number whose record
+  // is gone. The counters sit behind a security-definer function, because the
+  // API has no direct path to code_counters at all. A database without the
+  // reset-codes migration simply has no such function, and that is reported
+  // rather than thrown - the records are already gone and a working clear must
+  // not look like a failure.
+  function resetCodes(tables) {
+    var prefixes = [];
+    tables.forEach(function (t) {
+      var p = CLEAR_CODE[t];
+      if (p && prefixes.indexOf(p) === -1) prefixes.push(p);
+    });
+    if (!prefixes.length) return Promise.resolve({ ok: true });
+
+    return sb().rpc('reset_record_codes', { p_prefixes: prefixes }).then(function (res) {
+      if (res.error) return { ok: false, missing: true };
+      return { ok: true };
+    });
+  }
+
   function clearSelected() {
     if (!isOwner()) return;
 
@@ -1623,13 +1651,21 @@ window.ANT.settings = (function () {
         return;
       }
       return wipe(tables).then(function (counts) {
-        state.clear.busy = false;
-        state.clear.picked = {};
-        toast('Cleared ' + tables.map(function (t) {
-          return counts[t] + ' ' + t.replace('_', ' ');
-        }).join(', '), 'success');
-        paint();
-        load();
+        return resetCodes(tables).then(function (codes) {
+          state.clear.busy = false;
+          state.clear.picked = {};
+          var cleared = 'Cleared ' + tables.map(function (t) {
+            return counts[t] + ' ' + t.replace('_', ' ');
+          }).join(', ');
+          if (codes.ok) {
+            toast(cleared, 'success');
+          } else {
+            toast(cleared + '. Record numbers were not restarted - run the ' +
+              'reset-codes migration to begin at 0001 again.', 'error');
+          }
+          paint();
+          load();
+        });
       });
     }).catch(function (e) {
       state.clear.busy = false;
