@@ -785,6 +785,10 @@ window.ANT.dashboard = (function () {
       '</tr>';
     }).join('');
 
+    var reachable = items.filter(function (it) {
+      return it.customer && it.customer.mobile;
+    }).length;
+
     return '<div class="ui-card" style="margin-top:var(--gap)">' +
       '<h2 class="ui-card-title">Money to collect</h2>' +
       '<p class="ui-card-sub">Outstanding balances grouped by ageing. One-tap Remind or Received.</p>' +
@@ -793,8 +797,13 @@ window.ANT.dashboard = (function () {
         '<th>Customer</th><th>Order</th><th>Delivery</th><th>Age</th><th class="num">Due</th><th></th>' +
       '</tr></thead><tbody>' + rows + '</tbody></table></div>' +
       '<div class="ui-card-actions" style="margin-top:var(--gap-sm)">' +
+        (reachable > 1
+          ? '<button class="btn btn-sm btn-secondary" data-dash-remind-all>Remind all (' + reachable + ')</button> '
+          : '') +
         '<button class="btn btn-sm btn-secondary" data-dash-stmt>Customer statement (WhatsApp)</button>' +
       '</div>' +
+      '<div data-dash-remind-panel></div>' +
+      '<div data-dash-stmt-panel></div>' +
     '</div>';
   }
 
@@ -822,6 +831,129 @@ window.ANT.dashboard = (function () {
         ' not in your access, so ' + (list.length === 1 ? 'that figure was' : 'those figures were') +
         ' not asked for. Ask the shop owner if you need it.</p>' +
     '</div>';
+  }
+
+  function findMoneyItem(id) {
+    var found = null;
+    (state.money && state.money.items || []).forEach(function (x) {
+      if (x.order && x.order.id === id) found = x;
+    });
+    return found;
+  }
+
+  // One place builds a reminder link, so the single Remind button and the
+  // batch list cannot drift apart.
+  function reminderUrl(it) {
+    if (!it || !it.customer || !it.customer.mobile) return '';
+    var wa = window.ANT.whatsapp;
+    if (!wa || !wa.link || !wa.reminderMessage) return '';
+    var o = it.order || {};
+    var msg = wa.reminderMessage({
+      shop: (state.money && state.money.shop) || {},
+      customer: it.customer,
+      bill: { code: o.code, bill_amount: o.total, advance: o.advance, balance: o.balance },
+      orders: [o]
+    });
+    return wa.link(it.customer.mobile, msg);
+  }
+
+  // A statement belongs to one customer, so the outstanding rows are grouped by
+  // who owes before one is drawn up. The button used to list every customer's
+  // orders under the first customer's name, which is not a statement anybody
+  // should send.
+  function groupMoneyByCustomer(items) {
+    var out = [], byKey = {};
+    (items || []).forEach(function (it) {
+      var c = it.customer || {};
+      var key = c.id || ((c.name || '') + '|' + (c.mobile || ''));
+      var g = byKey[key];
+      if (!g) {
+        g = { customer: c, items: [], due: 0 };
+        byKey[key] = g;
+        out.push(g);
+      }
+      g.items.push(it);
+      g.due += num(it.due);
+    });
+    return out;
+  }
+
+  // The statement as the customer will read it: the orders they still owe on,
+  // then every payment already received against them - so a customer who has
+  // paid part is shown that, instead of a figure that looks like nothing was
+  // paid at all.
+  function statementText(group, paymentRows) {
+    var shop = (state.money && state.money.shop) || {};
+    var c = group.customer || {};
+    var lines = [];
+
+    lines.push(shop.name || 'AN TAILOR');
+    lines.push('Customer Statement');
+    lines.push(isoToday());
+    lines.push('');
+    lines.push((c.name || 'Customer') + (c.mobile ? '  ' + c.mobile : ''));
+    lines.push('');
+    lines.push('Orders');
+    var billed = 0;
+    group.items.forEach(function (it) {
+      var o = it.order || {};
+      var total = num(o.total);
+      billed += total;
+      lines.push('  ' + (o.code || '') + '  ' + money(total) +
+        '  balance ' + money(it.due) +
+        (it.delivery ? '  (due ' + it.delivery + ')' : ''));
+    });
+
+    var paid = 0;
+    var rows = (paymentRows || []).slice().sort(function (a, b) {
+      return String(a.paid_on || '') < String(b.paid_on || '') ? -1 : 1;
+    });
+    if (rows.length) {
+      lines.push('');
+      lines.push('Payments received');
+      rows.forEach(function (p) {
+        paid += num(p.amount);
+        lines.push('  ' + (p.paid_on || '') + '  ' + money(p.amount) +
+          (p.method ? '  ' + p.method : ''));
+      });
+    }
+
+    lines.push('');
+    lines.push('Total billed: ' + money(billed));
+    lines.push('Total paid: ' + money(paid));
+    lines.push('Balance due: ' + money(group.due));
+    lines.push('');
+    lines.push('- ' + (shop.name || 'AN TAILOR'));
+    return lines.join('\n');
+  }
+
+  function sendStatement(group) {
+    var c = group.customer || {};
+    if (!c.mobile) {
+      window.ANT.toast && window.ANT.toast('No mobile number for this customer.', 'error');
+      return;
+    }
+    var ids = group.items.map(function (it) { return it.order && it.order.id; })
+      .filter(Boolean);
+
+    var read = ids.length
+      ? sb().from('payments')
+          .select('id,amount,method,paid_on,order_id')
+          .in('order_id', ids)
+      : Promise.resolve({ data: [] });
+
+    read.then(function (res) {
+      var rows = (res && !res.error && res.data) || [];
+      var wa = window.ANT.whatsapp;
+      var link = wa && wa.link ? wa.link(c.mobile, statementText(group, rows)) : '';
+      if (!link) {
+        window.ANT.toast && window.ANT.toast('Could not build statement link.', 'error');
+        return;
+      }
+      window.open(link, '_blank', 'noopener');
+    }).catch(function (e) {
+      window.ANT.toast && window.ANT.toast(e && e.message ? e.message : String(e), 'error');
+    });
   }
 
   function paint() {
@@ -857,82 +989,185 @@ window.ANT.dashboard = (function () {
 
     Array.prototype.forEach.call(host.querySelectorAll('.dash-remind'), function (btn) {
       btn.addEventListener('click', function () {
-        var id = btn.getAttribute('data-dash-order');
-        var it = null;
-        (state.money.items || []).forEach(function (x) { if (x.order && x.order.id === id) it = x; });
+        var it = findMoneyItem(btn.getAttribute('data-dash-order'));
         if (!it || !it.customer || !it.customer.mobile) {
           window.ANT.toast && window.ANT.toast('No mobile number for this customer.', 'error');
           return;
         }
-        var wa = window.ANT.whatsapp;
-        if (!wa || !wa.link || !wa.reminderMessage) return;
-        var msg = wa.reminderMessage({
-          shop: state.money.shop || {},
-          customer: it.customer,
-          bill: { code: it.order.code, bill_amount: it.order.total, advance: it.order.advance, balance: it.order.balance },
-          orders: [it.order]
-        });
-        var url = wa.link(it.customer.mobile, msg);
+        var url = reminderUrl(it);
         if (url) window.open(url, '_blank', 'noopener');
       });
     });
 
-    Array.prototype.forEach.call(host.querySelectorAll('.dash-received'), function (btn) {
-      btn.addEventListener('click', function () {
-        var id = btn.getAttribute('data-dash-order');
-        if (!id) return;
+    // WhatsApp takes one recipient at a time, so "Remind all" is a list the
+    // tailor taps through: each Send is its own tap, so no pop-up blocker eats
+    // the message, and the button turns to Sent as the row is dealt with.
+    var remindAll = host.querySelector('[data-dash-remind-all]');
+    if (remindAll) {
+      remindAll.addEventListener('click', function () {
+        var panel = host.querySelector('[data-dash-remind-panel]');
+        if (!panel) return;
+        if (panel.firstChild) { panel.innerHTML = ''; return; }
+
+        var list = (state.money.items || []).filter(function (it) {
+          return it.customer && it.customer.mobile;
+        });
+        panel.innerHTML = '<p class="ui-card-sub" style="margin-top:var(--gap-sm)">' +
+            'Tap Send for each reminder, one at a time.</p>' +
+          '<div class="dash-remind-list">' + list.map(function (it) {
+            var c = it.customer || {}, o = it.order || {};
+            return '<div class="dash-remind-item">' +
+              '<span>' + esc(c.name || '—') + ' · ' + esc(o.code || '') + ' · ' + esc(money(it.due)) + '</span>' +
+              '<button class="btn btn-sm btn-secondary" data-dash-remind-one="' + esc(o.id) + '">Send</button>' +
+            '</div>';
+          }).join('') + '</div>';
+
+        Array.prototype.forEach.call(panel.querySelectorAll('[data-dash-remind-one]'), function (b) {
+          b.addEventListener('click', function () {
+            var it = findMoneyItem(b.getAttribute('data-dash-remind-one'));
+            var url = it ? reminderUrl(it) : '';
+            if (!url) {
+              window.ANT.toast && window.ANT.toast('Could not build reminder.', 'error');
+              return;
+            }
+            window.open(url, '_blank', 'noopener');
+            b.disabled = true;
+            b.textContent = 'Sent';
+          });
+        });
+      });
+    }
+
+    // A customer rarely hands over the whole balance at once, so Received opens
+    // a small form for the amount, method and a note rather than quietly taking
+    // everything. settle() re-reads the order and refuses an over-payment, so
+    // the figure pre-filled here is a starting point and not a promise.
+    function payMethods() {
+      return ['Cash', 'UPI', 'Cheque', 'Card', 'Other'];
+    }
+
+    function openPayRow(row, it) {
+      if (!row || !row.parentNode) return;
+      var order = it.order || {};
+      var due = num(it.due);
+      var tr = document.createElement('tr');
+      tr.className = 'dash-pay-row';
+      var td = document.createElement('td');
+      td.setAttribute('colspan', '6');
+      td.innerHTML =
+        '<div class="dash-pay-form">' +
+          '<label>Amount <input class="ui-input" data-pay-amount type="number" min="0.01" step="0.01" value="' + esc(due.toFixed(2)) + '"></label>' +
+          '<label>Method <select class="ui-input" data-pay-method>' +
+            payMethods().map(function (mth) {
+              return '<option value="' + esc(mth) + '">' + esc(mth) + '</option>';
+            }).join('') +
+          '</select></label>' +
+          '<label>Note <input class="ui-input" data-pay-note placeholder="Optional"></label>' +
+          '<button class="btn btn-sm btn-primary" data-pay-save>Save</button>' +
+          '<button class="btn btn-sm btn-secondary" data-pay-full>Full ' + esc(money(due)) + '</button>' +
+          '<button class="btn btn-sm btn-secondary" data-pay-cancel>Cancel</button>' +
+        '</div>';
+      tr.appendChild(td);
+      row.parentNode.insertBefore(tr, row.nextSibling);
+
+      var amountEl = td.querySelector('[data-pay-amount]');
+      var methodEl = td.querySelector('[data-pay-method]');
+      var noteEl = td.querySelector('[data-pay-note]');
+      var saveEl = td.querySelector('[data-pay-save]');
+      var fullEl = td.querySelector('[data-pay-full]');
+      var cancelEl = td.querySelector('[data-pay-cancel]');
+
+      cancelEl.addEventListener('click', function () {
+        if (tr.parentNode) tr.parentNode.removeChild(tr);
+      });
+
+      function submit() {
+        var amt = parseFloat(amountEl.value);
+        if (!(amt > 0)) {
+          window.ANT.toast && window.ANT.toast('Enter an amount greater than zero.', 'error');
+          return;
+        }
         var pay = window.ANT.payments;
         if (!pay || typeof pay.settle !== 'function') {
           window.ANT.toast && window.ANT.toast('Payments module is not ready.', 'error');
           return;
         }
-        btn.disabled = true;
-        pay.settle(id, { method: 'Cash' }).then(function (res) {
-          btn.disabled = false;
+        saveEl.disabled = true;
+        fullEl.disabled = true;
+        pay.settle(order.id, {
+          amount: amt,
+          method: methodEl.value || 'Cash',
+          notes: (noteEl && noteEl.value || '').trim()
+        }).then(function (res) {
           if (res && res.ok) {
-            window.ANT.toast && window.ANT.toast('Payment of ' + window.ANT.money(res.amount) + ' recorded.', 'success');
+            window.ANT.toast && window.ANT.toast('Payment of ' + money(res.amount) + ' recorded.', 'success');
             render();
           } else {
+            saveEl.disabled = false;
+            fullEl.disabled = false;
             window.ANT.toast && window.ANT.toast((res && res.error) || 'Payment could not be recorded.', 'error');
           }
         }).catch(function (e) {
-          btn.disabled = false;
+          saveEl.disabled = false;
+          fullEl.disabled = false;
           window.ANT.toast && window.ANT.toast(e && e.message ? e.message : String(e), 'error');
         });
+      }
+
+      saveEl.addEventListener('click', submit);
+      fullEl.addEventListener('click', function () {
+        amountEl.value = due.toFixed(2);
+        submit();
+      });
+    }
+
+    Array.prototype.forEach.call(host.querySelectorAll('.dash-received'), function (btn) {
+      btn.addEventListener('click', function () {
+        var id = btn.getAttribute('data-dash-order');
+        if (!id) return;
+        var it = null;
+        (state.money.items || []).forEach(function (x) { if (x.order && x.order.id === id) it = x; });
+        if (!it) return;
+
+        var row = btn.closest ? btn.closest('tr') : null;
+        if (row && row.nextElementSibling && row.nextElementSibling.className &&
+            row.nextElementSibling.className.indexOf('dash-pay-row') !== -1) {
+          row.parentNode.removeChild(row.nextElementSibling);
+          return;
+        }
+        openPayRow(row, it);
       });
     });
 
     var stmtBtn = host.querySelector('[data-dash-stmt]');
     if (stmtBtn) {
       stmtBtn.addEventListener('click', function () {
-        var items = (state.money.items || []);
-        if (!items.length) {
-          window.ANT.toast && window.ANT.toast('Nothing outstanding to include in statement.', 'info');
+        var panel = host.querySelector('[data-dash-stmt-panel]');
+        if (!panel) return;
+        if (panel.firstChild) { panel.innerHTML = ''; return; }
+
+        var groups = groupMoneyByCustomer(state.money.items);
+        if (!groups.length) {
+          window.ANT.toast && window.ANT.toast('Nothing outstanding to include in a statement.', 'info');
           return;
         }
-        var today = window.ANT.dashboard.isoToday ? window.ANT.dashboard.isoToday() : (function () {
-          var d = new Date();
-          return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
-        })();
-        var first = items[0] || {};
-        var cust = (first.customer) || {};
-        var lines = items.slice(0, 30).map(function (it) {
-          var o = it.order || {};
-          var d = it.due || 0;
-          return o.code + ' - ' + window.ANT.money(d) + (it.delivery ? ' (due ' + it.delivery + ')' : '');
-        }).join('\n');
-        var total = 0;
-        for (var i = 0; i < items.length; i++) {
-          total += (items[i].due || 0);
-        }
-        var text = 'Customer Statement\n' + today + '\n\n' + lines + '\n\nTotal: ' + window.ANT.money(total) + '\n\n- ' + (state.money.shop.name || 'AN TAILOR');
-        var wa = window.ANT.whatsapp;
-        var link = wa && wa.link ? wa.link(cust.mobile, text) : '';
-        if (!link) {
-          window.ANT.toast && window.ANT.toast('Could not build statement link.', 'error');
-          return;
-        }
-        window.open(link, '_blank', 'noopener');
+        panel.innerHTML = '<p class="ui-card-sub" style="margin-top:var(--gap-sm)">' +
+            'Choose a customer. The statement lists their orders and the payments already received.</p>' +
+          '<div class="dash-remind-list">' + groups.map(function (g, i) {
+            var c = g.customer || {};
+            return '<div class="dash-remind-item">' +
+              '<span>' + esc(c.name || '—') + ' · ' + g.items.length +
+                (g.items.length === 1 ? ' order · ' : ' orders · ') + esc(money(g.due)) + '</span>' +
+              '<button class="btn btn-sm btn-secondary" data-dash-stmt-one="' + i + '">Statement</button>' +
+            '</div>';
+          }).join('') + '</div>';
+
+        Array.prototype.forEach.call(panel.querySelectorAll('[data-dash-stmt-one]'), function (b) {
+          b.addEventListener('click', function () {
+            var g = groups[Number(b.getAttribute('data-dash-stmt-one'))];
+            if (g) sendStatement(g);
+          });
+        });
       });
     }
   }
