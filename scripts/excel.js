@@ -379,13 +379,35 @@
     return { header: header, body: rows.slice(1) };
   }
 
-  function buildTables(sheets) {
+  function buildTables(sheets, known) {
     var tables = {};
     var custByCode = {};
     var custCodeById = {};
     var orderByCode = {};
     var usedMeaCodes = {};
     var custSeq = 0, meaSeq = 0, ordSeq = 0, paySeq = 0;
+
+    // Customers already in the shop, so a sheet that names one of them by
+    // code still links up. Without this an order row that references an
+    // existing customer by code produces a record with no customer_id, and
+    // the insert is refused for want of a value that was there all along.
+    var db = known || { byCode: {}, byMobile: {}, byName: {} };
+
+    function resolveCustomer(custCode, row) {
+      var code = String(custCode == null ? '' : custCode).trim();
+      var lower = code.toLowerCase();
+      if (lower && custByCode[lower]) {
+        return { id: custByCode[lower], code: custCodeById[custByCode[lower]] || code };
+      }
+      if (lower && db.byCode[lower]) return db.byCode[lower];
+      if (row) {
+        var mobile = String(row.mobile == null ? '' : row.mobile).replace(/\D/g, '');
+        if (mobile && db.byMobile[mobile]) return db.byMobile[mobile];
+        var name = String(row.name == null ? '' : row.name).trim().toLowerCase();
+        if (name && db.byName[name]) return db.byName[name];
+      }
+      return null;
+    }
 
     var cs = findTable(sheets, 'customers');
     if (cs) {
@@ -420,7 +442,8 @@
         var dressType = String(row.dress_type || '').trim();
         var measure = String(row.measure || '').trim();
         var custCode = String(row.customer_code || '').trim();
-        var custId = custByCode[custCode.toLowerCase()];
+        var cust = resolveCustomer(custCode, row);
+        var custId = cust ? cust.id : null;
         var groupKey = (custId || custCode.toLowerCase() || '') + '\u0000' + dressType.toLowerCase();
 
         meaSeq++;
@@ -435,7 +458,7 @@
           var category = String(row.category || '').trim() || categoryFor(dressType);
           if (category) rec.category = category;
           if (custId) rec.customer_id = custId;
-          var base = 'MEA-' + (custId ? custCodeById[custId] : ('X' + pad(meaSeq, 4))) +
+          var base = 'MEA-' + (cust ? String(cust.code || custCode) : ('X' + pad(meaSeq, 4))) +
             '-' + (dressType.replace(/[^A-Za-z0-9]+/g, '') || 'X');
           var code = base, n = 1;
           while (usedMeaCodes[code.toLowerCase()]) { n++; code = base + '-' + n; }
@@ -484,7 +507,8 @@
             discount: num(row.discount),
             advance: num(row.advance)
           };
-          if (custByCode[custCode.toLowerCase()]) rec.customer_id = custByCode[custCode.toLowerCase()];
+          var ocust = resolveCustomer(custCode, row);
+          if (ocust) rec.customer_id = ocust.id;
           if (row.delivery_date) rec.delivery_date = excelDate(row.delivery_date);
           if (row.notes) rec.notes = String(row.notes).trim();
           orders.push(rec);
@@ -537,7 +561,8 @@
           amount: num(row.amount),
           method: method(row.method)
         };
-        if (custByCode[custCode.toLowerCase()]) rec.customer_id = custByCode[custCode.toLowerCase()];
+        var pcust = resolveCustomer(custCode, row);
+        if (pcust) rec.customer_id = pcust.id;
         if (orderByCode[orderCode.toLowerCase()]) rec.order_id = orderByCode[orderCode.toLowerCase()];
         if (row.paid_on) rec.paid_on = excelDate(row.paid_on);
         if (row.notes) rec.notes = String(row.notes).trim();
@@ -547,6 +572,31 @@
     }
 
     return tables;
+  }
+
+  // The customers already in the shop, keyed so a sheet row can find one by
+  // code, mobile or name. Fetched before the workbook is read, so a row that
+  // names an existing customer links to it instead of being dropped. A failure
+  // here is not fatal: the import simply loses the fallback and matches only
+  // within the file, which is how it behaved before.
+  function loadKnown() {
+    var empty = { byCode: {}, byMobile: {}, byName: {} };
+    var sb = window.ANT && window.ANT.sb;
+    if (!sb || !sb.from) return Promise.resolve(empty);
+    return sb.from('customers').select('id,code,name,mobile').then(function (res) {
+      if (res.error || !res.data) return empty;
+      var known = { byCode: {}, byMobile: {}, byName: {} };
+      res.data.forEach(function (c) {
+        var id = c.id;
+        var code = String(c.code == null ? '' : c.code).trim().toLowerCase();
+        if (code && !known.byCode[code]) known.byCode[code] = { id: id, code: c.code };
+        var mobile = String(c.mobile == null ? '' : c.mobile).replace(/\D/g, '');
+        if (mobile && !known.byMobile[mobile]) known.byMobile[mobile] = { id: id, code: c.code };
+        var name = String(c.name == null ? '' : c.name).trim().toLowerCase();
+        if (name && !known.byName[name]) known.byName[name] = { id: id, code: c.code };
+      });
+      return known;
+    }).catch(function () { return empty; });
   }
 
   // files: File objects, .xlsx only. Mirrors restore.readBackup's shape so the
@@ -569,7 +619,9 @@
         });
       });
     }, Promise.resolve()).then(function () {
-      var tables = buildTables(sheets);
+      return loadKnown();
+    }).then(function (known) {
+      var tables = buildTables(sheets, known);
       return { tables: tables, names: names, ignored: ignored };
     });
   }
