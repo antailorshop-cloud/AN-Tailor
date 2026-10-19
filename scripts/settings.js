@@ -71,9 +71,10 @@ window.ANT.settings = (function () {
   // filled them in still gets a bill that prints, and a bill separated from its
   // garment bag still names the shop.
   var SHOP_KEYS = ['shop_name', 'shop_address', 'shop_phone', 'shop_email',
-    'shop_instagram', 'upi_id', 'upi_payee_name', 'wa_bill_message',
-    'wa_reminder_message', 'wa_ready_message', 'wa_delivered_message',
-    'bill_print_size', 'wa_bill_size', 'receipt_print_size'];
+    'shop_instagram', 'upi_id', 'upi_payee_name', 'payment_terms',
+    'due_reminder_days', 'wa_bill_message', 'wa_reminder_message',
+    'wa_ready_message', 'wa_delivered_message', 'bill_print_size', 'wa_bill_size',
+    'receipt_print_size'];
 
   var state = {
     tab: 'dress',
@@ -81,9 +82,10 @@ window.ANT.settings = (function () {
     dressRows: [],
     priceRows: [],
     shop: { shop_name: '', shop_address: '', shop_phone: '', shop_email: '',
-      shop_instagram: '', upi_id: '', upi_payee_name: '', wa_bill_message: '',
-      wa_reminder_message: '', wa_ready_message: '', wa_delivered_message: '',
-      bill_print_size: '', wa_bill_size: '', receipt_print_size: '' },
+      shop_instagram: '', upi_id: '', upi_payee_name: '', payment_terms: '',
+      due_reminder_days: '', wa_bill_message: '', wa_reminder_message: '',
+      wa_ready_message: '', wa_delivered_message: '', bill_print_size: '',
+      wa_bill_size: '', receipt_print_size: '' },
     staff: { rows: [], access: {}, loading: false, error: null },
     clear: { picked: {}, busy: false },
     exporting: false,
@@ -153,9 +155,10 @@ window.ANT.settings = (function () {
   // anything else a hand-edit left in the table is ignored rather than shown.
   function applyShop(rows) {
     var shop = { shop_name: '', shop_address: '', shop_phone: '', shop_email: '',
-      shop_instagram: '', upi_id: '', upi_payee_name: '', wa_bill_message: '',
-      wa_reminder_message: '', wa_ready_message: '', wa_delivered_message: '',
-      bill_print_size: '', wa_bill_size: '', receipt_print_size: '' };
+      shop_instagram: '', upi_id: '', upi_payee_name: '', payment_terms: '',
+      due_reminder_days: '', wa_bill_message: '', wa_reminder_message: '',
+      wa_ready_message: '', wa_delivered_message: '', bill_print_size: '',
+      wa_bill_size: '', receipt_print_size: '' };
     rows.forEach(function (row) {
       if (SHOP_KEYS.indexOf(row.key) !== -1) {
         shop[row.key] = String(row.value == null ? '' : row.value);
@@ -451,6 +454,8 @@ window.ANT.settings = (function () {
           shopField('shopInstagram', 'Instagram', s.shop_instagram, 'Your username. Printed as a QR on the bill so a customer can follow the shop and reorder. Just the handle, or paste the profile link.') +
           shopField('shopUpi', 'UPI ID', upi, 'Like antailor@okhdfcbank. Printed as a QR on any bill with money still due.') +
           shopField('shopPayee', 'UPI payee name', s.upi_payee_name, 'The name the customer sees in their UPI app.') +
+          shopField('shopTerms', 'Payment terms (e.g. "Due in 7 days")', s.payment_terms, 'Shown on bills and messages when there is a balance due.') +
+          shopField('shopReminder', 'Due reminder days (comma-separated, e.g. "1,3,6")', s.due_reminder_days, 'Tells the dashboard which days to nudge after delivery date.') +
           shopField('shopConfirm', 'Confirm UPI ID', '', 'Type the new UPI ID again, but only when you change an existing one.') +
           printSizeField('shopPrintSize', 'Bill print size', s.bill_print_size, 'bill',
             'Lays out the printed bill only; it never changes a figure. The A4 sheet ' +
@@ -534,6 +539,8 @@ window.ANT.settings = (function () {
     var instagram = normalizeInstagram(byId('shopInstagram').value);
     var upiIn = window.ANT.upi.normalizeVpa(byId('shopUpi').value);
     var payee = byId('shopPayee').value.trim();
+    var terms = byId('shopTerms').value.trim();
+    var reminderDays = byId('shopReminder').value.trim();
     var confirm = window.ANT.upi.normalizeVpa(byId('shopConfirm').value);
     var printSize = window.ANT.printsize.normalize(byId('shopPrintSize').value);
     var waBillSize = window.ANT.printsize.normalize(byId('shopWaBillSize').value);
@@ -574,6 +581,8 @@ window.ANT.settings = (function () {
       putSetting('shop_instagram', instagram),
       putSetting('upi_id', upiIn),
       putSetting('upi_payee_name', payee),
+      putSetting('payment_terms', terms),
+      putSetting('due_reminder_days', reminderDays),
       putSetting('bill_print_size', printSize),
       putSetting('wa_bill_size', waBillSize),
       putSetting('receipt_print_size', receiptSize)

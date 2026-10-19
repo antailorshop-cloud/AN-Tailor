@@ -490,6 +490,72 @@ window.ANT.payments = (function () {
     return '';
   }
 
+  /* The one place a payment is written.
+   *
+   * Both the Record form and the dashboard's one-tap Received go through here,
+   * so the two guard rails - a payment may not exceed the balance, and the
+   * payment row and the order's advance/balance are written together or not at
+   * all - are enforced once and cannot drift between the two front doors.
+   *
+   * Answers with { ok: true, ... } on success, { notStored: true } when the
+   * payment row itself was refused (nothing was charged, the order is untouched)
+   * or { error: { message } } when the payment row was written but the order
+   * could not be updated and the row has been rolled back.
+   */
+  function store(o, amount, method, reference, notes, paidOn) {
+    var oldAdvance = num(o.advance);
+    var oldBalance = owed(o);
+    var newAdvance = round2(oldAdvance + amount);
+    var newBalance = round2(oldBalance - amount);
+    var payCode = '';
+
+    return nextCode().then(function (code) {
+      payCode = code;
+      return sb().from('payments')
+        .insert({
+          code: code,
+          order_id: o.id,
+          customer_id: o.customer_id,
+          amount: amount,
+          method: method,
+          reference: reference || '',
+          previous_balance: oldBalance,
+          new_balance: newBalance,
+          notes: notes || '',
+          paid_on: paidOn || today()
+        })
+        .single()
+        .then(function (res) {
+          if (res.error) {
+            // A sentinel rather than a bare return, so the success path cannot
+            // run and report a payment that was never stored.
+            return { notStored: true, message: res.error.message || 'the payment row was rejected.' };
+          }
+          return updateOrder(o, newAdvance, newBalance).then(function (err) {
+            if (err) {
+              // The order is the authority on what is owed, so a payment row
+              // without a matching order update is worse than no payment at all.
+              // The row is removed again rather than left to drift.
+              return sb().from('payments')
+                .remove()
+                .eq('code', payCode)
+                .then(function () {
+                  return { error: { message: (err.error && err.error.message) || 'the order row was rejected.' } };
+                });
+            }
+            return {
+              ok: true,
+              code: code,
+              amount: amount,
+              previous: oldBalance,
+              balance: newBalance,
+              advance: newAdvance
+            };
+          });
+        });
+    });
+  }
+
   function record() {
     var problem = validate();
     if (problem) {
@@ -499,41 +565,12 @@ window.ANT.payments = (function () {
 
     var o = state.selected;
     var amount = round2(num(numField(state.amount)));
-    var oldAdvance = num(o.advance);
-    var oldBalance = owed(o);
-    var newAdvance = round2(oldAdvance + amount);
-    var newBalance = round2(oldBalance - amount);
     var before = state.orders;
-    var payCode = '';
 
     state.busy = true;
     paint();
 
-    nextCode().then(function (code) {
-      payCode = code;
-      return sb().from('payments')
-        .insert({
-          code: code,
-          order_id: o.id,
-          customer_id: o.customer_id,
-          amount: amount,
-          method: state.method,
-          reference: state.reference || '',
-          previous_balance: oldBalance,
-          new_balance: newBalance,
-          notes: state.notes || '',
-          paid_on: state.paidOn || today()
-        })
-        .single()
-        .then(function (res) {
-          if (res.error) {
-            // A sentinel rather than a bare return, so the success path below
-            // cannot run and report a payment that was never stored.
-            return { notStored: true, message: res.error.message || 'the payment row was rejected.' };
-          }
-          return updateOrder(o, newAdvance, newBalance);
-        });
-    }).then(function (res) {
+    store(o, amount, state.method, state.reference, state.notes, state.paidOn).then(function (res) {
       if (res && res.notStored) {
         state.busy = false;
         paint();
@@ -542,36 +579,73 @@ window.ANT.payments = (function () {
       }
 
       if (res && res.error) {
-        // The order is the authority on what is owed, so a payment row without a
-        // matching order update is worse than no payment at all. The row is
-        // removed again rather than left to drift.
-        return sb().from('payments')
-          .remove()
-          .eq('code', payCode)
-          .then(function () {
-            state.busy = false;
-            paint();
-            toast('The order could not be updated, so the payment was rolled back: ' +
-              res.error.message, 'error');
-          });
+        state.busy = false;
+        paint();
+        toast('The order could not be updated, so the payment was rolled back: ' +
+          res.error.message, 'error');
+        return;
       }
 
       state.busy = false;
       // Optimistically settle the row in place, then reload the truth.
       before.forEach(function (x) {
         if (x.id === o.id) {
-          x.advance = newAdvance;
-          x.balance = newBalance;
+          x.advance = res.advance;
+          x.balance = res.balance;
         }
       });
       state.view = 'list';
       state.selected = null;
       state.page = 0;
-      toast('Payment of ' + money(amount) + ' recorded.', 'success');
+      toast('Payment of ' + money(res.amount) + ' recorded.', 'success');
       return refreshBillsForOrder(o.id).then(function () {
         return loadPayments().then(function () { return loadOrders(); });
       });
     });
+  }
+
+  /* One-tap settle, for the dashboard's "Received" button.
+   *
+   * It reads the order back first, because the dashboard only holds the figures
+   * it drew and the balance may have moved since (another payment, another
+   * device). The whole outstanding balance is collected in cash unless an
+   * amount is given, which is the case this button exists for: a customer
+   * handing over the rest at the counter.
+   *
+   * Answers with { ok: true, amount, balance } or { error: message }.
+   */
+  function settle(orderId, opts) {
+    var o = opts || {};
+
+    return sb().from('orders')
+      .select('id,code,customer_id,total,discount,advance,balance')
+      .eq('id', orderId)
+      .single()
+      .then(function (res) {
+        if (res.error || !res.data) {
+          return { error: (res.error && res.error.message) || 'that order could not be read.' };
+        }
+
+        var order = res.data;
+        var balance = owed(order);
+        if (balance <= 0) return { error: 'that order has nothing outstanding.' };
+
+        var amount = o.amount != null ? round2(num(o.amount)) : balance;
+        if (!(amount > 0)) return { error: 'the amount must be more than zero.' };
+        if (amount > balance) {
+          return { error: 'the amount is more than the ' + money(balance) + ' outstanding.' };
+        }
+
+        return store(order, amount, o.method || 'Cash', o.reference || '', o.notes || '', o.paidOn || today())
+          .then(function (r) {
+            if (!r || !r.ok) {
+              return { error: (r && (r.message || (r.error && r.error.message))) || 'the payment was not recorded.' };
+            }
+            return refreshBillsForOrder(order.id).then(function () {
+              return { ok: true, code: r.code, amount: r.amount, balance: r.balance };
+            });
+          });
+      });
   }
 
   function refreshBillsForOrder(orderId) {
@@ -863,6 +937,9 @@ window.ANT.payments = (function () {
   return {
     mount: mount,
     render: render,
+    /* One-tap settle, used by the dashboard. Kept here rather than in the
+     * dashboard so the payment rules live in exactly one file. */
+    settle: settle,
     /* What the PDF renderer is handed.
      *
      * A document is described to billpdf the same way whichever document it is, so

@@ -88,6 +88,7 @@ window.ANT.whatsapp = (function () {
     ['{paid}', 'Already paid'],
     ['{balance}', 'Balance still due'],
     ['{balanceBlock}', 'A whole sentence for the balance'],
+    ['{terms}', 'Payment terms line, when a balance is due'],
     ['{delivery}', 'Delivery date'],
     ['{billBlock}', 'Bill PDF link, when the order is on a bill'],
     ['{payLink}', 'Tap-to-pay link, when a balance is due'],
@@ -188,6 +189,12 @@ window.ANT.whatsapp = (function () {
 
   /* The values the placeholders stand for. Every one has a fallback, so a token
    * left in a custom template can never come out empty in front of a customer. */
+  function termsLine(shop, due) {
+    if (!(due > 0)) return '';
+    var t = String(shop && shop.payment_terms ? shop.payment_terms : '').trim();
+    return t ? 'Terms: ' + t : '';
+  }
+
   function billTokens(opts) {
     var o = opts || {};
     var shop = o.shop || {};
@@ -203,6 +210,7 @@ window.ANT.whatsapp = (function () {
       .filter(Boolean);
 
     var pay = payLink(shop, due, String(bill.code || ''), o.payBase);
+    var terms = termsLine(shop, due);
 
     return {
       shop: String(shop.name || 'AN TAILOR'),
@@ -213,7 +221,8 @@ window.ANT.whatsapp = (function () {
       paid: money(bill.advance),
       balance: money(due),
       due: money(due),
-      balanceBlock: balanceBlock(due),
+      balanceBlock: balanceBlock(due) + (terms ? '\n' + terms : ''),
+      terms: terms,
       delivery: deliveryText(orders),
       // The tap-to-pay link and the whole "Tap to pay Rs ...: ..." line around
       // it, so a custom template can place it and a settled bill leaves both
@@ -236,6 +245,7 @@ window.ANT.whatsapp = (function () {
     var due = Math.max(0, num(order.balance));
     var billLink = String(o.billLink == null ? '' : o.billLink).trim();
     var pay = payLink(shop, due, String(order.code || ''), o.payBase);
+    var terms = termsLine(shop, due);
 
     return {
       shop: String(shop.name || 'AN TAILOR'),
@@ -246,7 +256,8 @@ window.ANT.whatsapp = (function () {
       paid: money(order.advance),
       balance: money(due),
       due: money(due),
-      balanceBlock: balanceBlock(due),
+      balanceBlock: balanceBlock(due) + (terms ? '\n' + terms : ''),
+      terms: terms,
       delivery: dateText(order.delivery_date) || '-',
       // The bill PDF, linked only when the order is on a bill the app can point
       // at. The block is the whole "Bill PDF: ..." line so a custom template can
@@ -291,6 +302,8 @@ window.ANT.whatsapp = (function () {
       .replace(/\{balance\}/g, put(t.balance))
       .replace(/\{due\}/g, put(t.due))
       .replace(/\{balanceBlock\}/g, put(t.balanceBlock))
+      .replace(/\{terms\}/g, put(t.terms))
+      .replace(/\{terms\}/g, put(t.terms))
       .replace(/\{delivery\}/g, put(t.delivery))
       .replace(/\{billLink\}/g, put(t.billLink))
       .replace(/\{billBlock\}/g, put(t.billBlock))

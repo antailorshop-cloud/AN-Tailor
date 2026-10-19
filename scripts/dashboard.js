@@ -131,7 +131,8 @@ window.ANT.dashboard = (function () {
     promise: { overdue: [], today: [], upcoming: [], later: 0, none: 0 },
     /* Resale items whose available count has fallen to their own restock
      * threshold, capped for the glance. */
-    lowStock: []
+    lowStock: [],
+    money: { shop: {}, items: [], loaded: false, error: null }
   };
 
   var BENCH_LIMIT = 12;
@@ -180,7 +181,7 @@ window.ANT.dashboard = (function () {
 
     var orders = wantOrders
       ? sb().from('orders')
-          .select('id,code,status,order_date,delivery_date,balance,total,advance,priority,customer:customers(id,code,name,mobile)')
+          .select('id,code,status,order_date,delivery_date,promise_date,balance,total,advance,priority,customer:customers(id,code,name,mobile)')
           .neq('status', 'Cancelled')
           .is('archived_at', null)
       : withheld('orders');
@@ -202,7 +203,11 @@ window.ANT.dashboard = (function () {
           .select('id,item,quantity')
       : withheld('resale');
 
-    return Promise.all([orders, bills, payments, resale]).then(function (res) {
+    var shop = canRead('orders') || canRead('bills') || canRead('payments')
+      ? sb().from('shop_settings').select('key,value')
+      : withheld('shop');
+
+    return Promise.all([orders, bills, payments, resale, shop]).then(function (res) {
       var err = firstError(res);
       if (err) {
         state.error = (err && err.message) || 'The figures could not be loaded.';
@@ -218,11 +223,13 @@ window.ANT.dashboard = (function () {
       if (res[1].withheld) state.held.push('bills');
       if (res[2].withheld) state.held.push('payments');
       if (res[3].withheld) state.held.push('resale');
+      if (res[4] && res[4].withheld) { /* shop settings withheld - harmless */ }
 
       var rows = res[0].data || [];
       var billRows = res[1].data || [];
       var payRows = res[2].data || [];
       var stockRows = res[3].data || [];
+      var shopRows = (res[4] && res[4].data && !res[4].withheld) ? res[4].data : [];
 
       state.error = '';
       state.loaded = true;
@@ -343,6 +350,57 @@ window.ANT.dashboard = (function () {
       });
       state.promise.overdue = state.promise.overdue.slice(0, 6);
       state.promise.today = state.promise.today.slice(0, 6);
+
+      var shop = { payment_terms: '', due_reminder_days: '' };
+      shopRows.forEach(function (r) {
+        if (r.key === 'payment_terms') shop.payment_terms = String(r.value || '');
+        if (r.key === 'due_reminder_days') shop.due_reminder_days = String(r.value || '');
+      });
+      state.money.shop = shop;
+
+      var reminderSet = {};
+      (shop.due_reminder_days || '').split(/[,;\s]+/).forEach(function (s) {
+        var d = parseInt(s, 10);
+        if (!isNaN(d) && d >= 0) reminderSet[d] = true;
+      });
+      var reminders = Object.keys(reminderSet).map(function (k) { return parseInt(k, 10); }).sort(function (a, b) { return a - b; });
+
+      var moneyItems = [];
+      rows.forEach(function (o) {
+        var due = num(o.balance);
+        if (due <= 0 || o.status === 'Cancelled') return;
+        var d = String(o.delivery_date || '').slice(0, 10);
+        var aged = 0;
+        if (d) {
+          var delta = (new Date(today) - new Date(d + 'T00:00:00')) / 86400000;
+          if (delta > 0) aged = Math.floor(delta);
+        }
+        var bucket = aged <= 0 ? 'due' : (aged <= 7 ? '7' : (aged <= 30 ? '30' : (aged <= 60 ? '60' : '90')));
+        var nudge = null;
+        if (d && aged > 0) {
+          for (var i = 0; i < reminders.length; i++) {
+            if (aged >= reminders[i]) nudge = reminders[i];
+          }
+        }
+        moneyItems.push({
+          order: o,
+          customer: o.customer,
+          due: due,
+          aged: aged,
+          bucket: bucket,
+          nudge: nudge,
+          delivery: d
+        });
+      });
+      moneyItems.sort(function (a, b) {
+        if (b.due !== a.due) return b.due - a.due;
+        var ad = String(a.delivery || '9999-99-99');
+        var bd = String(b.delivery || '9999-99-99');
+        return ad < bd ? -1 : 1;
+      });
+      state.money.items = moneyItems;
+      state.money.loaded = true;
+      state.money.error = null;
 
       // Items sitting at or under their own restock threshold, smallest first,
       // capped for the glance. A threshold of zero means "do not track" and is
@@ -664,10 +722,75 @@ window.ANT.dashboard = (function () {
       '<div class="table-wrap"><table class="ui-table"><thead><tr>' +
         '<th>Status</th><th>Customer</th><th>Order</th><th>Due</th>' +
       '</tr></thead><tbody>' + rows + '</tbody></table></div>' +
-      (more > 0
+       (more > 0
         ? '<p class="ui-card-sub" style="margin-top:var(--gap-sm)">' + more +
           ' more on <a href="#/orders">Orders</a>.</p>'
         : '') +
+    '</div>';
+  }
+
+  function moneyToCollect() {
+    if (held('orders')) {
+      return '<div class="ui-card" style="margin-top:var(--gap)">' +
+        '<h2 class="ui-card-title">Money to collect</h2>' +
+        '<p class="ui-card-sub">Live orders not in your access.</p>' +
+      '</div>';
+    }
+
+    var m = state.money || { items: [], shop: {} };
+    var items = m.items || [];
+    if (!items.length) {
+      return '<div class="ui-card" style="margin-top:var(--gap)">' +
+        '<h2 class="ui-card-title">Money to collect</h2>' +
+        '<p class="ui-card-sub">Nothing outstanding right now.</p>' +
+      '</div>';
+    }
+
+    var sums = { due: 0, '7': 0, '30': 0, '60': 0, '90': 0 };
+    var total = 0;
+    items.forEach(function (it) {
+      total += num(it.due);
+      var b = it.bucket;
+      if (sums[b] !== undefined) sums[b] += num(it.due);
+      else sums.due += num(it.due);
+    });
+
+    var chips = '<div class="card-chips">' +
+      ['due', '7', '30', '60', '90'].map(function (k) {
+        var label = k === 'due' ? 'Due now' : ('>' + k + 'd');
+        return '<span class="chip chip-plain">' + esc(label) + ': ' + esc(money(sums[k])) + '</span>';
+      }).join(' ') +
+      '<span class="chip chip-info">Total: ' + esc(money(total)) + '</span>' +
+    '</div>';
+
+    var rows = items.slice(0, 20).map(function (it) {
+      var c = it.customer || {};
+      var o = it.order || {};
+      var aged = it.aged > 0 ? it.aged + 'd' : 'due';
+      var nudge = it.nudge != null ? ' (nudge ' + it.nudge + 'd)' : '';
+      return '<tr>' +
+        '<td>' + esc(c.name || '—') + '</td>' +
+        '<td>' + esc(o.code || '') + '</td>' +
+        '<td>' + esc(dateLabel(it.delivery)) + '</td>' +
+        '<td>' + esc(aged) + nudge + '</td>' +
+        '<td class="num">' + esc(money(it.due)) + '</td>' +
+        '<td class="ord-row-actions">' +
+          '<button class="btn btn-sm btn-secondary dash-remind" data-dash-order="' + esc(o.id) + '">Remind</button>' +
+          '<button class="btn btn-sm btn-primary dash-received" data-dash-order="' + esc(o.id) + '">Received</button>' +
+        '</td>' +
+      '</tr>';
+    }).join('');
+
+    return '<div class="ui-card" style="margin-top:var(--gap)">' +
+      '<h2 class="ui-card-title">Money to collect</h2>' +
+      '<p class="ui-card-sub">Outstanding balances grouped by ageing. One-tap Remind or Received.</p>' +
+      chips +
+      '<div class="table-wrap" style="margin-top:var(--gap-sm)"><table class="ui-table"><thead><tr>' +
+        '<th>Customer</th><th>Order</th><th>Delivery</th><th>Age</th><th class="num">Due</th><th></th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table></div>' +
+      '<div class="ui-card-actions" style="margin-top:var(--gap-sm)">' +
+        '<button class="btn btn-sm btn-secondary" data-dash-stmt>Customer statement (WhatsApp)</button>' +
+      '</div>' +
     '</div>';
   }
 
@@ -675,7 +798,7 @@ window.ANT.dashboard = (function () {
     if (state.error) return failed(state.error);
     if (!state.loaded) return loading();
 
-    return '<div class="dashboard-grid">' + tiles() + '</div>' + promiseBoard() + tracker() + restockCard() + benchCard() + heldNote();
+    return '<div class="dashboard-grid">' + tiles() + '</div>' + moneyToCollect() + promiseBoard() + tracker() + restockCard() + benchCard() + heldNote();
   }
 
   /* When any figure is missing for want of access rather than want of data, say
@@ -727,6 +850,87 @@ window.ANT.dashboard = (function () {
         }, order);
       });
     });
+
+    Array.prototype.forEach.call(host.querySelectorAll('.dash-remind'), function (btn) {
+      btn.addEventListener('click', function () {
+        var id = btn.getAttribute('data-dash-order');
+        var it = null;
+        (state.money.items || []).forEach(function (x) { if (x.order && x.order.id === id) it = x; });
+        if (!it || !it.customer || !it.customer.mobile) {
+          window.ANT.toast && window.ANT.toast('No mobile number for this customer.', 'error');
+          return;
+        }
+        var wa = window.ANT.whatsapp;
+        if (!wa || !wa.link || !wa.reminderMessage) return;
+        var msg = wa.reminderMessage({
+          shop: state.money.shop || {},
+          customer: it.customer,
+          bill: { code: it.order.code, bill_amount: it.order.total, advance: it.order.advance, balance: it.order.balance },
+          orders: [it.order]
+        });
+        var url = wa.link(it.customer.mobile, msg);
+        if (url) window.open(url, '_blank', 'noopener');
+      });
+    });
+
+    Array.prototype.forEach.call(host.querySelectorAll('.dash-received'), function (btn) {
+      btn.addEventListener('click', function () {
+        var id = btn.getAttribute('data-dash-order');
+        if (!id) return;
+        var pay = window.ANT.payments;
+        if (!pay || typeof pay.settle !== 'function') {
+          window.ANT.toast && window.ANT.toast('Payments module is not ready.', 'error');
+          return;
+        }
+        btn.disabled = true;
+        pay.settle(id, { method: 'Cash' }).then(function (res) {
+          btn.disabled = false;
+          if (res && res.ok) {
+            window.ANT.toast && window.ANT.toast('Payment of ' + window.ANT.money(res.amount) + ' recorded.', 'success');
+            render();
+          } else {
+            window.ANT.toast && window.ANT.toast((res && res.error) || 'Payment could not be recorded.', 'error');
+          }
+        }).catch(function (e) {
+          btn.disabled = false;
+          window.ANT.toast && window.ANT.toast(e && e.message ? e.message : String(e), 'error');
+        });
+      });
+    });
+
+    var stmtBtn = host.querySelector('[data-dash-stmt]');
+    if (stmtBtn) {
+      stmtBtn.addEventListener('click', function () {
+        var items = (state.money.items || []);
+        if (!items.length) {
+          window.ANT.toast && window.ANT.toast('Nothing outstanding to include in statement.', 'info');
+          return;
+        }
+        var today = window.ANT.dashboard.isoToday ? window.ANT.dashboard.isoToday() : (function () {
+          var d = new Date();
+          return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+        })();
+        var first = items[0] || {};
+        var cust = (first.customer) || {};
+        var lines = items.slice(0, 30).map(function (it) {
+          var o = it.order || {};
+          var d = it.due || 0;
+          return o.code + ' - ' + window.ANT.money(d) + (it.delivery ? ' (due ' + it.delivery + ')' : '');
+        }).join('\n');
+        var total = 0;
+        for (var i = 0; i < items.length; i++) {
+          total += (items[i].due || 0);
+        }
+        var text = 'Customer Statement\n' + today + '\n\n' + lines + '\n\nTotal: ' + window.ANT.money(total) + '\n\n- ' + (state.money.shop.name || 'AN TAILOR');
+        var wa = window.ANT.whatsapp;
+        var link = wa && wa.link ? wa.link(cust.mobile, text) : '';
+        if (!link) {
+          window.ANT.toast && window.ANT.toast('Could not build statement link.', 'error');
+          return;
+        }
+        window.open(link, '_blank', 'noopener');
+      });
+    }
   }
 
   function mount() {
