@@ -351,10 +351,14 @@ window.ANT.dashboard = (function () {
       state.promise.overdue = state.promise.overdue.slice(0, 6);
       state.promise.today = state.promise.today.slice(0, 6);
 
-      var shop = { payment_terms: '', due_reminder_days: '' };
+      var shop = { name: '', upiId: '', payee: '', waReminderMessage: '', payment_terms: '', due_reminder_days: '' };
       shopRows.forEach(function (r) {
-        if (r.key === 'payment_terms') shop.payment_terms = String(r.value || '');
-        if (r.key === 'due_reminder_days') shop.due_reminder_days = String(r.value || '');
+        if (r.key === 'shop_name') shop.name = String(r.value || '');
+        else if (r.key === 'upi_id') shop.upiId = String(r.value || '');
+        else if (r.key === 'upi_payee_name') shop.payee = String(r.value || '');
+        else if (r.key === 'wa_reminder_message') shop.waReminderMessage = String(r.value || '');
+        else if (r.key === 'payment_terms') shop.payment_terms = String(r.value || '');
+        else if (r.key === 'due_reminder_days') shop.due_reminder_days = String(r.value || '');
       });
       state.money.shop = shop;
 
