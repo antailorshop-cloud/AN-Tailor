@@ -286,8 +286,13 @@ window.ANT.sb = (function () {
     return this;
   };
 
-  Query.prototype.not = function (column, value) {
-    this.filters.push(column + '=not.is.' + encodeValue(value));
+  // Negation takes the operator explicitly, the way supabase-js does:
+  // not(column, operator, value) builds `column=not.<operator>.<value>`. So
+  // not('id', 'is', null) is `id=not.is.null` - the every-row filter PostgREST
+  // needs before it will run a delete - and not('archived_at', 'is', null) is
+  // the rows that are not archived.
+  Query.prototype.not = function (column, operator, value) {
+    this.filters.push(column + '=not.' + operator + '.' + encodeValue(value));
     return this;
   };
 
