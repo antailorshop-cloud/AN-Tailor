@@ -232,6 +232,34 @@
     renderRoute();
   }
 
+  /* Login panels: sign in, ask for a reset link, or set a new password after a
+   * recovery link. Exactly one is on screen at a time. */
+  function showLoginPanel(which) {
+    if (el.loginForm) el.loginForm.hidden = which !== 'signin';
+    if (el.loginForgot) el.loginForgot.hidden = which !== 'signin';
+    if (el.resetForm) el.resetForm.hidden = which !== 'reset';
+    if (el.recoverForm) el.recoverForm.hidden = which !== 'recover';
+    if (el.loginDev) el.loginDev.hidden = which !== 'signin' || window.ANT.isBackendConfigured();
+  }
+
+  function message(id, text) {
+    var node = byId(id);
+    if (!node) return;
+    node.textContent = text || '';
+    node.hidden = !text;
+  }
+
+  // A recovery link puts a live token in the URL fragment. Take it out of the
+  // address bar as soon as it has been read, so a reload or a screenshot cannot
+  // carry a session the person did not mean to keep.
+  function clearLinkHash() {
+    try {
+      if (location.hash && location.hash.indexOf('access_token=') !== -1) {
+        history.replaceState(null, '', location.pathname + location.search);
+      }
+    } catch (e) { /* the address bar is only tidied if the browser allows it */ }
+  }
+
   function wireEvents() {
     el.themeToggle.addEventListener('click', function () {
       var next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
@@ -292,6 +320,83 @@
         });
     });
 
+    el.loginForgot.addEventListener('click', function () {
+      message('loginError', '');
+      message('resetError', '');
+      message('resetNote', '');
+      if (el.resetEmail && !el.resetEmail.value) el.resetEmail.value = el.loginEmail.value.trim();
+      showLoginPanel('reset');
+      if (el.resetEmail) el.resetEmail.focus();
+    });
+
+    el.resetBack.addEventListener('click', function () {
+      message('resetError', '');
+      message('resetNote', '');
+      showLoginPanel('signin');
+      el.loginEmail.focus();
+    });
+
+    el.resetForm.addEventListener('submit', function (e) {
+      e.preventDefault();
+      message('resetError', '');
+      message('resetNote', '');
+      var submit = el.resetForm.querySelector('button[type="submit"]');
+      if (submit) submit.disabled = true;
+      auth.requestReset(el.resetEmail.value.trim())
+        .then(function () {
+          message('resetNote', 'If an account uses that email, a reset link is on its way. ' +
+            'Open the link on this device to choose a new password.');
+        })
+        .catch(function (err) {
+          message('resetError', err.message);
+        })
+        .then(function () {
+          if (submit) submit.disabled = false;
+        });
+    });
+
+    el.recoverForm.addEventListener('submit', function (e) {
+      e.preventDefault();
+      message('recoverError', '');
+      var next = el.recoverNew.value;
+      var confirm = el.recoverConfirm.value;
+      if (!next || next.length < 6) {
+        message('recoverError', 'The new password must be at least 6 characters.');
+        el.recoverNew.focus();
+        return;
+      }
+      if (next !== confirm) {
+        message('recoverError', 'The two new passwords do not match.');
+        el.recoverConfirm.focus();
+        return;
+      }
+      var submit = el.recoverForm.querySelector('button[type="submit"]');
+      if (submit) submit.disabled = true;
+      auth.completeReset(next)
+        .then(function () {
+          el.recoverNew.value = '';
+          el.recoverConfirm.value = '';
+          return auth.restore();
+        })
+        .then(function (user) {
+          if (user) {
+            toast('Your password was changed.');
+            applyUser(user);
+          } else {
+            message('recoverError',
+              'The password was saved, but the account could not be opened. Try signing in.');
+            el.loginSub.textContent = 'Sign in to continue';
+            showLoginPanel('signin');
+          }
+        })
+        .catch(function (err) {
+          message('recoverError', err.message);
+        })
+        .then(function () {
+          if (submit) submit.disabled = false;
+        });
+    });
+
     Array.prototype.forEach.call(
       el.loginDev.querySelectorAll('[data-preview-role]'),
       function (btn) {
@@ -332,6 +437,16 @@
       loginSub: byId('loginSub'),
       loginEmail: byId('loginEmail'),
       loginPassword: byId('loginPassword'),
+      loginForgot: byId('loginForgot'),
+      resetForm: byId('resetForm'),
+      resetEmail: byId('resetEmail'),
+      resetError: byId('resetError'),
+      resetNote: byId('resetNote'),
+      resetBack: byId('resetBack'),
+      recoverForm: byId('recoverForm'),
+      recoverNew: byId('recoverNew'),
+      recoverConfirm: byId('recoverConfirm'),
+      recoverError: byId('recoverError'),
       shell: byId('shell'),
       navTrack: byId('navTrack'),
       main: byId('main'),
@@ -363,12 +478,32 @@
     el.loginSub.textContent = 'Checking your session...';
     applyUser(null);
 
-    auth.restore().then(function (user) {
-      el.loginSub.textContent = window.ANT.isBackendConfigured()
-        ? 'Sign in to continue'
-        : 'No database connected yet';
-      applyUser(user);
-    });
+    // A password-reset email returns the person here with a recovery token in
+    // the URL. That has to be handled before the usual session check: the token
+    // is the only credential they have, and adopting it is what lets them set a
+    // new password. A link that is stale or refused says so instead.
+    var recovery = auth.recoveryFromUrl();
+    if (recovery && (recovery.access_token || recovery.error)) {
+      clearLinkHash();
+      if (recovery.access_token) {
+        auth.adoptRecovery(recovery);
+        el.loginSub.textContent = 'Choose a new password';
+        showLoginPanel('recover');
+      } else {
+        el.loginSub.textContent = window.ANT.isBackendConfigured()
+          ? 'Sign in to continue'
+          : 'No database connected yet';
+        showLoginPanel('signin');
+        message('loginError', 'That reset link has expired or was already used. Ask for a new one.');
+      }
+    } else {
+      auth.restore().then(function (user) {
+        el.loginSub.textContent = window.ANT.isBackendConfigured()
+          ? 'Sign in to continue'
+          : 'No database connected yet';
+        applyUser(user);
+      });
+    }
 
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('sw.js').catch(function () {

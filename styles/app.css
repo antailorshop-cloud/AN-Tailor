@@ -113,6 +113,37 @@ button, input, select, textarea { font: inherit; color: inherit; }
   font-weight: 600;
 }
 
+.login-forgot {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 8px 6px;
+  background: none;
+  border: 0;
+  color: var(--brand-gold);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.login-forgot:hover { text-decoration: underline; }
+
+.login-note {
+  margin-top: 12px;
+  padding: 9px 11px;
+  border-radius: var(--radius);
+  background: var(--success-soft);
+  color: var(--text-strong);
+  font-size: 13px;
+}
+
+.login-hint {
+  margin: 0 0 6px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
 .login-dev {
   margin-top: 20px;
   padding-top: 16px;

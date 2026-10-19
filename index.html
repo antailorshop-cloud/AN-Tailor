@@ -62,6 +62,35 @@
       <button class="btn btn-primary btn-block" type="submit" id="loginSubmit">Sign in</button>
     </form>
 
+    <button type="button" class="login-forgot" id="loginForgot">Forgot password?</button>
+
+    <form class="login-form" id="resetForm" novalidate hidden>
+      <label class="ui-label" for="resetEmail">Email</label>
+      <input class="ui-input" type="email" id="resetEmail" autocomplete="username" required>
+
+      <div class="login-error" id="resetError" role="alert" hidden></div>
+      <p class="login-note" id="resetNote" role="status" hidden></p>
+
+      <button class="btn btn-primary btn-block" type="submit" id="resetSubmit">Send reset link</button>
+      <button class="btn btn-secondary btn-block" type="button" id="resetBack">Back to sign in</button>
+    </form>
+
+    <form class="login-form" id="recoverForm" novalidate hidden>
+      <p class="login-hint">Choose a new password. You are signed in by this reset link, so your
+        current password is not needed.</p>
+
+      <label class="ui-label" for="recoverNew">New password</label>
+      <input class="ui-input" type="password" id="recoverNew" autocomplete="new-password" required>
+
+      <label class="ui-label" for="recoverConfirm">Confirm new password</label>
+      <input class="ui-input" type="password" id="recoverConfirm" autocomplete="new-password" required>
+
+      <div class="login-error" id="recoverError" role="alert" hidden></div>
+
+      <button class="btn btn-primary btn-block" type="submit" id="recoverSubmit">Set new password</button>
+    </form>
+
+
     <div class="login-dev" id="loginDev" hidden>
       <p class="login-dev-label">Preview mode &mdash; no database connected</p>
       <div class="login-dev-row">

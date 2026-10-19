@@ -427,6 +427,59 @@ window.ANT.auth = (function () {
       });
     },
 
+    /* Password reset by email - the way back in when the password is forgotten.
+     *
+     * This is the one path that runs with no session: the person cannot sign in,
+     * so nothing here can be authorised by a profile. It only asks Supabase to
+     * email a recovery link; the link, not this call, is what proves the
+     * address. The reply is the same whether or not the address exists, so the
+     * form cannot be used to find out who has an account.
+     */
+    requestReset: function (email) {
+      var addr = String(email || '').trim();
+      if (!addr) return Promise.reject(new Error('Enter your email address.'));
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(addr)) {
+        return Promise.reject(new Error('That does not look like an email address.'));
+      }
+      if (!window.ANT.sb.configured()) {
+        return Promise.reject(new Error('No database is connected, so a reset email cannot be sent.'));
+      }
+      var back = '';
+      try { back = location.origin + location.pathname + location.search; } catch (e) { back = ''; }
+      return window.ANT.sb.resetPasswordForEmail(addr, back).then(function (res) {
+        if (res.error) throw new Error(friendly(res.error.message));
+        return { sent: true };
+      });
+    },
+
+    // The tokens a recovery link left in the address bar, if any.
+    recoveryFromUrl: function () {
+      return window.ANT.sb.recoveryFromUrl();
+    },
+
+    // Take the recovery token as the session so the new password can be saved.
+    adoptRecovery: function (rec) {
+      return window.ANT.sb.adoptRecovery(rec);
+    },
+
+    // Finish a reset: write the new password onto the recovery session, then let
+    // the caller re-check the profile and go in. No current password is asked
+    // for - whoever holds the emailed link is the account holder, which is what
+    // the link is.
+    completeReset: function (next) {
+      if (!next || String(next).length < 6) {
+        return Promise.reject(new Error('The new password must be at least 6 characters.'));
+      }
+      var s = window.ANT.sb.session();
+      if (!s || !s.access_token) {
+        return Promise.reject(new Error('This reset link is no longer valid. Ask for a new one.'));
+      }
+      return window.ANT.sb.updateUser({ password: next }).then(function (res) {
+        if (res.error) throw new Error(friendly(res.error.message));
+        return { reset: true };
+      });
+    },
+
     previewSignIn: function (role) {
       var user = {
         id: 'preview-' + role,

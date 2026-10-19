@@ -519,6 +519,67 @@ window.ANT.sb = (function () {
       return request('POST', '/auth/v1/logout', { query: 'scope=others' });
     },
 
+    // Send the "reset your password" email. GoTrue's recover endpoint takes the
+    // address and a redirect_to that the emailed link returns to; the link
+    // carries a short-lived recovery token, never a password. The anon key is
+    // enough, which is the point: the person is locked out and has no session to
+    // authorise with.
+    resetPasswordForEmail: function (email, redirectTo) {
+      var q = redirectTo ? 'redirect_to=' + encodeURIComponent(redirectTo) : '';
+      return request('POST', '/auth/v1/recover', { query: q, body: { email: email } });
+    },
+
+    // Read the tokens a recovery link leaves in the URL fragment, without
+    // touching the stored session. The caller decides whether to adopt them, so
+    // an ordinary visit is left exactly as it was. Returns null when the URL
+    // carries nothing, and { error } when the link itself is stale or refused.
+    recoveryFromUrl: function (href) {
+      var raw = String(href != null ? href
+        : (typeof location !== 'undefined' ? location.hash : '') || '');
+      var hash = raw.indexOf('#');
+      if (hash !== -1) raw = raw.slice(hash + 1);
+      else if (raw.indexOf('=') === -1) return null;
+      if (!raw) return null;
+
+      var params = {};
+      raw.split('&').forEach(function (kv) {
+        if (!kv) return;
+        var eq = kv.indexOf('=');
+        if (eq < 0) return;
+        var k = decodeURIComponent(kv.slice(0, eq));
+        var v = decodeURIComponent(kv.slice(eq + 1).replace(/\+/g, ' '));
+        params[k] = v;
+      });
+
+      if (!params.access_token) {
+        if (params.error || params.error_code) {
+          return { error: params.error_description || params.error || params.error_code };
+        }
+        return null;
+      }
+      return {
+        access_token: params.access_token,
+        refresh_token: params.refresh_token || '',
+        type: params.type || '',
+        expires_in: parseInt(params.expires_in, 10) || 0
+      };
+    },
+
+    // Adopt a recovery token as the current session, so updateUser() can set the
+    // new password. The shape is the same one sign-in writes, so nothing else in
+    // the app has to know where the session came from.
+    adoptRecovery: function (rec) {
+      if (!rec || !rec.access_token) return null;
+      var session = {
+        access_token: rec.access_token,
+        refresh_token: rec.refresh_token || '',
+        expires_at: rec.expires_in ? Math.floor(Date.now() / 1000) + rec.expires_in : 0,
+        user: null
+      };
+      writeSession(session);
+      return session;
+    },
+
     // Fires when the token is refreshed elsewhere or the session is lost.
     onAuthChange: function (handler) {
       window.addEventListener('storage', function (e) {
