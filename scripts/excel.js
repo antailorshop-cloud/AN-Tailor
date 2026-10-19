@@ -417,9 +417,14 @@
       ch.body.forEach(function (cells) {
         var row = pickRow(cells, cmap);
         if (!anyValue(row)) return;
+        var name = String(row.name || '').trim();
+        // A record the shop cannot name is not a customer: the manual form
+        // refuses one, so the importer must not invent one either. A name alone
+        // is enough here, because a customer list often carries no phone column.
+        if (!name) return;
         custSeq++;
         var code = String(row.code || '').trim() || ('IMP-CUS-' + pad(custSeq, 4));
-        var rec = { id: uuid(), code: code, name: String(row.name || '').trim() };
+        var rec = { id: uuid(), code: code, name: name };
         if (row.mobile) rec.mobile = String(row.mobile).trim();
         if (row.address) rec.address = String(row.address).trim();
         if (row.notes) rec.notes = String(row.notes).trim();

@@ -300,8 +300,8 @@ window.ANT.customers = (function () {
           '</div>' +
           '<div class="ui-field">' +
             '<label class="ui-label" for="custMobile">Mobile</label>' +
-            '<input class="ui-input" id="custMobile" value="' + esc(editing ? (c.mobile || '') : '') + '" inputmode="tel" maxlength="25" autocomplete="off">' +
-            '<p class="ui-hint">Digits only. Stored as text.</p>' +
+            '<input class="ui-input" id="custMobile" value="' + esc(editing ? (c.mobile || '') : '') + '" required inputmode="tel" maxlength="25" autocomplete="off">' +
+            '<p class="ui-hint">Digits only. Stored as text. Required.</p>' +
           '</div>' +
         '</div>' +
         '<div class="ui-field">' +
@@ -353,6 +353,12 @@ window.ANT.customers = (function () {
     if (!name) {
       toast('Enter a name', 'error');
       byId('custName').focus();
+      return;
+    }
+
+    if (!mobile) {
+      toast('Enter a mobile number', 'error');
+      byId('custMobile').focus();
       return;
     }
 
