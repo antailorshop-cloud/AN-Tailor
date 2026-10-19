@@ -87,6 +87,7 @@ window.ANT.whatsapp = (function () {
     ['{amount}', 'Bill amount'],
     ['{paid}', 'Already paid'],
     ['{balance}', 'Balance still due'],
+    ['{due}', 'The same balance, as a short figure'],
     ['{balanceBlock}', 'A whole sentence for the balance'],
     ['{terms}', 'Payment terms line, when a balance is due'],
     ['{delivery}', 'Delivery date'],
@@ -275,11 +276,22 @@ window.ANT.whatsapp = (function () {
   /* The one place replacements happen.
    *
    * A placeholder typed with spaces inside it - "{ billLink }" - is the same
-   * placeholder as "{billLink}". Without the first rule it would miss every
-   * replacement below and then miss the scrub too, and the customer would
-   * receive the braces as plain text. Anything still in braces afterwards is a
-   * token this build does not know - a retired one, or a typo - and is removed
-   * rather than shown, so a customer never reads "{billLink}" as literal text. */
+   * placeholder as "{billLink}". The same is true of the letters: "{paylink}"
+   * and "{PAYLINK}" are "{payLink}". A shop owner types these by hand in
+   * Settings, and a silent miss is the worst kind of miss - the token is
+   * scrubbed, the customer just gets a shorter message, and nobody can see
+   * what went wrong. Without the first rule a case or spacing slip would miss
+   * every replacement below and then miss the scrub too, and the customer
+   * would receive the braces as plain text. Anything still in braces
+   * afterwards is a token this build does not know - a retired one, or a
+   * typo - and is removed rather than shown, so a customer never reads
+   * "{billLink}" as literal text. */
+  var CANON = [
+    'shop', 'customer', 'billNo', 'orders', 'amount', 'paid', 'balance',
+    'due', 'balanceBlock', 'terms', 'delivery', 'billLink', 'billBlock',
+    'payLink', 'payBlock'
+  ];
+
   function fill(tpl, tokens) {
     var t = tokens || {};
 
@@ -291,7 +303,13 @@ window.ANT.whatsapp = (function () {
     };
 
     return String(tpl == null ? '' : tpl)
-      .replace(/\{\s*([A-Za-z][A-Za-z0-9_]*)\s*\}/g, '{$1}')
+      .replace(/\{\s*([A-Za-z][A-Za-z0-9_]*)\s*\}/g, function (m, name) {
+        var lower = String(name).toLowerCase();
+        for (var i = 0; i < CANON.length; i++) {
+          if (CANON[i].toLowerCase() === lower) return '{' + CANON[i] + '}';
+        }
+        return '{' + name + '}';
+      })
       .replace(/\{shop\}/g, put(t.shop))
       .replace(/\{customer\}/g, put(t.customer))
       .replace(/\{billNo\}/g, put(t.billNo))
@@ -302,7 +320,6 @@ window.ANT.whatsapp = (function () {
       .replace(/\{balance\}/g, put(t.balance))
       .replace(/\{due\}/g, put(t.due))
       .replace(/\{balanceBlock\}/g, put(t.balanceBlock))
-      .replace(/\{terms\}/g, put(t.terms))
       .replace(/\{terms\}/g, put(t.terms))
       .replace(/\{delivery\}/g, put(t.delivery))
       .replace(/\{billLink\}/g, put(t.billLink))
@@ -364,6 +381,7 @@ window.ANT.whatsapp = (function () {
     DEFAULT_READY: DEFAULT_READY,
     DEFAULT_DELIVERED: DEFAULT_DELIVERED,
     TOKENS: TOKENS,
+    CANON: CANON,
     normalizeMobile: normalizeMobile,
     canSend: canSend,
     template: template,

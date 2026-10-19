@@ -635,8 +635,44 @@ window.ANT.settings = (function () {
       '<label class="ui-label" for="' + id + '">' + esc(label) + '</label>' +
       '<textarea class="ui-textarea" id="' + id + '" rows="8" spellcheck="false">' +
         esc(saved || standard) + '</textarea>' +
+      '<p class="ui-hint" id="waCheck_' + id + '"></p>' +
       '<p class="ui-hint">' + esc(hint) + ' Clear the box and save to go back to the standard wording.</p>' +
     '</div>';
+  }
+
+  /* A word this build does not understand, written in brackets in a message
+   * box. A typo is otherwise silent: the token is scrubbed, the customer gets
+   * a shorter message, and nothing on screen shows what was lost - which is
+   * how a pay link goes missing with the owner staring at a template that
+   * looks right. Matching ignores case and spacing, the same as fill(), so
+   * "{paylink}" is accepted rather than reported. */
+  var WA_IDS = ['waBillMessage', 'waReminderMessage', 'waReadyMessage', 'waDeliveredMessage'];
+
+  function waUnknown(text) {
+    var wa = window.ANT.whatsapp || {};
+    var known = {};
+    ((wa.TOKENS || []).concat((wa.CANON || []).map(function (n) { return ['{' + n + '}']; })))
+      .forEach(function (t) { known[String(t[0]).replace(/[{}]/g, '').toLowerCase()] = true; });
+
+    var found = [];
+    String(text == null ? '' : text).replace(/\{\s*([A-Za-z][A-Za-z0-9_]*)\s*\}/g, function (m, name) {
+      if (!known[String(name).toLowerCase()] && found.indexOf(name) < 0) found.push(name);
+      return m;
+    });
+    return found;
+  }
+
+  function checkWaTokens() {
+    WA_IDS.forEach(function (id) {
+      var box = byId(id);
+      var note = byId('waCheck_' + id);
+      if (!box || !note) return;
+      var bad = waUnknown(box.value);
+      note.textContent = bad.length
+        ? 'Not understood and will be left out: ' + bad.map(function (n) { return '{' + n + '}'; }).join(', ')
+        : '';
+      note.style.color = bad.length ? 'var(--danger, #b00020)' : '';
+    });
   }
 
   function whatsappPanel() {
@@ -1674,6 +1710,11 @@ window.ANT.settings = (function () {
         e.preventDefault();
         saveWhatsApp();
       });
+      WA_IDS.forEach(function (id) {
+        var box = byId(id);
+        if (box) box.addEventListener('input', checkWaTokens);
+      });
+      checkWaTokens();
     }
 
     Array.prototype.forEach.call(document.querySelectorAll('[data-set-edit]'), function (btn) {
