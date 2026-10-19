@@ -81,6 +81,10 @@ window.ANT.orders = (function () {
 
     // form
     form: null,          // null | 'new' | order row
+    // An order that already exists is read only for everyone but the owner, so
+    // a saved order cannot be changed out from under the shopkeeper. New orders
+    // are always writable, because anyone taking work in has to be able to enter it.
+    readonly: false,
     formItems: [],
     formCustomer: null,
     customers: [],
@@ -105,6 +109,12 @@ window.ANT.orders = (function () {
 
   function isOwner() {
     return me().role === 'owner';
+  }
+
+  // The attribute string that locks a control in a read-only order. Kept in one
+  // place so every field on the form locks (or unlocks) together.
+  function roAttr() {
+    return state.readonly ? ' disabled' : '';
   }
 
   function byId(id) {
@@ -691,7 +701,9 @@ window.ANT.orders = (function () {
       '<div>' +
         '<h1 class="page-head-title">' + (editing ? 'Order ' + esc(order.code) : 'New order') + '</h1>' +
         '<p class="page-head-sub">' + (editing
-          ? 'Changes are saved straight away when you press Save order.'
+          ? (state.readonly
+              ? 'View only. Only the Owner can change an order once it is created.'
+              : 'Changes are saved straight away when you press Save order.')
           : 'Add the customer, then one row per garment. Every row needs its own delivery date.') + '</p>' +
       '</div>' +
       '<div class="page-head-actions">' +
@@ -706,14 +718,23 @@ window.ANT.orders = (function () {
     customerCard(editing) +
     itemsCard() +
     totalsCard(order, t) +
-    saveBar(editing);
+    (state.readonly ? readonlyNote() : saveBar(editing));
+  }
+
+  // Shown in place of the save bar on an order the viewer may not change, so it
+  // is clear the order is not broken - it is simply locked to the owner.
+  function readonlyNote() {
+    return '<div class="ui-card ord-readonly-note">' +
+      '<p class="ui-hint">This order is view only. Only the Owner can change an order once it has been created. ' +
+      'You can still move it along from the Orders list.</p>' +
+    '</div>';
   }
 
   function statusBar(order) {
     return '<div class="ui-card ord-status-bar">' +
       '<div class="ui-field">' +
         '<label class="ui-label" for="ordStatusEdit">Status</label>' +
-        '<select class="ui-input" id="ordStatusEdit">' +
+        '<select class="ui-input" id="ordStatusEdit"' + roAttr() + '>' +
           STATUSES.map(function (s) {
             return '<option value="' + esc(s) + '"' + (s === order.status ? ' selected' : '') + '>' + esc(s) + '</option>';
           }).join('') +
@@ -721,7 +742,7 @@ window.ANT.orders = (function () {
       '</div>' +
       '<div class="ui-field">' +
         '<label class="ui-label" for="ordPriorityEdit">Priority</label>' +
-        '<select class="ui-input" id="ordPriorityEdit">' +
+        '<select class="ui-input" id="ordPriorityEdit"' + roAttr() + '>' +
           PRIORITIES.map(function (p) {
             return '<option value="' + esc(p) + '"' + (p === order.priority ? ' selected' : '') + '>' + esc(p) + '</option>';
           }).join('') +
@@ -797,7 +818,7 @@ window.ANT.orders = (function () {
           return itemRow(it, i, groups);
         }).join('') + '</tbody>' +
         '</table></div>' : '') +
-      (anyDress
+      (anyDress && !state.readonly
         ? '<div class="ord-add-row">' +
             '<button class="btn btn-secondary" id="ordAddItem"' +
               (state.formItems.length >= MAX_ITEMS ? ' disabled' : '') + '>+ Add item</button>' +
@@ -836,13 +857,13 @@ window.ANT.orders = (function () {
       // filled in rather than asking the tailor to repeat themselves.
       dressCell = '<td>' + (it.measurement_id
         ? '<span class="ord-fixed">' + esc(it.dress_type || 'From measurement') + '</span>'
-        : '<select class="ui-input" data-ord-item="' + i + '" data-f="dress_type">' + dressOpts.join('') + '</select>') +
+        : '<select class="ui-input" data-ord-item="' + i + '" data-f="dress_type"' + roAttr() + '>' + dressOpts.join('') + '</select>') +
         '</td>';
     }
 
     var liningCell = '<td class="ord-na">—</td>';
     if (tailoring) {
-      liningCell = '<td><select class="ui-input" data-ord-item="' + i + '" data-f="lining">' +
+      liningCell = '<td><select class="ui-input" data-ord-item="' + i + '" data-f="lining"' + roAttr() + '>' +
         LINING_OPTIONS.map(function (l) {
           return '<option value="' + esc(l) + '"' + (l === (it.lining || '') ? ' selected' : '') + '>' +
             (l === '' ? 'None' : esc(l)) + '</option>';
@@ -872,7 +893,7 @@ window.ANT.orders = (function () {
       }
 
       resaleCell = '<td>' + (stock.length
-        ? '<select class="ui-input" data-ord-item="' + i + '" data-f="resale_item">' + rOpts.join('') + '</select>'
+        ? '<select class="ui-input" data-ord-item="' + i + '" data-f="resale_item"' + roAttr() + '>' + rOpts.join('') + '</select>'
         : '<span class="ord-fixed">No stock yet</span>') + '</td>';
     }
 
@@ -884,28 +905,30 @@ window.ANT.orders = (function () {
         mOpts.push('<option value="' + esc(m.id) + '"' + (m.id === it.measurement_id ? ' selected' : '') + '>' + esc(label) + '</option>');
       });
       mCell = '<td>' + (state.measurements.length
-        ? '<select class="ui-input" data-ord-item="' + i + '" data-f="measurement_id">' + mOpts.join('') + '</select>'
+        ? '<select class="ui-input" data-ord-item="' + i + '" data-f="measurement_id"' + roAttr() + '>' + mOpts.join('') + '</select>'
         : '<span class="ord-fixed">No measurements</span>') + '</td>';
     }
 
     return '<tr>' +
-      '<td><select class="ui-input" data-ord-item="' + i + '" data-f="service">' +
+      '<td><select class="ui-input" data-ord-item="' + i + '" data-f="service"' + roAttr() + '>' +
           SERVICES.map(function (s) {
             return '<option value="' + esc(s) + '"' + (s === service ? ' selected' : '') + '>' + esc(s) + '</option>';
           }).join('') +
         '</select></td>' +
       dressCell + liningCell + resaleCell +
-      '<td class="num"><input class="ui-input" data-ord-item="' + i + '" data-f="qty" inputmode="decimal" value="' + esc(it.qty) + '"></td>' +
+      '<td class="num"><input class="ui-input" data-ord-item="' + i + '" data-f="qty" inputmode="decimal" value="' + esc(it.qty) + '"' + roAttr() + '></td>' +
       // A resale rate comes from the stock item, so it is locked rather than
       // editable, or the sell price would be quietly overwritten.
       '<td class="num">' + (resale
         ? '<input class="ui-input" data-ord-item="' + i + '" data-f="rate" inputmode="decimal" value="' + esc(it.rate) + '" readonly title="Rate comes from the stock item">'
-        : '<input class="ui-input" data-ord-item="' + i + '" data-f="rate" inputmode="decimal" value="' + esc(it.rate) + '">') + '</td>' +
-      '<td class="num"><input class="ui-input" data-ord-item="' + i + '" data-f="extra" inputmode="decimal" value="' + esc(it.extra) + '"></td>' +
+        : '<input class="ui-input" data-ord-item="' + i + '" data-f="rate" inputmode="decimal" value="' + esc(it.rate) + '"' + roAttr() + '>') + '</td>' +
+      '<td class="num"><input class="ui-input" data-ord-item="' + i + '" data-f="extra" inputmode="decimal" value="' + esc(it.extra) + '"' + roAttr() + '></td>' +
       '<td class="num ord-line-total"><strong>' + money(lineTotal(it)) + '</strong></td>' +
-      '<td><input class="ui-input" data-ord-item="' + i + '" data-f="delivery_date" type="date" value="' + esc(it.delivery_date || '') + '"></td>' +
+      '<td><input class="ui-input" data-ord-item="' + i + '" data-f="delivery_date" type="date" value="' + esc(it.delivery_date || '') + '"' + roAttr() + '></td>' +
       mCell +
-      '<td><button class="btn btn-sm btn-danger" data-ord-rm="' + i + '" title="Remove item">&times;</button></td>' +
+      (state.readonly
+        ? '<td></td>'
+        : '<td><button class="btn btn-sm btn-danger" data-ord-rm="' + i + '" title="Remove item">&times;</button></td>') +
     '</tr>';
   }
 
@@ -917,12 +940,12 @@ window.ANT.orders = (function () {
       '<div class="form-grid">' +
         '<div class="ui-field">' +
           '<label class="ui-label" for="ordDate">Order date</label>' +
-          '<input class="ui-input" id="ordDate" type="date" value="' + esc(editing ? order.order_date : today()) + '">' +
+          '<input class="ui-input" id="ordDate" type="date" value="' + esc(editing ? order.order_date : today()) + '"' + roAttr() + '>' +
         '</div>' +
         '<div class="ui-field">' +
           '<label class="ui-label" for="ordDiscount">Discount (whole order)</label>' +
           '<input class="ui-input" id="ordDiscount" inputmode="decimal" value="' +
-            esc(editing ? num(order.discount) : 0) + '">' +
+            esc(editing ? num(order.discount) : 0) + '"' + roAttr() + '>' +
         '</div>' +
         (editing
           ? '<div class="ui-field">' +
@@ -947,7 +970,7 @@ window.ANT.orders = (function () {
           '</div>') +
         '<div class="ui-field span-2">' +
           '<label class="ui-label" for="ordNotes">Notes</label>' +
-          '<textarea class="ui-textarea" id="ordNotes" placeholder="Fabric, style, anything the cutter should know">' +
+          '<textarea class="ui-textarea" id="ordNotes" placeholder="Fabric, style, anything the cutter should know"' + roAttr() + '>' +
             esc(editing ? order.notes : '') +
           '</textarea>' +
         '</div>' +
@@ -1598,6 +1621,9 @@ window.ANT.orders = (function () {
             }
 
             state.form = order;
+            // Only the owner may change a saved order; everyone else gets it
+            // read only. Status and Tell customer stay available on the list.
+            state.readonly = !isOwner();
 
             // Keep the rows as they came from the database. syncItems() needs
             // them to work out which lines the tailor deleted: without this the
@@ -1639,6 +1665,7 @@ window.ANT.orders = (function () {
 
   function startNew() {
     state.form = 'new';
+    state.readonly = false;
     state.formItems = [blankItem()];
     state.formCustomer = null;
     state.customerQuery = '';
