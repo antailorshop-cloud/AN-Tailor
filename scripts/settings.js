@@ -1616,6 +1616,19 @@ window.ANT.settings = (function () {
     });
   }
 
+  // Clearing the bill rows does not clear the bill PDFs: those are objects in
+  // storage, and the Bills page meters the bucket rather than the table. So a
+  // shop cleared of bills would still read "32 bills stored" with nothing on the
+  // page to open. The files go with the rows, and only when the bills went - a
+  // clear that leaves bills alone must leave their files alone too. A build
+  // without the bills module (this panel's own tests) simply skips it.
+  function clearPdfs(tables) {
+    if (tables.indexOf('bills') === -1) return Promise.resolve({ removed: 0 });
+    var bills = window.ANT.bills;
+    if (!bills || typeof bills.clearStoredPdfs !== 'function') return Promise.resolve({ removed: 0 });
+    return bills.clearStoredPdfs();
+  }
+
   function clearSelected() {
     if (!isOwner()) return;
 
@@ -1652,19 +1665,27 @@ window.ANT.settings = (function () {
       }
       return wipe(tables).then(function (counts) {
         return resetCodes(tables).then(function (codes) {
-          state.clear.busy = false;
-          state.clear.picked = {};
-          var cleared = 'Cleared ' + tables.map(function (t) {
-            return counts[t] + ' ' + t.replace('_', ' ');
-          }).join(', ');
-          if (codes.ok) {
-            toast(cleared, 'success');
-          } else {
-            toast(cleared + '. Record numbers were not restarted - run the ' +
-              'reset-codes migration to begin at 0001 again.', 'error');
-          }
-          paint();
-          load();
+          return clearPdfs(tables).then(function (pdfs) {
+            state.clear.busy = false;
+            state.clear.picked = {};
+            var cleared = 'Cleared ' + tables.map(function (t) {
+              return counts[t] + ' ' + t.replace('_', ' ');
+            }).join(', ');
+            if (pdfs && pdfs.removed) {
+              cleared += ' and ' + pdfs.removed + ' stored PDF' + (pdfs.removed === 1 ? '' : 's');
+            }
+            if (codes.ok) {
+              toast(cleared, 'success');
+            } else {
+              toast(cleared + '. Record numbers were not restarted - run the ' +
+                'reset-codes migration to begin at 0001 again.', 'error');
+            }
+            if (pdfs && pdfs.error) {
+              toast('Some stored bill PDFs could not be removed: ' + pdfs.error, 'error');
+            }
+            paint();
+            load();
+          });
         });
       });
     }).catch(function (e) {

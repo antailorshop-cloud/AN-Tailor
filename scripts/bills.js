@@ -2482,6 +2482,41 @@ window.ANT.bills = (function () {
     });
   }
 
+  /* Removes every stored bill PDF. Clearing the shop's records deletes the bill
+   * rows but not the objects they point at, and this page counts the bucket, not
+   * the table - so a cleared shop would still read "32 bills stored" with no bill
+   * on the page to open. The bucket is emptied a page at a time: after each
+   * delete the remaining files move up, so asking for the first page again always
+   * returns the next batch and there is no offset to skip as the list shrinks. */
+  function clearStoredPdfs() {
+    if (!sb().storage) return Promise.resolve({ removed: 0, error: 'PDF storage is not set up yet.' });
+
+    var bucket = sb().storage.from(PDF_BUCKET);
+    var pageSize = 1000;
+    var guard = 0;
+    var removed = 0;
+
+    var step = function () {
+      // A bound on the loop so a bucket that refuses to empty cannot spin here
+      // forever. A thousand pages is a million files, far past any real shop.
+      if (guard++ >= 1000) return Promise.resolve();
+      return bucket.list('', { limit: pageSize, offset: 0 }).then(function (res) {
+        if (res.error) throw res.error;
+        var names = (res.data || []).map(function (f) { return f && f.name; }).filter(Boolean);
+        if (!names.length) return null;
+        return bucket.remove(names).then(function (del) {
+          if (del.error) throw del.error;
+          removed += names.length;
+          return step();
+        });
+      });
+    };
+
+    return step()
+      .then(function () { return { removed: removed, error: '' }; })
+      .catch(function (e) { return { removed: removed, error: (e && e.message) ? e.message : String(e) }; });
+  }
+
   /* Sending a bill on WhatsApp ---------------------------------------------- */
 
   /* wa.me with the message already filled in. Handed over by clicking a real
@@ -2796,6 +2831,9 @@ window.ANT.bills = (function () {
     mount: mount,
     render: render,
     refreshForOrder: refreshForOrder,
+    /* Removes every stored bill PDF, for Clear data. The bill rows and the files
+     * they point at are two different stores, and only one of them is a table. */
+    clearStoredPdfs: clearStoredPdfs,
     /* The order's bill, as an id, or '' when it is on none. The Orders page
      * reads this to hold a Finish or Delivery back until a bill exists. */
     orderBillId: orderBillId,
