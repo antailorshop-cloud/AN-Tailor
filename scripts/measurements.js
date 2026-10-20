@@ -110,21 +110,23 @@ window.ANT.measurements = (function () {
     var t = String(term || '').trim();
     if (t.length < 1) return Promise.resolve();
 
-    var q = sb().from('customers').select('id,code,name,mobile');
-    if (state.search) {
-      var clean = '*' + t.replace(/[*%,()]/g, ' ') + '*';
-      q = q.or('name.ilike.' + clean + ',mobile.ilike.' + clean + ',code.ilike.' + clean);
-    }
-    q = q.order('name', true).limit(8);
-
-    return q.then(function (res) {
-      if (res.error) {
-        state.customers = [];
-        return;
-      }
-      state.customers = res.data || [];
-      paint();
-    });
+    // The term itself is the filter. It used to be gated on state.search, which
+    // is the (unrelated, always empty) list filter, so typing never narrowed
+    // anything and the first eight customers were always shown instead.
+    var clean = '*' + t.replace(/[*%,()]/g, ' ') + '*';
+    return sb().from('customers')
+      .select('id,code,name,mobile')
+      .or('name.ilike.' + clean + ',mobile.ilike.' + clean + ',code.ilike.' + clean)
+      .order('name', true)
+      .limit(8)
+      .then(function (res) {
+        if (res.error) {
+          state.customers = [];
+          return;
+        }
+        state.customers = res.data || [];
+        paint();
+      });
   }
 
   /* View --------------------------------------------------------------- */
