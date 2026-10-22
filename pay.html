@@ -62,7 +62,9 @@
     return;
   }
 
-  var query = 'pa=' + encodeURIComponent(vpa) +
+  // Keep the '@' in the id literal: some UPI apps choke on a percent-encoded
+  // id (name%40bank) and refuse the payee. Only the free-text parts are encoded.
+  var query = 'pa=' + vpa +
     '&pn=' + encodeURIComponent(payee || 'Merchant') +
     '&cu=INR&am=' + encodeURIComponent(amount.toFixed(2));
   if (note) query += '&tn=' + encodeURIComponent(note);

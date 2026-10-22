@@ -83,8 +83,11 @@ window.ANT.upi = (function () {
 
     if (!vpa || !VPA_PATTERN.test(vpa) || due <= 0) return '';
 
+    // The '@' in the id is left literal on purpose. Several UPI apps mis-read a
+    // percent-encoded id ("name%40bank" arrives as "name 40bank") and then
+    // refuse the payee, so the raw id is what every app parses correctly.
     var parts = [
-      'pa=' + encodeURIComponent(vpa),
+      'pa=' + vpa,
       'pn=' + encodeURIComponent(cleanPayee(o.payee)),
       'cu=INR'
     ];
