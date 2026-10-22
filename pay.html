@@ -22,6 +22,10 @@
   .paybtn { display: block; margin: 22px 0 0; padding: 15px 18px; border-radius: 12px; background: #16a34a;
     color: #fff; font-size: 17px; font-weight: 600; }
   .pay:active .paybtn { background: #15803d; }
+  .copybtn { display: block; width: 100%; margin: 10px 0 0; padding: 13px 18px; border: 1px solid #cbd5e1;
+    border-radius: 12px; background: #f8fafc; color: #0f172a; font-size: 15px; font-weight: 600; cursor: pointer; }
+  .copybtn:active { background: #eef2f7; }
+  .id { user-select: all; }
   .hint { margin-top: 16px; font-size: 13px; color: #64748b; line-height: 1.5; }
   .err { color: #b91c1c; font-size: 16px; }
   .note { margin-top: 10px; font-size: 13px; color: #475569; }
@@ -64,18 +68,51 @@
   if (note) query += '&tn=' + encodeURIComponent(note);
   var intent = 'upi://pay?' + query;
 
-  // The whole card is the button, so tapping the amount, the id or the price
-  // all start the payment - not only the green strip at the bottom.
+  // The card leads with the amount and the id, then the pay button, then a
+  // fallback for the apps that refuse a pay link: Paytm, and some bank apps,
+  // will not open a upi:// intent for a personal id. Every one of them does
+  // accept the id typed or pasted into its own "Pay to UPI ID" box, so the id
+  // is offered to copy. The printed bill carries the QR for the in-shop case.
   card.innerHTML =
+    '<div class="brand">' + esc(payee || 'UPI Payment') + '</div>' +
+    '<div class="amount">' + esc(rupees(amount)) + '</div>' +
+    '<div class="to">to<span class="id">' + esc(vpa) + '</span></div>' +
+    (note ? '<div class="note">' + esc(note) + '</div>' : '') +
     '<a class="pay" id="pay" href="' + esc(intent) + '">' +
-      '<div class="brand">' + esc(payee || 'UPI Payment') + '</div>' +
-      '<div class="amount">' + esc(rupees(amount)) + '</div>' +
-      '<div class="to">to<span class="id">' + esc(vpa) + '</span></div>' +
-      (note ? '<div class="note">' + esc(note) + '</div>' : '') +
       '<span class="paybtn">Pay ' + esc(rupees(amount)) + '</span>' +
     '</a>' +
-    '<div class="hint">Tap the card above to open your UPI app (Google Pay, PhonePe, Paytm\u2026). ' +
-    'If nothing opens, open this page in your phone\u2019s browser and tap again.</div>';
+    '<button type="button" class="copybtn" id="copyId">Copy UPI ID</button>' +
+    '<div class="hint">If your app does not open, tap <b>Copy UPI ID</b>, open your UPI app, ' +
+    'choose <span nowrap>&ldquo;Pay to UPI ID&rdquo;</span>, paste and pay ' + esc(rupees(amount)) + '.</div>' +
+    '<div class="hint">In the shop? Scan the QR printed on your bill with any UPI app.</div>';
+
+  // Copying the id is the one route every UPI app supports. It is copied on its
+  // own so it pastes cleanly into a "Pay to UPI ID" box.
+  var copy = document.getElementById('copyId');
+  if (copy) {
+    copy.addEventListener('click', function () {
+      var done = function () { copy.textContent = 'Copied'; };
+      var fallback = function () {
+        try {
+          var ta = document.createElement('textarea');
+          ta.value = vpa;
+          ta.setAttribute('readonly', '');
+          ta.style.position = 'absolute';
+          ta.style.left = '-9999px';
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          document.body.removeChild(ta);
+          done();
+        } catch (e) {}
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(vpa).then(done, fallback);
+      } else {
+        fallback();
+      }
+    });
+  }
 
   // Best effort: open the UPI app straight away. A browser that refuses without a
   // tap simply does nothing here, and the card above is still there to tap. Only
