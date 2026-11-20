@@ -17,18 +17,24 @@
   .brand { font-size: 13px; letter-spacing: .12em; text-transform: uppercase; color: #64748b; }
   .amount { font-size: 34px; font-weight: 700; margin: 12px 0 4px; }
   .to { color: #475569; font-size: 15px; }
-  .id { display: block; margin-top: 6px; font-size: 14px; color: #0f172a; word-break: break-all; }
-  .pay { display: block; margin: 0; padding: 0; color: inherit; text-decoration: none; }
-  .paybtn { display: block; margin: 22px 0 0; padding: 15px 18px; border-radius: 12px; background: #16a34a;
-    color: #fff; font-size: 17px; font-weight: 600; }
-  .pay:active .paybtn { background: #15803d; }
-  .copybtn { display: block; width: 100%; margin: 10px 0 0; padding: 13px 18px; border: 1px solid #cbd5e1;
-    border-radius: 12px; background: #f8fafc; color: #0f172a; font-size: 15px; font-weight: 600; cursor: pointer; }
-  .copybtn:active { background: #eef2f7; }
-  .id { user-select: all; }
+  .id { display: block; margin-top: 8px; font-size: 19px; font-weight: 600; color: #0f172a;
+    word-break: break-all; user-select: all; background: #f8fafc; border: 1px solid #e2e8f0;
+    border-radius: 10px; padding: 10px 12px; }
+  .copybtn { display: block; width: 100%; margin: 14px 0 0; padding: 15px 18px; border: 0;
+    border-radius: 12px; background: #16a34a; color: #fff; font-size: 17px; font-weight: 600;
+    cursor: pointer; font-family: inherit; }
+  .copybtn:active { background: #15803d; }
+  .copybtn.done { background: #0f766e; }
+  .steps { margin: 18px 0 0; padding: 0 0 0 0; list-style: none; text-align: left; }
+  .steps li { position: relative; padding: 0 0 12px 34px; font-size: 14px; line-height: 1.5;
+    color: #334155; }
+  .steps .n { position: absolute; left: 0; top: 0; width: 22px; height: 22px; border-radius: 50%;
+    background: #e2e8f0; color: #0f172a; font-size: 12px; font-weight: 700; line-height: 22px;
+    text-align: center; }
   .hint { margin-top: 16px; font-size: 13px; color: #64748b; line-height: 1.5; }
-  .err { color: #b91c1c; font-size: 16px; }
   .note { margin-top: 10px; font-size: 13px; color: #475569; }
+  .err { color: #b91c1c; font-size: 16px; }
+  .rule { border: 0; border-top: 1px solid #e2e8f0; margin: 18px 0 14px; }
 </style>
 </head>
 <body>
@@ -62,67 +68,65 @@
     return;
   }
 
-  // Keep the '@' in the id literal: some UPI apps choke on a percent-encoded
-  // id (name%40bank) and refuse the payee. Only the free-text parts are encoded.
-  var query = 'pa=' + vpa +
-    '&pn=' + encodeURIComponent(payee || 'Merchant') +
-    '&cu=INR&am=' + encodeURIComponent(amount.toFixed(2));
-  if (note) query += '&tn=' + encodeURIComponent(note);
-  var intent = 'upi://pay?' + query;
-
-  // The card leads with the amount and the id, then the pay button, then a
-  // fallback for the apps that refuse a pay link: Paytm, and some bank apps,
-  // will not open a upi:// intent for a personal id. Every one of them does
-  // accept the id typed or pasted into its own "Pay to UPI ID" box, so the id
-  // is offered to copy. The printed bill carries the QR for the in-shop case.
+  // Why there is no "Pay" button that opens a UPI app
+  // -------------------------------------------------
+  // A upi:// link built by a website is rejected by Google Pay, PhonePe and
+  // Paytm at the PIN step with "your money has not been debited". The payee
+  // opens correctly, so the id is not the problem: since 2026 the apps only
+  // accept an intent that carries a merchant code, a unique reference and a
+  // signature from a licensed gateway. A hand-built link has none of those.
+  //
+  // Scanning a QR and typing the id by hand are untouched by that rule, so the
+  // page gives the customer the id to paste. It is the only route that works
+  // for every app without a gateway, and it costs the shop nothing.
   card.innerHTML =
     '<div class="brand">' + esc(payee || 'UPI Payment') + '</div>' +
     '<div class="amount">' + esc(rupees(amount)) + '</div>' +
-    '<div class="to">to<span class="id">' + esc(vpa) + '</span></div>' +
+    '<div class="to">to</div>' +
+    '<span class="id" id="upiId">' + esc(vpa) + '</span>' +
     (note ? '<div class="note">' + esc(note) + '</div>' : '') +
-    '<a class="pay" id="pay" href="' + esc(intent) + '">' +
-      '<span class="paybtn">Pay ' + esc(rupees(amount)) + '</span>' +
-    '</a>' +
     '<button type="button" class="copybtn" id="copyId">Copy UPI ID</button>' +
-    '<div class="hint">If your app does not open, tap <b>Copy UPI ID</b>, open your UPI app, ' +
-    'choose <span nowrap>&ldquo;Pay to UPI ID&rdquo;</span>, paste and pay ' + esc(rupees(amount)) + '.</div>' +
+    '<hr class="rule">' +
+    '<ol class="steps">' +
+      '<li><span class="n">1</span>Open <b>GPay / PhonePe / Paytm</b>.</li>' +
+      '<li><span class="n">2</span>Tap <b>&ldquo;Pay to UPI ID&rdquo;</b> (or the search box).</li>' +
+      '<li><span class="n">3</span>Paste the copied id, enter <b>' + esc(rupees(amount)) + '</b> and pay.</li>' +
+    '</ol>' +
     '<div class="hint">In the shop? Scan the QR printed on your bill with any UPI app.</div>';
 
-  // Copying the id is the one route every UPI app supports. It is copied on its
-  // own so it pastes cleanly into a "Pay to UPI ID" box.
+  // Copying the id is the whole page, so it is done on its own: a pasted id has
+  // to land cleanly in a "Pay to UPI ID" box with no spaces or stray text.
   var copy = document.getElementById('copyId');
-  if (copy) {
-    copy.addEventListener('click', function () {
-      var done = function () { copy.textContent = 'Copied'; };
-      var fallback = function () {
-        try {
-          var ta = document.createElement('textarea');
-          ta.value = vpa;
-          ta.setAttribute('readonly', '');
-          ta.style.position = 'absolute';
-          ta.style.left = '-9999px';
-          document.body.appendChild(ta);
-          ta.select();
-          document.execCommand('copy');
-          document.body.removeChild(ta);
-          done();
-        } catch (e) {}
-      };
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(vpa).then(done, fallback);
-      } else {
-        fallback();
-      }
-    });
+
+  function sayCopied() {
+    if (!copy) return;
+    copy.textContent = 'Copied \u2013 now paste it in your UPI app';
+    copy.className = 'copybtn done';
   }
 
-  // Best effort: open the UPI app straight away. A browser that refuses without a
-  // tap simply does nothing here, and the card above is still there to tap. Only
-  // when this page is the top window, so an embedded preview is left alone.
-  if (window.top === window.self) {
+  function fallbackCopy() {
     try {
-      window.setTimeout(function () { window.location.href = intent; }, 900);
+      var ta = document.createElement('textarea');
+      ta.value = vpa;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'absolute';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      sayCopied();
     } catch (e) {}
+  }
+
+  if (copy) {
+    copy.addEventListener('click', function () {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(vpa).then(sayCopied, fallbackCopy);
+      } else {
+        fallbackCopy();
+      }
+    });
   }
 })();
 </script>
