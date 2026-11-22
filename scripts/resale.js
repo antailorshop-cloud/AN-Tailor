@@ -153,6 +153,7 @@ window.ANT.resale = (function () {
           available: 0,
           cost: 0,
           sell_price: 0,
+          stock_at: 0,
           last_buy_date: '',
           restocks: 0
         };
@@ -166,8 +167,10 @@ window.ANT.resale = (function () {
       g.restocks += 1;
 
       // Rows arrive oldest first, so the last one seen is the newest restock and
-      // its price is the current one.
+      // its price is the current one. When the restock happened is kept too, so
+      // a later edit in the price list can take over from it.
       g.sell_price = num(r.sell_price);
+      if (r.created_at) g.stock_at = Date.parse(r.created_at) || 0;
       if (r.buy_date) g.last_buy_date = r.buy_date;
     });
 
@@ -176,6 +179,32 @@ window.ANT.resale = (function () {
       g.sold = round3(sold && sold[name] ? sold[name] : 0);
       g.available = round3(g.bought - g.sold);
       return g;
+    });
+
+    // The price list is the price book, and it is the screen the shop actually
+    // edits. It used to be consulted only for an item that had never been
+    // bought, so changing the price of something already in stock changed
+    // nothing on the order screen - the stock row kept winning. Whichever edit
+    // is newer now wins: an edit in the price list beats an older restock, and
+    // a restock recorded afterwards beats the older price entry.
+    var priced = {};
+    (prices || []).forEach(function (p) {
+      var name = text(p.item);
+      if (!name) return;
+      var at = p.updated_at ? (Date.parse(p.updated_at) || 0) : 0;
+      // An item may carry more than one option; the latest edit is the one on
+      // the shelf.
+      if (!priced[name] || at >= priced[name].at) {
+        priced[name] = { price: num(p.price), at: at };
+      }
+    });
+
+    view.forEach(function (g) {
+      var entry = priced[g.item];
+      if (entry && entry.at > (g.stock_at || 0)) {
+        g.sell_price = entry.price;
+        g.from_price_list = true;
+      }
     });
 
     // A price-list entry with nothing bought still belongs on the page, so the
@@ -208,7 +237,7 @@ window.ANT.resale = (function () {
   // screen can never quote different figures for the same item.
   function load() {
     return sb().from('resale_stock')
-      .select('id,code,item,quantity,buy_price,sell_price,total_cost,buy_date')
+      .select('id,code,item,quantity,buy_price,sell_price,total_cost,buy_date,created_at')
       .order('created_at', true)
       .then(function (stock) {
         if (stock.error) throw new Error(reason(stock));
@@ -225,7 +254,7 @@ window.ANT.resale = (function () {
   // failure here costs a few extra rows on the page and nothing else.
   function loadPrices() {
     return sb().from('prices')
-      .select('item,price,group_name')
+      .select('item,price,group_name,updated_at')
       .eq('group_name', 'RESALE')
       .eq('status', 'ACTIVE')
       .then(function (res) {
@@ -424,7 +453,10 @@ window.ANT.resale = (function () {
         (r.restocks > 1
           ? ' <span class="chip chip-muted">' + r.restocks + ' restocks</span>'
           : '') +
-        (r.priceOnly ? ' <span class="chip chip-info">Price list</span>' : '') + '</td>' +
+        (r.priceOnly ? ' <span class="chip chip-info">Price list</span>' : '') +
+        (r.from_price_list && !r.priceOnly
+          ? ' <span class="chip chip-info">Edited in Prices</span>'
+          : '') + '</td>' +
       '<td class="num">' + qty(r.bought) + '</td>' +
       '<td class="num">' + qty(r.sold) + '</td>' +
       // A negative figure is shown as it is rather than hidden at zero. It means

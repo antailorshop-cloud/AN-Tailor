@@ -1125,6 +1125,11 @@ window.ANT.settings = (function () {
       };
     }
 
+    // The resale screen decides which price is current by comparing this stamp
+    // with the newest restock, so an edit has to move it forward. Without it an
+    // edited price looks older than the stock row and never reaches an order.
+    if (kind !== 'dress') values.updated_at = new Date().toISOString();
+
     var table = kind === 'dress' ? 'dress_types' : 'prices';
     var label = kind === 'dress' ? 'Dress type' : 'Price';
 
