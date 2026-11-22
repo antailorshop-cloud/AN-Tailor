@@ -1062,7 +1062,7 @@ window.ANT.settings = (function () {
             '<label class="ui-label" for="setPrice">Price</label>' +
             '<input class="ui-input" id="setPrice" inputmode="decimal" value="' +
               esc(row.price === undefined || row.price === null ? '' : row.price) + '" autocomplete="off">' +
-            '<p class="ui-hint">Rupees. Blank means zero. For services, this is the starting price in Orders.</p>' +
+            '<p class="ui-hint">Rupees. Blank means zero. For services and tailoring, this is the starting price in Orders.</p>' +
           '</div>' +
           '<div class="ui-field">' +
             '<label class="ui-label" for="setExtra">Extra charge</label>' +
