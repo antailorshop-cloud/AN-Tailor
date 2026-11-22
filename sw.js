@@ -6,7 +6,7 @@
 // network-first falls back to the cache, and the cache still holds the old
 // copy. That is how a "Save order" fix reached the server and never reached
 // the shop phone.
-var CACHE = 'an-tailor-v86';
+var CACHE = 'an-tailor-v87';
 
 // Every module index.html loads, so a first visit that is online and then goes
 // offline still has the whole app rather than a shell that cannot open Bills.
@@ -15,7 +15,6 @@ var SHELL = [
   './index.html',
   './pay.html',
   './view.html',
-  './poster.html',
   './manifest.webmanifest',
   './styles/tokens.css',
   './styles/app.css',
@@ -45,12 +44,7 @@ var SHELL = [
   './scripts/app.js',
   './assets/icon.svg',
   // The shop's own logo. Optional: a shop with no logo file yet still installs.
-  './assets/ANTailor.png',
-  // Photos used on the printable price poster. Small enough to keep, so the
-  // poster still prints when the phone has no signal at the print shop.
-  './assets/poster/blouse.jpg',
-  './assets/poster/saree.jpg',
-  './assets/poster/dress.jpg'
+  './assets/ANTailor.png'
 ];
 
 self.addEventListener('install', function (event) {

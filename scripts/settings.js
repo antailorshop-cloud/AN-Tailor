@@ -342,22 +342,12 @@ window.ANT.settings = (function () {
 
     var head = searchBox('Search item, option or group');
 
-    // The poster is generated from these rows, so the way to it belongs on this
-    // screen rather than buried in another tab.
-    var poster = '<div class="ui-card set-poster">' +
-      '<div>' +
-        '<strong>Price poster</strong>' +
-        '<p class="ui-hint">Print an A3 rate card of starting prices for the shop wall.</p>' +
-      '</div>' +
-      '<a class="btn btn-secondary" href="poster.html" target="_blank" rel="noopener">Open poster</a>' +
-    '</div>';
-
     if (state.loading && !rows.length) {
-      return poster + head + '<div class="ui-card"><div class="empty"><div class="empty-title">Loading...</div></div></div>';
+      return head + '<div class="ui-card"><div class="empty"><div class="empty-title">Loading...</div></div></div>';
     }
 
     if (!rows.length) {
-      return poster + head + '<div class="ui-card"><div class="empty">' +
+      return head + '<div class="ui-card"><div class="empty">' +
         '<div class="empty-title">' +
           (state.search ? 'No price matches that search' : 'No prices yet') +
         '</div>' +
@@ -379,7 +369,7 @@ window.ANT.settings = (function () {
     var others = rows.filter(function (r) { return GROUPS.indexOf(r.group_name) === -1; });
     if (others.length) groups.push({ group: 'Other', items: others });
 
-    return poster + head + '<div class="set-groups">' + groups.map(function (g) {
+    return head + '<div class="set-groups">' + groups.map(function (g) {
       return '<section class="ui-card">' +
         '<h2 class="set-group-title"><span class="chip">' + esc(g.group) + '</span>' +
           '<span>' + g.items.length + '</span>' +
