@@ -92,6 +92,10 @@ window.ANT.orders = (function () {
     dressTypes: [],
     resale: [],
     measurements: [],
+    // Service prices from the price portal. For services like Alteration, Aari
+    // Work, Ironing, Saree Pre-Pleating and Embroidery the configured price is
+    // the starting price, so an order cannot be saved below it.
+    prices: [],
     // The shop name and the ready-message wording, so the WhatsApp button says
     // the shop's own name and the owner's own words. Kept apart from state.form
     // because it belongs to the list as well as the order.
@@ -256,6 +260,37 @@ window.ANT.orders = (function () {
         toast('Resale stock unavailable.', 'error');
         state.resale = [];
       });
+  }
+
+  // Service starting prices come from the price portal. For a service like
+  // Alteration or Aari Work the price entered there is the minimum rate: the
+  // shop can charge more, never less.
+  function loadPrices() {
+    return sb().from('prices')
+      .select('group_name,item,option,price,status')
+      .eq('status', 'ACTIVE')
+      .then(function (res) {
+        if (res.error) {
+          console.warn('Orders: prices could not be loaded.', res.error.message);
+          return;
+        }
+        state.prices = res.data || [];
+      });
+  }
+
+  // The starting price for a service row, or 0 when no floor applies. Only
+  // SERVICE prices with a real configured amount count: Tailoring is quoted by
+  // garment/lining, and Resale comes from stock sell price.
+  function startingPriceFor(service) {
+    if (!service || isTailoring(service) || isResale(service)) return 0;
+    var want = String(service).trim().toLowerCase();
+    var row = (state.prices || []).filter(function (p) {
+      return String(p.group_name || '').toUpperCase() === 'SERVICE'
+        && String(p.item || '').trim().toLowerCase() === want
+        && (p.option == null || String(p.option).trim() === '' || String(p.option).trim() === '-');
+    })[0];
+    var floor = row ? num(row.price) : 0;
+    return floor > 0 ? floor : 0;
   }
 
   function resaleById(id) {
@@ -918,10 +953,18 @@ window.ANT.orders = (function () {
       dressCell + liningCell + resaleCell +
       '<td class="num"><input class="ui-input" data-ord-item="' + i + '" data-f="qty" inputmode="decimal" value="' + esc(it.qty) + '"' + roAttr() + '></td>' +
       // A resale rate comes from the stock item, so it is locked rather than
-      // editable, or the sell price would be quietly overwritten.
-      '<td class="num">' + (resale
-        ? '<input class="ui-input" data-ord-item="' + i + '" data-f="rate" inputmode="decimal" value="' + esc(it.rate) + '" readonly title="Rate comes from the stock item">'
-        : '<input class="ui-input" data-ord-item="' + i + '" data-f="rate" inputmode="decimal" value="' + esc(it.rate) + '"' + roAttr() + '>') + '</td>' +
+      // editable, or the sell price would be quietly overwritten. For services
+      // with a configured starting price, the rate cannot go below that floor.
+      (function () {
+        var floor = resale ? 0 : startingPriceFor(service);
+        var title = resale
+          ? 'Rate comes from the stock item'
+          : (floor > 0 ? 'Starting price is ' + money(floor) : '');
+        return '<td class="num">' + (resale
+          ? '<input class="ui-input" data-ord-item="' + i + '" data-f="rate" inputmode="decimal" value="' + esc(it.rate) + '" readonly title="' + esc(title) + '">'
+          : '<input class="ui-input" data-ord-item="' + i + '" data-f="rate" inputmode="decimal" value="' + esc(it.rate) + '"' +
+              (title ? ' title="' + esc(title) + '"' : '') + roAttr() + '>') + '</td>';
+      })() +
       '<td class="num"><input class="ui-input" data-ord-item="' + i + '" data-f="extra" inputmode="decimal" value="' + esc(it.extra) + '"' + roAttr() + '></td>' +
       '<td class="num ord-line-total"><strong>' + money(lineTotal(it)) + '</strong></td>' +
       '<td><input class="ui-input" data-ord-item="' + i + '" data-f="delivery_date" type="date" value="' + esc(it.delivery_date || '') + '"' + roAttr() + '></td>' +
@@ -1041,6 +1084,13 @@ window.ANT.orders = (function () {
       if (found) item.rate = num(found.sell_price);
     }
 
+    // For services whose price portal entry is a starting price, prefill the
+    // floor so the tailor sees the minimum and cannot accidentally save below it.
+    if (!isResale(service)) {
+      var floor = startingPriceFor(service);
+      if (floor > 0) item.rate = floor;
+    }
+
     return item;
   }
 
@@ -1127,6 +1177,10 @@ window.ANT.orders = (function () {
       if (!it.service) return 'Choose a service for item ' + n + '.';
       if (num(it.qty) <= 0) return 'Quantity must be more than zero for item ' + n + '.';
       if (num(it.rate) < 0) return 'Rate cannot be negative for item ' + n + '.';
+      var floor = startingPriceFor(it.service);
+      if (floor > 0 && num(it.rate) < floor) {
+        return 'Starting price is ' + money(floor) + ' for item ' + n + '.';
+      }
       if (num(it.extra) < 0) return 'Extra charge cannot be negative for item ' + n + '.';
       if (!it.delivery_date) return 'Give a delivery date for item ' + n + '.';
 
@@ -1655,8 +1709,7 @@ window.ANT.orders = (function () {
 
             state.formCustomer = order.customer || null;
             state.view = 'edit';
-            return loadReference()
-              .then(loadResale)
+            return Promise.all([loadReference(), loadResale(), loadPrices()])
               .then(function () { return loadMeasurements(order.customer_id); })
               .then(paint);
           });
@@ -1673,7 +1726,7 @@ window.ANT.orders = (function () {
     state.measurements = [];
     state.resale = [];
     state.view = 'edit';
-    loadReference().then(loadResale).then(paint);
+    Promise.all([loadReference(), loadResale(), loadPrices()]).then(paint);
   }
 
   function searchCustomers(term) {
@@ -1902,6 +1955,12 @@ window.ANT.orders = (function () {
 
         readItems();
         refreshTotals();
+        if (f === 'rate') {
+          var floor = startingPriceFor(state.formItems[i].service);
+          if (floor > 0 && num(state.formItems[i].rate) < floor) {
+            toast('Starting price is ' + money(floor) + ' for item ' + (i + 1) + '.', 'error');
+          }
+        }
       });
 
       el.addEventListener('input', function (e) {
@@ -2017,7 +2076,7 @@ window.ANT.orders = (function () {
       state.resale = [];
       state.waShop = { name: '', waReadyMessage: '', upiId: '', payee: '' };
       paint();
-      loadReference().then(loadResale).then(loadWaShop).then(function () {
+      Promise.all([loadReference(), loadResale(), loadPrices()]).then(loadWaShop).then(function () {
         return loadOrders();
       });
     },
