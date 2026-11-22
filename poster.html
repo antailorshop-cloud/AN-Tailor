@@ -328,6 +328,10 @@
     dress: 'assets/poster/dress.jpg'
   };
 
+  // Whether this browser already had a poster, kept before load() runs: a
+  // first visit may fill itself from the price list, a saved poster never is
+  // overwritten by it.
+  var hadSaved = false;
   var state = load();
   var paper = document.getElementById('paper');
   var stage = document.getElementById('stage');
@@ -338,6 +342,7 @@
     try {
       var saved = JSON.parse(localStorage.getItem(KEY) || 'null');
       if (saved && Array.isArray(saved.sections) && saved.sections.length) {
+        hadSaved = true;
         saved.sections.forEach(function (s) {
           if (typeof s.starting !== 'boolean') s.starting = true;
         });
@@ -656,12 +661,16 @@
     return hit ? small.length : 0;
   }
 
-  document.getElementById('loadBtn').addEventListener('click', function () {
+  function fillPrices(silent) {
     var sb = window.ANT && window.ANT.sb;
-    if (!sb || !sb.configured()) return say('The app is not configured on this page.', true);
+    if (!sb || !sb.configured()) {
+      if (!silent) say('The app is not configured on this page.', true);
+      return;
+    }
     if (!sb.session()) {
-      return say('Open this page from Settings inside the app, or sign in to the app ' +
-        'in this browser first, then press again.', true);
+      say('Type the rates on the left, or open this page from Settings inside the app ' +
+        'and press "Fill from my price list".', !silent);
+      return;
     }
 
     say('Reading your prices...');
@@ -707,6 +716,10 @@
           : 'No row name matched a saved price. Type the rates by hand; ' +
             'they are kept in this browser.', !filled);
       });
+  }
+
+  document.getElementById('loadBtn').addEventListener('click', function () {
+    fillPrices(false);
   });
 
   /* ---------------- start ---------------- */
@@ -714,6 +727,11 @@
   paint();
   fit();
   window.addEventListener('resize', fit);
+
+  // First visit, already signed in: fill the sheet from the shop's own price
+  // list, so opening the poster from Settings shows a finished rate card rather
+  // than sixteen empty boxes. A poster that has been edited is never touched.
+  if (!hadSaved) fillPrices(true);
 })();
 </script>
 </body>
