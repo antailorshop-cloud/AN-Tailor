@@ -1031,6 +1031,18 @@ window.ANT.settings = (function () {
     var fields;
 
     if (kind === 'dress') {
+      var dressName = String(row.dress_type || '').trim().toLowerCase();
+      var pWithout = (state.priceRows || []).filter(function (p) {
+        return String(p.group_name || '').toUpperCase() === 'TAILORING'
+          && String(p.item || '').trim().toLowerCase() === dressName
+          && String(p.option || '').trim().toLowerCase() === 'without lining';
+      })[0];
+      var pWith = (state.priceRows || []).filter(function (p) {
+        return String(p.group_name || '').toUpperCase() === 'TAILORING'
+          && String(p.item || '').trim().toLowerCase() === dressName
+          && String(p.option || '').trim().toLowerCase() === 'with lining';
+      })[0];
+
       fields =
         '<div class="form-grid">' +
           '<div class="ui-field">' +
@@ -1040,6 +1052,18 @@ window.ANT.settings = (function () {
           '<div class="ui-field">' +
             '<label class="ui-label" for="setDress">Dress type</label>' +
             '<input class="ui-input" id="setDress" value="' + esc(row.dress_type || '') + '" required maxlength="120" autocomplete="off">' +
+          '</div>' +
+          '<div class="ui-field">' +
+            '<label class="ui-label" for="setDressPriceWithout">Starting price (Without lining)</label>' +
+            '<input class="ui-input" id="setDressPriceWithout" inputmode="decimal" value="' +
+              esc(pWithout && pWithout.price !== undefined && pWithout.price !== null ? pWithout.price : '') + '" autocomplete="off">' +
+            '<p class="ui-hint">Saved to Prices as TAILORING. Leave blank to keep unchanged.</p>' +
+          '</div>' +
+          '<div class="ui-field">' +
+            '<label class="ui-label" for="setDressPriceWith">Starting price (With lining)</label>' +
+            '<input class="ui-input" id="setDressPriceWith" inputmode="decimal" value="' +
+              esc(pWith && pWith.price !== undefined && pWith.price !== null ? pWith.price : '') + '" autocomplete="off">' +
+            '<p class="ui-hint">Saved to Prices as TAILORING. Leave blank to keep unchanged.</p>' +
           '</div>' +
         '</div>';
     } else {
@@ -1084,11 +1108,63 @@ window.ANT.settings = (function () {
     '</div>';
   }
 
+  function findTailoringPrice(itemName, option) {
+    var wantItem = String(itemName || '').trim().toLowerCase();
+    var wantOpt = String(option || '').trim().toLowerCase();
+    return (state.priceRows || []).filter(function (p) {
+      return String(p.group_name || '').toUpperCase() === 'TAILORING'
+        && String(p.item || '').trim().toLowerCase() === wantItem
+        && String(p.option || '').trim().toLowerCase() === wantOpt;
+    })[0] || null;
+  }
+
+  function saveTailoringPrice(dressName, oldDressName, option, rawValue) {
+    var raw = String(rawValue == null ? '' : rawValue).trim().replace(/,/g, '');
+    var existing = findTailoringPrice(oldDressName || dressName, option);
+    var renamed = String(oldDressName || '').trim().toLowerCase() !== String(dressName || '').trim().toLowerCase();
+
+    if (raw === '') {
+      if (existing && renamed) {
+        return sb().from('prices')
+          .update({ item: dressName, updated_at: new Date().toISOString() })
+          .eq('id', existing.id)
+          .select('id')
+          .then(guardEmpty);
+      }
+      return Promise.resolve({ ok: true });
+    }
+
+    var n = Number(raw);
+    if (isNaN(n) || n < 0) {
+      return Promise.resolve({ error: { message: option + ' price must be a number, zero or more.' } });
+    }
+    var price = Math.round(n * 100) / 100;
+
+    if (existing) {
+      return sb().from('prices')
+        .update({ item: dressName, price: price, updated_at: new Date().toISOString() })
+        .eq('id', existing.id)
+        .select('id')
+        .then(guardEmpty);
+    }
+
+    return insertPrice({
+      group_name: 'TAILORING',
+      item: dressName,
+      option: option,
+      price: price,
+      extra_charge: 0
+    }, 0);
+  }
+
   function save() {
     var kind = state.form.kind;
     var editing = !!state.form.row;
 
     var values;
+    var dressPriceWithoutRaw = '';
+    var dressPriceWithRaw = '';
+    var oldDressName = '';
 
     if (kind === 'dress') {
       var category = byId('setCategory').value;
@@ -1099,6 +1175,23 @@ window.ANT.settings = (function () {
         byId('setDress').focus();
         return;
       }
+      oldDressName = editing && state.form.row ? String(state.form.row.dress_type || '') : '';
+      dressPriceWithoutRaw = byId('setDressPriceWithout').value;
+      dressPriceWithRaw = byId('setDressPriceWith').value;
+
+      var pw = String(dressPriceWithoutRaw || '').trim().replace(/,/g, '');
+      var pl = String(dressPriceWithRaw || '').trim().replace(/,/g, '');
+      if (pw !== '' && (isNaN(Number(pw)) || Number(pw) < 0)) {
+        toast('Without lining price must be a number, zero or more', 'error');
+        byId('setDressPriceWithout').focus();
+        return;
+      }
+      if (pl !== '' && (isNaN(Number(pl)) || Number(pl) < 0)) {
+        toast('With lining price must be a number, zero or more', 'error');
+        byId('setDressPriceWith').focus();
+        return;
+      }
+
       values = { category: category, dress_type: dress };
     } else {
       var item = byId('setItem').value.trim();
@@ -1152,6 +1245,26 @@ window.ANT.settings = (function () {
         toast(res.error.message, 'error');
         return;
       }
+
+      if (kind === 'dress') {
+        var dressName = values.dress_type;
+        return saveTailoringPrice(dressName, oldDressName, 'Without Lining', dressPriceWithoutRaw)
+          .then(function (r1) {
+            if (r1 && r1.error) return r1;
+            return saveTailoringPrice(dressName, oldDressName, 'With Lining', dressPriceWithRaw);
+          })
+          .then(function (r2) {
+            if (r2 && r2.error) {
+              toast(r2.error.message, 'error');
+              load();
+              return;
+            }
+            state.form = null;
+            toast(label + (editing ? ' updated' : ' added'), 'success');
+            load();
+          });
+      }
+
       state.form = null;
       toast(label + (editing ? ' updated' : ' added'), 'success');
       load();
