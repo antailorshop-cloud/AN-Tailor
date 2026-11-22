@@ -486,6 +486,24 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 .ui-card + .ui-card { margin-top: var(--gap); }
 
+/* A way out to the printable poster. It sits at the top of Prices because the
+   poster is made from this list, and the shop should not have to hunt through
+   Settings for it. */
+.set-poster {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap);
+  flex-wrap: wrap;
+  margin-bottom: var(--gap);
+}
+.set-poster strong {
+  display: block;
+  font-size: 15px;
+  color: var(--text-strong);
+}
+.set-poster p { margin: 3px 0 0; }
+
 .ui-card-title {
   margin: 0 0 4px;
   font-size: 15px;
