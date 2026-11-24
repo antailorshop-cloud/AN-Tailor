@@ -1572,6 +1572,35 @@ button, input, select, textarea { font: inherit; color: inherit; }
   white-space: nowrap;
 }
 
+/* Per-item progress in the order list. One order can hold garments at
+   different stages, so each line keeps its own chip and its own next step. */
+
+.item-status-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 210px;
+}
+
+.item-status-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ord-item-idx {
+  color: var(--text-muted);
+  min-width: 14px;
+}
+
+.item-status-name {
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .btn-success {
   background: #1f8a4c;
   border-color: #1a7440;
@@ -1594,7 +1623,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 /* Item editor */
 
 .ord-items {
-  min-width: 1080px;
+  min-width: 1200px;
 }
 
 .ord-items td { padding: 6px 6px; }
@@ -1640,6 +1669,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .ord-items select[data-f="resale_item"] { min-width: 168px; }
 .ord-items select[data-f="variant"],
 .ord-items select[data-f="lining"] { min-width: 116px; }
+.ord-items select[data-f="status"] { min-width: 112px; }
 
 .ord-add-row {
   display: flex;

@@ -152,11 +152,13 @@ create table if not exists order_items (
   extra_charge    numeric(12,2) not null default 0,
   line_total      numeric(12,2) not null default 0,
   delivery_date   date,
+  status          order_status not null default 'Pending',
   created_at      timestamptz not null default now(),
   updated_at      timestamptz not null default now()
 );
 
 create index if not exists order_items_order_idx on order_items (order_id, line_no);
+create index if not exists order_items_status_idx on order_items (status);
 
 -- A resale line sells an item that is already made and already in stock, so it
 -- has no garment to cut and no measurement to copy. The stock row is recorded

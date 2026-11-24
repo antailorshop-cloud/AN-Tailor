@@ -52,6 +52,8 @@
     { key: 'item', label: 'Item / Dress', sample: 'Shirt - White',
       aliases: ['item', 'items', 'dress', 'dresses', 'dressdescription', 'description',
         'garment', 'particulars', 'product'] },
+    { key: 'item_status', label: 'Item Status', sample: 'Pending',
+      aliases: ['itemstatus', 'garmentstatus'] },
     { key: 'quantity', label: 'Quantity', sample: '1',
       aliases: ['quantity', 'qty', 'nos'] },
     { key: 'rate', label: 'Rate', sample: '700',
@@ -539,7 +541,10 @@
             discount: 0,
             extra_charge: 0,
             line_total: amount,
-            delivery_date: rec.delivery_date || ''
+            delivery_date: rec.delivery_date || '',
+            status: ['Pending', 'Process', 'Finish', 'Delivery'].indexOf(
+              String(row.item_status || 'Pending').trim()
+            ) !== -1 ? String(row.item_status).trim() : 'Pending'
           });
         }
       });

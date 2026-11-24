@@ -32,7 +32,7 @@
     { file: 'order_items', table: 'order_items', order: ['order_id', 'line_no'],
       cols: ['id', 'order_id', 'line_no', 'measurement_id', 'category', 'dress_type',
         'service', 'variant', 'lining', 'resale_item_id', 'quantity', 'rate',
-        'discount', 'extra_charge', 'line_total', 'delivery_date', 'archived_at'] },
+        'discount', 'extra_charge', 'line_total', 'delivery_date', 'status', 'archived_at'] },
 
     { file: 'bills', table: 'bills', order: ['code'],
       cols: ['id', 'code', 'customer_id', 'total', 'discount', 'advance', 'bill_amount',

@@ -36,6 +36,10 @@ window.ANT.orders = (function () {
   var money = function (v) { return window.ANT.money(v); };
 
   var STATUSES = ['Pending', 'Process', 'Finish', 'Delivery', 'Cancelled'];
+  // A garment has its own promise and its own progress. Cancelling stays an
+  // order-level decision because it changes money, so an item moves only through
+  // the four working stages; the parent order keeps its existing five-stage flow.
+  var ITEM_FLOW = ['Pending', 'Process', 'Finish', 'Delivery'];
   var PRIORITIES = ['Normal', 'Urgent'];
 
   // Service and lining lists are taken verbatim from the legacy Orders.html so
@@ -178,6 +182,17 @@ window.ANT.orders = (function () {
       'Cancelled': 'chip-muted'
     }[status] || 'chip-muted';
     return '<span class="chip ' + kind + '">' + esc(status) + '</span>';
+  }
+
+  // Older rows have no item status, and a bad value must never put a button on
+  // screen that would be rejected by the enum. Both normalise to Pending.
+  function itemStatus(it) {
+    var s = it && it.status;
+    return ITEM_FLOW.indexOf(s) !== -1 ? s : 'Pending';
+  }
+
+  function itemStatusChip(status) {
+    return statusChip(ITEM_FLOW.indexOf(status) !== -1 ? status : 'Pending');
   }
 
   // Sorted once, then reused for every item row. The Settings module edits
@@ -635,7 +650,8 @@ window.ANT.orders = (function () {
         '<table class="ui-table">' +
           '<thead><tr>' +
             '<th>Order</th><th>Customer</th><th>Items</th><th>Delivery</th>' +
-            '<th class="num">Total</th><th class="num">Balance</th><th>Status</th><th></th>' +
+            '<th class="num">Total</th><th class="num">Balance</th>' +
+            '<th>Order status</th><th>Item status</th><th></th>' +
           '</tr></thead>' +
           '<tbody>' + state.orders.map(row).join('') + '</tbody>' +
         '</table>' +
@@ -662,6 +678,7 @@ window.ANT.orders = (function () {
       '<td class="num">' + money(o.total) + '</td>' +
       '<td class="num">' + (num(o.balance) > 0 ? '<strong>' + money(o.balance) + '</strong>' : money(o.balance)) + '</td>' +
       '<td>' + renderStatusCell(o) + '</td>' +
+      '<td>' + renderItemStatusCell(o) + '</td>' +
       '<td class="ord-row-actions">' +
         '<button class="btn btn-sm btn-secondary" data-ord-open="' + esc(o.id) + '">Open</button>' +
         (num(o.balance) > 0 && o.status !== 'Cancelled'
@@ -966,7 +983,7 @@ window.ANT.orders = (function () {
         '<thead><tr>' +
           '<th>Service</th><th>Dress</th><th>Lining</th><th>Resale item</th>' +
           '<th class="num">Qty</th><th class="num">Rate</th><th class="num">Extra</th>' +
-          '<th class="num">Total</th><th>Delivery</th><th>Measurements</th><th></th>' +
+          '<th class="num">Total</th><th>Delivery</th><th>Status</th><th>Measurements</th><th></th>' +
         '</tr></thead>' +
         '<tbody>' + state.formItems.map(function (it, i) {
           return itemRow(it, i, groups);
@@ -1076,6 +1093,16 @@ window.ANT.orders = (function () {
         '</td>';
     }
 
+    // The item's own progress sits next to its promise date, so one order can
+    // carry a finished shirt and a shirt still at the bench without confusion.
+    var sCell = state.readonly
+      ? '<td>' + itemStatusChip(itemStatus(it)) + '</td>'
+      : '<td><select class="ui-input" data-ord-item="' + i + '" data-f="status">' +
+          ITEM_FLOW.map(function (s) {
+            return '<option value="' + esc(s) + '"' + (s === itemStatus(it) ? ' selected' : '') + '>' + esc(s) + '</option>';
+          }).join('') +
+        '</select></td>';
+
     return '<tr>' +
       '<td><select class="ui-input" data-ord-item="' + i + '" data-f="service"' + roAttr() + '>' +
           SERVICES.map(function (s) {
@@ -1100,6 +1127,7 @@ window.ANT.orders = (function () {
       '<td class="num"><input class="ui-input" data-ord-item="' + i + '" data-f="extra" inputmode="decimal" value="' + esc(it.extra) + '"' + roAttr() + '></td>' +
       '<td class="num ord-line-total"><strong>' + money(lineTotal(it)) + '</strong></td>' +
       '<td><input class="ui-input" data-ord-item="' + i + '" data-f="delivery_date" type="date" value="' + esc(it.delivery_date || '') + '"' + roAttr() + '></td>' +
+      sCell +
       mCell +
       (state.readonly
         ? '<td></td>'
@@ -1218,6 +1246,7 @@ window.ANT.orders = (function () {
       rate: 0,
       extra: 0,
       delivery_date: '',
+      status: 'Pending',
       measurement_id: ''
     };
   }
@@ -1352,6 +1381,9 @@ window.ANT.orders = (function () {
       }
       if (num(it.extra) < 0) return 'Extra charge cannot be negative for item ' + n + '.';
       if (!it.delivery_date) return 'Give a delivery date for item ' + n + '.';
+      if (ITEM_FLOW.indexOf(it.status) === -1) {
+        return 'Choose a status for item ' + n + '.';
+      }
 
       if (isResale(it.service)) {
         if (!it.resale_item) return 'Choose the stock item being sold on item ' + n + '.';
@@ -1437,6 +1469,7 @@ window.ANT.orders = (function () {
       extra_charge: num(it.extra),
       line_total: lineTotal(it),
       delivery_date: it.delivery_date,
+      status: itemStatus(it),
       measurement_id: isTailoring(it.service) && it.measurement_id ? it.measurement_id : null,
       updated_at: new Date().toISOString()
     };
@@ -1871,6 +1904,7 @@ window.ANT.orders = (function () {
                 rate: it.rate,
                 extra: it.extra_charge,
                 delivery_date: it.delivery_date || '',
+                status: itemStatus(it),
                 measurement_id: it.measurement_id || ''
               };
             });
@@ -2194,6 +2228,19 @@ window.ANT.orders = (function () {
         var cur = btn.getAttribute('data-cur');
         btn.disabled = true;
         applyStatus(id, next, cur, function () { paint(); }, function () { btn.disabled = false; });
+      });
+    });
+
+    Array.prototype.forEach.call(document.querySelectorAll('.item-set'), function (btn) {
+      btn.addEventListener('click', function () {
+        var orderId = btn.getAttribute('data-item-ord');
+        var itemId = btn.getAttribute('data-item-id');
+        var next = btn.getAttribute('data-item-next');
+        var cur = btn.getAttribute('data-item-cur');
+        btn.disabled = true;
+        applyItemStatus(orderId, itemId, next, cur, function () { paint(); }, function () {
+          btn.disabled = false;
+        });
       });
     });
 
@@ -2587,6 +2634,11 @@ window.ANT.orders = (function () {
     // there means exactly what it means on the list.
     applyStatus: applyStatus,
 
+    // A garment can move on its own without moving the order or sending the
+    // whole-order message. Kept next to applyStatus so both workflows stay
+    // visible to whoever wires another screen later.
+    applyItemStatus: applyItemStatus,
+
     // The tap-to-pay line's appender, exposed so the harness can check it with a
     // shop address of its own - a file:// test page has none to build a link from.
     __withPayBlock: withPayBlock,
@@ -2689,6 +2741,73 @@ window.ANT.orders = (function () {
     }
     return '<div class="ord-status-wrap">' + statusChip(o.status) +
       (buttons ? '<span class="ord-status-actions">' + buttons + '</span>' : '') + '</div>';
+  }
+
+  /* One line per garment. This is deliberately separate from the order chip:
+   * a shirt can be finished while the trousers in the same order are still at
+   * the bench, and neither tap may move the parent order or send its message. */
+  function renderItemStatusCell(o) {
+    var items = state.items[o.id] || [];
+    if (!items.length) return '<span class="ord-sub">No items</span>';
+
+    return '<div class="item-status-list">' + items.map(function (it, idx) {
+      var cur = itemStatus(it);
+      var at = ITEM_FLOW.indexOf(cur);
+      var ahead = at >= 0 ? ITEM_FLOW.slice(at + 1) : ITEM_FLOW.slice(1);
+      var buttons = it.id ? ahead.map(function (st) {
+        var cls = st === 'Delivery' ? 'btn-success' : 'btn-secondary';
+        return '<button type="button" class="btn btn-sm ' + cls + ' item-set"' +
+          ' data-item-ord="' + esc(o.id) + '" data-item-id="' + esc(it.id) + '"' +
+          ' data-item-cur="' + esc(cur) + '" data-item-next="' + esc(st) + '">' + esc(st) + '</button>';
+      }).join('') : '';
+      var name = it.dress_type || it.category || ('Item ' + (idx + 1));
+
+      return '<div class="item-status-line">' +
+        '<span class="ord-item-idx">' + (idx + 1) + '.</span>' +
+        itemStatusChip(cur) +
+        '<span class="item-status-name">' + esc(name) + '</span>' +
+        (buttons ? '<span class="ord-status-actions">' + buttons + '</span>' : '') +
+      '</div>';
+    }).join('') + '</div>';
+  }
+
+  function applyItemStatus(orderId, itemId, next, cur, onDone, onFail) {
+    if (!orderId || !itemId || !next || next === cur) { if (onDone) onDone(); return; }
+    if (ITEM_FLOW.indexOf(next) === -1) { if (onFail) onFail(); return; }
+
+    var list = state.items[orderId] || [];
+    var item = list.filter(function (it) { return it.id === itemId; })[0];
+    var before = item ? itemStatus(item) : (ITEM_FLOW.indexOf(cur) !== -1 ? cur : 'Pending');
+    if (item) item.status = next;
+
+    return sb().from('order_items')
+      .update({ status: next, updated_at: new Date().toISOString() })
+      .eq('id', itemId)
+      .eq('order_id', orderId)
+      .then(function (res) {
+        if (res.error) throw res.error;
+        try {
+          if (typeof audit === 'function') {
+            audit('order_item.status', 'order_items', itemId, { from: before, to: next });
+          }
+        } catch (e) {}
+        try {
+          if (typeof window.showToast === 'function') {
+            window.showToast('Item status updated', { duration: 1000 });
+          }
+        } catch (e) {}
+        if (onDone) onDone();
+        return res;
+      })
+      .catch(function (err) {
+        if (item) item.status = before;
+        try {
+          if (typeof window.showToast === 'function') {
+            window.showToast('Update failed', { type: 'error', duration: 1500 });
+          }
+        } catch (e) {}
+        if (onFail) onFail();
+      });
   }
 
   function applyStatus(id, next, cur, onDone, onFail, orderObj) {

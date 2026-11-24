@@ -1734,7 +1734,7 @@ window.ANT.bills = (function () {
     if (!ids.length) return Promise.resolve({});
 
     return sb().from('order_items')
-      .select('order_id,category,dress_type,service,variant,lining,quantity,rate,line_total')
+      .select('order_id,category,dress_type,service,variant,lining,quantity,rate,line_total,delivery_date')
       .in('order_id', ids)
       .then(function (res) {
         if (res.error || !res.data) return {};
@@ -2132,7 +2132,9 @@ window.ANT.bills = (function () {
               esc(it.dress_type || it.category || 'Garment') + '</div>' +
             (note.length ? '<div class="item-note">' + esc(note.join(' · ')) + '</div>' : '') +
           '</td>' +
-          '<td>' + esc(dateLabel(o.delivery_date)) + '</td>' +
+          // Each garment keeps its own promise. The order date is only the
+          // fallback for older lines saved before item dates were printed.
+          '<td>' + esc(dateLabel(it.delivery_date || o.delivery_date)) + '</td>' +
           '<td class="r">' + esc(String(it.quantity == null ? '' : it.quantity)) + '</td>' +
           '<td class="r">' + money(it.line_total) + '</td>' +
           '<td class="r">' + money(0) + '</td>' +
@@ -2682,7 +2684,10 @@ window.ANT.bills = (function () {
               lining: it.lining,
               quantity: it.quantity,
               rate: num(it.rate),
-              line_total: num(it.line_total)
+              line_total: num(it.line_total),
+              // Carried so a reprint shows the date promised for each garment,
+              // not the order's latest date repeated down the bill.
+              delivery_date: it.delivery_date || o.delivery_date
             };
           })
         };

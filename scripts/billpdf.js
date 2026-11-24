@@ -100,6 +100,12 @@ var signsDrawn = 0;
    * Zero means "no half sheet", which is how outline() is told the difference without
    * being told the size - the caller knows the sheet and this works out what the
    * sheet means for the bill sitting on it. */
+  function sizeOf(sheet) {
+    if (!sheet) return 'A4';
+    if (!sheet.portrait) return 'A4HALF';
+    return sheet.w === 148 ? 'A5' : 'A4';
+  }
+
   function halfRoom(sheet) {
     if (!sheet) return 0;
     /* Every sheet gets the width the bill is actually laid out to, not zero for
@@ -108,9 +114,7 @@ var signsDrawn = 0;
      * the paper, and this is what centres the shrunken bill in its own area
      * instead of leaving all the spare paper on the right. On the half sheet the
      * area is the left half only, so the bill still stops short of the cut. */
-    return window.ANT.printsize.billWidthMm(
-      sheet.portrait ? (sheet.w === 148 ? 'A5' : 'A4') : 'A4HALF'
-    );
+    return window.ANT.printsize.billWidthMm(sizeOf(sheet));
   }
 
   function px(v) { return v * MM; }
@@ -287,7 +291,7 @@ var signsDrawn = 0;
    * Walks the laid-out document and hands back everything needed to draw it,
    * in millimetres measured from the top left of the bill.
    */
-  function outline(doc, halfRoom) {
+  function outline(doc, halfRoom, sheet) {
     var bill = doc.querySelector('.bill');
     if (!bill) return null;
 
@@ -334,7 +338,14 @@ var signsDrawn = 0;
     var billWideMm = origin.width * MM;
     var spare = halfRoom ? Math.max(0, (halfRoom - billWideMm) / 2) : 0;
     var ox = origin.left - GAP / MM - spare / MM;
-    var oy = origin.top - GAP / MM;
+
+    /* The same sharing out, up and down. A short bill ends above the bottom of
+     * its sheet; without this it was drawn at the top margin and every spare
+     * millimetre landed underneath it, which is the gap the eye notices. A bill
+     * that needed the fit has no spare height and stays exactly where it was. */
+    var billTallMm = origin.height * MM;
+    var spareY = sheet ? Math.max(0, (window.ANT.printsize.pageHeightMm(sizeOf(sheet)) - billTallMm) / 2) : 0;
+    var oy = origin.top - GAP / MM - spareY / MM;
 
     function box(el) {
       var r = el.getBoundingClientRect();
@@ -1523,7 +1534,7 @@ if (el && el.complete && el.naturalWidth) return Promise.resolve(square(el));
         try {
           fit(doc, snap.printSize, owner.root);
 
-          var drawn = outline(doc, halfRoom(sheet));
+          var drawn = outline(doc, halfRoom(sheet), sheet);
           if (!drawn) throw new Error('the ' + what + ' could not be measured');
           ops = drawn.ops;
 
@@ -1691,7 +1702,7 @@ if (el && el.complete && el.naturalWidth) return Promise.resolve(square(el));
       var drawn;
       try {
         fit(staged.doc, snap.printSize, owner.root);
-        drawn = outline(staged.doc, halfRoom(sheetFor(snap && snap.printSize)));
+        drawn = outline(staged.doc, halfRoom(sheet), sheet);
         if (!drawn) throw new Error('the ' + what + ' could not be measured');
         return {
           ops: drawn.ops, height: drawn.height, width: drawn.width, stamp: stampFlat

@@ -208,7 +208,7 @@ window.ANT.printsize = (function () {
         '.' + base + '-half .sect{margin:1.4mm 0 1mm}' +
         '.' + base + '-half .parties{margin:2mm 0 1.5mm}' +
         '.' + base + '-half .footmast{margin-top:auto}' +
-        cutCss();
+        cutCss() + centreVerticalCss(base);
     }
 
   /* The cut line, for a bill printed as a page rather than as a file.
@@ -306,15 +306,27 @@ window.ANT.printsize = (function () {
    * disagrees: margin:auto puts the same white space on the right as on the left,
    * and the bill stays in the middle of the sheet however the margins come out.
    *
-   * Up and down it is a row of one, so the same auto margins centre a short receipt
-   * on its sheet. justify-content is 'safe center' rather than plain 'center' on
-   * purpose: a receipt taller than the page - and a long bill can be, however hard
-   * the auto-fit squeezes - would have its top cut off and be unreachable by
-   * scrolling, whereas 'safe' falls back to the top and prints the lot. */
+   * Up and down it is a row of one, so auto margins on the bill share whatever
+   * spare paper is left above and below it. Auto margins are used rather than
+   * justify-content:center on purpose: a bill taller than the page - and a long
+   * one can be, however hard the auto-fit squeezes - would have its top cut off
+   * and be unreachable by scrolling, whereas an auto margin simply falls back to
+   * zero and prints the lot from the top. */
+  /* Up-and-down centring on its own.
+   *
+   * The half sheet cannot use centreCss(): its bill must stay on the left half,
+   * so only the spare paper above and below is shared out. The PDF takes the same
+   * number from billpdf.js, which is why this is a separate rule rather than a
+   * second copy of the arithmetic written into the cut-sheet block. */
+  function centreVerticalCss(base) {
+    var cls = '.' + (base || 'bill');
+    return '@media print{html,body{height:100%}' +
+      'body{display:flex;flex-direction:column}' +
+      cls + '{margin-top:auto;margin-bottom:auto}}';
+  }
+
   function centreCss(base) {
-    return '.' + base + '{margin-left:auto;margin-right:auto}' +
-      '@media print{html,body{height:100%}' +
-      'body{display:flex;flex-direction:column;justify-content:safe center}}';
+    return '.' + base + '{margin-left:auto;margin-right:auto}' + centreVerticalCss(base);
   }
 
   return {
