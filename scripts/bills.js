@@ -1382,6 +1382,53 @@ window.ANT.bills = (function () {
       .catch(function () { return null; });
   }
 
+  /* Deletes every bill an order sits on. Called by Orders before the order is
+   * removed, so no bill is left pointing at an order that no longer exists.
+   * No confirmation here: the Orders page already asked and says plainly that
+   * linked bills go with the order. */
+  function deleteForOrder(orderId) {
+    if (!orderId) return Promise.resolve({ error: 'No order was given.' });
+    if (!isOwner()) return Promise.resolve({ error: 'Only the Owner can delete a bill.' });
+
+    return sb().from('bill_orders')
+      .select('bill_id')
+      .eq('order_id', orderId)
+      .then(function (res) {
+        if (res.error) throw res.error;
+
+        var seen = {};
+        var ids = (res.data || []).map(function (r) { return r.bill_id; })
+          .filter(function (id) { return id && !seen[id] && (seen[id] = true); });
+
+        var chain = Promise.resolve({ ok: true, count: 0 });
+        ids.forEach(function (billId) {
+          chain = chain.then(function (acc) {
+            if (acc.error) return acc;
+            return sb().from('bills')
+              .delete()
+              .eq('id', billId)
+              .select('id')
+              .then(function (del) {
+                if (del.error || !del.data || !del.data.length) {
+                  return { error: 'A linked bill could not be deleted: ' + reason(del) };
+                }
+                return removeStoredBillPdf(billFor(billId) || { id: billId })
+                  .then(function () { return { ok: true, count: acc.count + 1 }; });
+              })
+              .catch(function (e) {
+                return { error: 'A linked bill could not be deleted: ' +
+                  ((e && e.message) || 'the request failed.') };
+              });
+          });
+        });
+        return chain;
+      })
+      .catch(function (e) {
+        return { error: 'The linked bills could not be read: ' +
+          ((e && e.message) || 'the request failed.') };
+      });
+  }
+
   /* Printing ------------------------------------------------------------- */
 
   // The legacy printed through Google Drive. This builds the same document in
@@ -3154,6 +3201,9 @@ window.ANT.bills = (function () {
     /* Creates the bill for one order in one press, then reports back so the
      * status that was held back can go through. */
     createForOrder: createForOrder,
+    /* Removes every bill linked to an order, called by Orders before the order
+     * itself is deleted so no bill is left pointing at a missing order. */
+    deleteForOrder: deleteForOrder,
     /* The order's bill, as a public PDF link, for the ready and delivered
      * messages. Draws the file first when it has never been shared, and returns
      * '' when the order is on no bill. */

@@ -1958,24 +1958,66 @@ window.ANT.orders = (function () {
       });
   }
 
-  function removeOrder() {
-    var order = state.form;
-    if (!order || !window.confirm('Delete order ' + order.code + ' and all its items? This cannot be undone.')) return;
+  /* Deletes an order, its items, and every bill linked to it. Owner only: both
+   * the orders and bills RLS policies are owner-only, and the button is hidden
+   * from staff as well. The linked bills go first; if any one of them fails the
+   * order is left alone, because an orphaned or half-billed order is worse than
+   * a delete that simply did not happen. */
+  function removeOrder(orderId) {
+    if (!isOwner()) {
+      toast('Only the Owner can delete an order.', 'error');
+      return Promise.resolve();
+    }
 
-    sb().from('orders')
-      .delete()
-      .eq('id', order.id)
-      .select('id')
-      .then(function (res) {
-        if (res.error) return toast(res.error.message, 'error');
-        if (!res.data || res.data.length === 0) {
-          return toast('That order could not be deleted. Only the Owner can remove an order.', 'error');
-        }
-        toast('Order deleted', 'success');
-        state.view = 'list';
-        state.form = null;
-        return loadOrders();
-      });
+    // An id is passed by the list's row button; the edit form has no id argument
+    // and falls back to the order open on screen.
+    var order = orderId
+      ? (state.orders.filter(function (o) { return o.id === orderId; })[0] || null)
+      : state.form;
+    if (!order) {
+      toast('That order is not on this page.', 'error');
+      return Promise.resolve();
+    }
+
+    if (!window.confirm('Delete order ' + order.code + ', its items, and any bill linked to it?\n\n' +
+      'This cannot be undone.')) return Promise.resolve();
+
+    var billsApi = window.ANT.bills;
+    var clearBills = (billsApi && typeof billsApi.deleteForOrder === 'function')
+      ? billsApi.deleteForOrder(order.id)
+      : Promise.resolve({ ok: true, count: 0 });
+
+    return Promise.resolve(clearBills).then(function (cleared) {
+      if (cleared && cleared.error) {
+        toast(cleared.error, 'error');
+        return null;
+      }
+
+      return sb().from('orders')
+        .delete()
+        .eq('id', order.id)
+        .select('id')
+        .then(function (res) {
+          if (res.error) return toast(res.error.message, 'error');
+          if (!res.data || res.data.length === 0) {
+            return toast('That order could not be deleted. Only the Owner can remove an order.', 'error');
+          }
+          var freed = (cleared && cleared.count)
+            ? ' The linked bill was deleted too.'
+            : '';
+          toast('Order deleted.' + freed, 'success');
+          state.view = 'list';
+          state.form = null;
+          state.formItems = [];
+          state.formCustomer = null;
+          state.measurements = [];
+          return loadOrders();
+        });
+    }).catch(function (e) {
+      toast('The order could not be deleted: ' +
+        ((e && e.message) || 'the request failed.'), 'error');
+      return null;
+    });
   }
 
   /* Events --------------------------------------------------------------- */
@@ -2079,6 +2121,12 @@ window.ANT.orders = (function () {
         applyStatus(id, next, cur, function () { paint(); }, function () { btn.disabled = false; });
       });
     });
+
+    Array.prototype.forEach.call(document.querySelectorAll('[data-ord-del]'), function (btn) {
+      btn.addEventListener('click', function () {
+        removeOrder(btn.getAttribute('data-ord-del'));
+      });
+    });
   }
 
   function wireEdit() {
@@ -2089,7 +2137,9 @@ window.ANT.orders = (function () {
     if (cancel) cancel.addEventListener('click', closeEdit);
 
     var del = byId('ordDelete');
-    if (del) del.addEventListener('click', removeOrder);
+    // Wrapped so the click event is not mistaken for an order id. The row
+    // button passes its id explicitly; the form button works from state.form.
+    if (del) del.addEventListener('click', function () { removeOrder(); });
 
     var saveBtn = byId('ordSave');
     if (saveBtn) {
@@ -2531,6 +2581,12 @@ window.ANT.orders = (function () {
     }).join('');
     if (o.status !== 'Delivery' && o.status !== 'Cancelled') {
       buttons += '<button type="button" class="btn btn-sm btn-danger ord-set" data-ord-id="' + esc(o.id) + '" data-cur="' + esc(o.status) + '" data-next="Cancelled">Cancel</button>';
+    }
+    // A hard delete is owner-only, in the row as well as in the edit form. The
+    // RLS policy refuses staff too, but hiding the button is clearer than letting
+    // them press it and be told no.
+    if (isOwner()) {
+      buttons += '<button type="button" class="btn btn-sm btn-danger ord-del" data-ord-del="' + esc(o.id) + '">Delete</button>';
     }
     return '<div class="ord-status-wrap">' + statusChip(o.status) +
       (buttons ? '<span class="ord-status-actions">' + buttons + '</span>' : '') + '</div>';
