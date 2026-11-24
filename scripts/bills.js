@@ -78,6 +78,14 @@ window.ANT.bills = (function () {
     customer: null,
     orders: [],
     bills: [],
+    // The default view lists every bill, not just the chosen customer's. Kept
+    // apart from the arrays above so searching a customer cannot overwrite it.
+    allBills: [],
+    allCustomers: [],
+    allLoading: false,
+    allError: null,
+    allPage: 0,
+    allCount: 0,
     selected: {},
     notes: '',
     editing: null,
@@ -268,7 +276,7 @@ window.ANT.bills = (function () {
       resetFor();
       state.matches = [];
       paint();
-      return Promise.resolve();
+      return loadAll();
     }
 
     resetFor();
@@ -339,6 +347,12 @@ window.ANT.bills = (function () {
     state.notes = '';
     state.page = 0;
     state.count = 0;
+    state.allPage = 0;
+    state.allCount = 0;
+    state.allBills = [];
+    state.allCustomers = [];
+    state.allLoading = false;
+    state.allError = null;
     state.loading = true;
     state.busy = false;
     state.error = null;
@@ -469,6 +483,80 @@ window.ANT.bills = (function () {
       });
   }
 
+  /* The Bills page opens on every bill, newest first. A customer search still
+   * narrows it to one person's orders and bills; this is the view the tailor
+   * gets before searching. Both reads are independent so a failed customer
+   * lookup can never hide the bills themselves. */
+  function loadAll() {
+    state.allLoading = true;
+    state.allError = null;
+    paint();
+
+    return Promise.all([loadAllCustomers(), loadAllBills()]).then(function (result) {
+      state.allCustomers = result[0];
+      state.allBills = result[1].rows;
+      state.allCount = result[1].count;
+      state.allError = result[1].error;
+      state.allLoading = false;
+      paint();
+    });
+  }
+
+  function loadAllCustomers() {
+    return sb().from('customers')
+      .select('id,code,name,mobile,address')
+      .order('name', true)
+      .then(function (res) {
+        return (!res.error && res.data) ? res.data : [];
+      });
+  }
+
+  function loadAllBills() {
+    var from = state.allPage * PAGE_SIZE;
+
+    return sb().from('bills')
+      .select('id,customer_id,code,total,discount,advance,bill_amount,balance,bill_date,notes,method,paid_on,pdf_path,created_at', { count: true })
+      .is('archived_at', null)
+      .order('bill_date', false)
+      .order('created_at', false)
+      .range(from, from + PAGE_SIZE - 1)
+      .then(function (res) {
+        if (res.error) throw res.error;
+        var rows = res.data || [];
+        return { rows: rows, count: res.count == null ? rows.length : res.count, error: null };
+      })
+      .catch(function (e) {
+        return { rows: [], count: 0, error: (e && e.message) || 'The bills could not be loaded.' };
+      });
+  }
+
+  // Used by the all-records view to label a bill, and by its row actions so a
+  // bill can be printed or messaged without first opening its customer.
+  function customerFor(id) {
+    if (!id) return null;
+    if (state.customer && state.customer.id === id) return state.customer;
+    return state.allCustomers.filter(function (c) { return c.id === id; })[0] || null;
+  }
+
+  function customerForBill(bill) {
+    if (!bill) return null;
+    return customerFor(bill.customer_id) || {
+      id: bill.customer_id, code: '', name: 'Customer', mobile: '', address: ''
+    };
+  }
+
+  function billFor(id) {
+    if (!id) return null;
+    return state.bills.concat(state.allBills).filter(function (b) { return b.id === id; })[0] || null;
+  }
+
+  // Reload whichever list is on screen. A bill archived or regenerated from the
+  // global list must return there, not jump into a customer that was never open.
+  function reloadCurrent() {
+    if (state.customer) return loadOrders().then(loadBills);
+    return loadAll();
+  }
+
   // bills.code is NOT NULL UNIQUE with no default, so the number has to exist
   // before the insert. Codes read AN-BIL-<YY>-<NNNN>: brand, type, two-digit
   // year, running serial. The serial is drawn from the database counter
@@ -580,7 +668,8 @@ window.ANT.bills = (function () {
     var noteHadFocus = !!byId('billNotes') && document.activeElement === byId('billNotes');
 
     host.innerHTML = head() + searchCard() +
-      (state.customer ? customerSection() : matchPanel());
+      (state.customer ? customerSection()
+        : (state.term ? matchPanel() : allSection()));
     wire();
 
     if (noteHadFocus) {
@@ -595,8 +684,9 @@ window.ANT.bills = (function () {
   function head() {
     return '<div class="page-head"><div>' +
       '<h1 class="page-head-title">Bills</h1>' +
-      '<p class="page-head-sub">One bill can cover several orders of the same ' +
-      'customer. Searching by mobile number finds the customer and their orders.</p>' +
+      '<p class="page-head-sub">All bills are listed below without searching. ' +
+      'One bill can cover several orders of the same customer; search by mobile ' +
+      'number, name or code to work on one customer and their orders.</p>' +
       '</div></div>';
   }
 
@@ -638,6 +728,56 @@ window.ANT.bills = (function () {
           '</td>' +
         '</tr>';
       }).join('') + '</tbody></table></div>';
+  }
+
+  /* Default view: all bills across all customers. Searching above replaces this
+   * with the customer picker and, once chosen, that customer's own section. */
+  function allSection() {
+    if (state.allError) {
+      return '<div class="ui-card"><div class="empty">' +
+        '<div class="empty-title">Could not load bills</div>' +
+        '<p class="empty-text">' + esc(state.allError) + '</p>' +
+      '</div></div>';
+    }
+
+    if (state.allLoading && !state.allBills.length) {
+      return '<div class="ui-card"><div class="empty">' +
+        '<div class="empty-title">Loading bills...</div>' +
+      '</div></div>';
+    }
+
+    if (!state.allBills.length) {
+      return '<div class="ui-card"><div class="empty">' +
+        '<div class="empty-title">No bills yet</div>' +
+        '<p class="empty-text">Search above to choose a customer and raise their first bill.</p>' +
+      '</div></div>';
+    }
+
+    return '<div class="ui-card">' +
+      '<h2 class="ui-card-title">All bills</h2>' +
+      '<p class="ui-card-sub">' + state.allCount + (state.allCount === 1 ? ' bill' : ' bills') +
+        ' across every customer, newest first. Search above to bill or open one customer.</p>' +
+      '<table class="ui-table"><thead><tr>' +
+        '<th>Customer</th><th>Bill</th><th>Date</th><th class="num">Bill amount</th>' +
+        '<th class="num">Balance</th><th>Paid by</th><th>Paid on</th><th></th>' +
+      '</tr></thead><tbody>' + state.allBills.map(function (b) {
+        return historyRow(b, true);
+      }).join('') + '</tbody></table>' +
+      (isOwner() ? '' : '<p class="pay-hint">Editing and archiving a bill is limited to the Owner.</p>') +
+      '</div>' + allPager();
+  }
+
+  function allPager() {
+    var pages = Math.max(1, Math.ceil(state.allCount / PAGE_SIZE));
+    if (pages <= 1) return '';
+
+    return '<div class="cust-pager">' +
+      '<button class="btn btn-sm btn-secondary" id="billAllPrev"' +
+        (state.allPage === 0 ? ' disabled' : '') + '>Previous</button>' +
+      '<span class="cust-count">Page ' + (state.allPage + 1) + ' of ' + pages + '</span>' +
+      '<button class="btn btn-sm btn-secondary" id="billAllNext"' +
+        (state.allPage + 1 >= pages ? ' disabled' : '') + '>Next</button>' +
+      '</div>';
   }
 
   function customerSection() {
@@ -769,17 +909,27 @@ window.ANT.bills = (function () {
       '</div>';
   }
 
-  function historyRow(b) {
+  function historyRow(b, global) {
     var owner = isOwner();
+    var c = global ? customerForBill(b) : state.customer;
     // WhatsApp is offered only when there is a real mobile to send to; a
-    // button that can only apologise is worse than no button.
-    var canShare = !!(window.ANT.whatsapp && state.customer &&
-      window.ANT.whatsapp.canSend(state.customer.mobile));
+    // button that can only apologise is worse than no button. From the global
+    // list the number comes from the bill's own customer, not the search box.
+    var canShare = !!(window.ANT.whatsapp && c &&
+      window.ANT.whatsapp.canSend(c.mobile));
     // A reminder only makes sense on a bill that still owes something. A
     // settled bill would produce a message asking for money already received.
     var canRemind = canShare && num(b.balance) > 0;
 
-    return '<tr>' +
+    var customerCell = global
+      ? '<td><span class="ord-sub-strong">' + esc(c && c.name ? c.name : 'Customer') + '</span>' +
+        ((c && (c.code || c.mobile))
+          ? '<br><span class="ord-sub">' + esc(c.code || '') +
+            (c.code && c.mobile ? ' &middot; ' : '') + esc(c.mobile || '') + '</span>'
+          : '') + '</td>'
+      : '';
+
+    return '<tr>' + customerCell +
       '<td><span class="ord-sub-strong">' + esc(b.code) + '</span></td>' +
       '<td>' + esc(dateLabel(b.bill_date)) + '</td>' +
       '<td class="num"><strong>' + money(b.bill_amount) + '</strong></td>' +
@@ -787,6 +937,9 @@ window.ANT.bills = (function () {
       '<td>' + esc(b.method || '-') + '</td>' +
       '<td>' + esc(dateLabel(b.paid_on)) + '</td>' +
       '<td class="ord-row-actions">' +
+      (global && c && c.id
+        ? '<button class="btn btn-sm btn-quiet" data-bill-open-cust="' + esc(c.id) + '">Open customer</button> '
+        : '') +
       (payLink(b)
         ? '<button class="btn btn-sm btn-primary" data-bill-pay="' + esc(b.id) + '">Pay</button> '
         : '') +
@@ -842,40 +995,57 @@ window.ANT.bills = (function () {
       return;
     }
 
-    var bill = null;
-    for (var i = 0; i < state.bills.length; i++) {
-      if (state.bills[i].id === billId) bill = state.bills[i];
-    }
+    var bill = billFor(billId);
     if (!bill) {
       toast('That bill is not on this page.', 'error');
       return;
     }
 
-    sb().from('bill_orders')
-      .select('order_id')
-      .eq('bill_id', billId)
-      .then(function (res) {
-        if (res.error) {
-          toast('The orders on that bill could not be read: ' + reason(res), 'error');
-          return;
-        }
+    // Editing swaps the orders on a bill, so the customer's order list has to be
+    // on screen. A bill opened from the all-records view brings its customer in
+    // first; the tailor never has to search for them by hand.
+    var ready = Promise.resolve();
+    if (!state.customer || state.customer.id !== bill.customer_id) {
+      var c = customerFor(bill.customer_id);
+      if (!c) {
+        toast('Open this customer first, then edit the bill.', 'error');
+        return;
+      }
+      ready = openCustomer(c);
+    }
 
-        var on = {};
-        (res.data || []).forEach(function (row) { on[row.order_id] = true; });
+    return ready.then(function () {
+      if (!billFor(billId)) {
+        toast('That bill is not on this customer page.', 'error');
+        return;
+      }
 
-        // Two separate objects on purpose. Ticking and unticking edits
-        // state.selected in place, and if that were the same object the edit was
-        // keeping as its record of what the bill holds, unticking an order would
-        // also drop it from that record - and the row would then lock itself
-        // before the edit was even saved.
-        var held = {};
-        Object.keys(on).forEach(function (k) { held[k] = true; });
+      return sb().from('bill_orders')
+        .select('order_id')
+        .eq('bill_id', billId)
+        .then(function (res) {
+          if (res.error) {
+            toast('The orders on that bill could not be read: ' + reason(res), 'error');
+            return;
+          }
 
-        state.selected = on;
-        state.editing = { id: bill.id, code: bill.code, orders: held };
-        state.notes = bill.notes || '';
-        paint();
-      });
+          var on = {};
+          (res.data || []).forEach(function (row) { on[row.order_id] = true; });
+
+          // Two separate objects on purpose. Ticking and unticking edits
+          // state.selected in place, and if that were the same object the edit was
+          // keeping as its record of what the bill holds, unticking an order would
+          // also drop it from that record - and the row would then lock itself
+          // before the edit was even saved.
+          var held = {};
+          Object.keys(on).forEach(function (k) { held[k] = true; });
+
+          state.selected = on;
+          state.editing = { id: bill.id, code: bill.code, orders: held };
+          state.notes = bill.notes || '';
+          paint();
+        });
+    });
   }
 
   function closeEdit() {
@@ -916,7 +1086,7 @@ window.ANT.bills = (function () {
         state.editing = null;
         state.page = 0;
         toast(result.message, 'success');
-        return loadOrders().then(loadBills);
+        return reloadCurrent();
       });
   }
 
@@ -1157,7 +1327,7 @@ window.ANT.bills = (function () {
         // put on a second one.
         if (state.editing && state.editing.id === billId) closeEdit();
         state.page = 0;
-        return loadOrders().then(loadBills);
+        return reloadCurrent();
       });
   }
 
@@ -1171,15 +1341,13 @@ window.ANT.bills = (function () {
   // not from whatever happens to be ticked, because a bill is a statement fixed
   // at the moment it was raised.
   function printBill(billId) {
-    var bill = null;
-    for (var i = 0; i < state.bills.length; i++) {
-      if (state.bills[i].id === billId) bill = state.bills[i];
-    }
+    var bill = billFor(billId);
     if (!bill) {
       toast('That bill is not on this page.', 'error');
       return;
     }
 
+    var ctx = { customer: customerForBill(bill) };
     sb().from('bill_orders')
       .select('order_id')
       .eq('bill_id', billId)
@@ -1189,7 +1357,7 @@ window.ANT.bills = (function () {
           return;
         }
         return ordersForPrint((res.data || []).map(function (r) { return r.order_id; }))
-          .then(function (list) { return printBillFile(bill, list); });
+          .then(function (list) { return printBillFile(bill, list, ctx); });
       });
   }
 
@@ -1811,8 +1979,9 @@ window.ANT.bills = (function () {
    * Nothing is uploaded. The file is made in the browser and printed from there, so
    * printing still works with no connection - the one thing that must not depend
    * on the network, because it is the action the shop takes most. */
-  function printBillFile(bill, list) {
-    if (!state.customer) {
+  function printBillFile(bill, list, ctx) {
+    var customer = (ctx && ctx.customer) || state.customer;
+    if (!customer) {
       toast('Open a customer first, then print a bill.', 'error');
       return;
     }
@@ -1828,7 +1997,7 @@ window.ANT.bills = (function () {
     // sheet was cached, and changing the sheet in Settings would appear to do
     // nothing until the whole app was reloaded.
     return loadShop().then(function () {
-      var snap = billSnapshot(bill, list);
+      var snap = billSnapshot(bill, list, ctx);
 
       // The same entry point a receipt uses. Drawing the file and handing it to the
       // printer are one job, and a bill and a receipt doing it two different ways is
@@ -1997,7 +2166,7 @@ window.ANT.bills = (function () {
   }
 
   function payNow(billId) {
-    var bill = state.bills.filter(function (b) { return b.id === billId; })[0];
+    var bill = billFor(billId);
     var target = bill ? payLink(bill) : '';
 
     if (!target) {
@@ -2192,12 +2361,12 @@ window.ANT.bills = (function () {
   /* Draws and stores a bill, then hands back the link. Never rejects: a bill
    * that could not be stored is a reason to send the message without a link, not
    * a reason to stop the tailor messaging the customer. */
-  function storeBillPdf(bill, list) {
+  function storeBillPdf(bill, list, ctx) {
     if (!window.ANT.billpdf || !sb().storage) {
       return Promise.resolve({ url: '', error: 'PDF storage is not set up yet.' });
     }
 
-    var snap = billSnapshot(bill, list);
+    var snap = billSnapshot(bill, list, ctx);
     return writeBlob(bill, snap, pdfPath(bill.id))
       .then(function (url) { return { url: url, error: '' }; })
       .catch(function (e) {
@@ -2214,15 +2383,13 @@ window.ANT.bills = (function () {
    * the one part of a bill that changes after it is raised, and a snapshot that
    * froze it would reprint a settled bill as unpaid. */
   function regenerateBillPdf(billId) {
-    var bill = null;
-    for (var i = 0; i < state.bills.length; i++) {
-      if (state.bills[i].id === billId) bill = state.bills[i];
-    }
+    var bill = billFor(billId);
     if (!bill) return Promise.resolve({ url: '', error: 'That bill is not on this page.' });
     if (!window.ANT.billpdf || !sb().storage) {
       return Promise.resolve({ url: '', error: 'PDF storage is not set up yet.' });
     }
 
+    var ctx = { customer: customerForBill(bill) };
     var path = pdfPath(bill.id);
 
     return sb().from('bills')
@@ -2245,7 +2412,7 @@ window.ANT.bills = (function () {
             return ordersForPrint((link.data || []).map(function (r) { return r.order_id; }));
           })
           .then(function (list) {
-            return writeBlob(bill, saved ? withLivePaid(saved, list) : billSnapshot(bill, list), path);
+            return writeBlob(bill, saved ? withLivePaid(saved, list) : billSnapshot(bill, list, ctx), path);
           });
       })
       .then(function (url) { return { url: url, error: '' }; })
@@ -2546,10 +2713,10 @@ window.ANT.bills = (function () {
    * The bill and the reminder share this one path on purpose. Two copies of
    * this code would eventually quote different figures for the same bill, and
    * the customer would be the one to notice. */
-  function sendBillMessage(billId, kind) {
+  function sendBillMessage(billId, kind, customerOverride) {
     if (!window.ANT.whatsapp) return;
 
-    var c = state.customer;
+    var c = customerOverride || state.customer;
     if (!c) {
       toast('Open a customer first, then send a bill.', 'error');
       return;
@@ -2560,15 +2727,13 @@ window.ANT.bills = (function () {
       return;
     }
 
-    var bill = null;
-    for (var i = 0; i < state.bills.length; i++) {
-      if (state.bills[i].id === billId) bill = state.bills[i];
-    }
+    var bill = billFor(billId);
     if (!bill) {
       toast('That bill is not on this page.', 'error');
       return;
     }
 
+    var ctx = { customer: c };
     sb().from('bill_orders')
       .select('order_id')
       .eq('bill_id', billId)
@@ -2601,7 +2766,7 @@ window.ANT.bills = (function () {
             // that has already opened in WhatsApp cannot be edited - so the link
             // is either in the message or the message is still correct without
             // it.
-            return storeBillPdf(bill, list)
+            return storeBillPdf(bill, list, ctx)
               .then(function (result) {
                 if (result.url) {
                   message += '\n\nBill PDF: ' + viewLink(result.url);
@@ -2629,12 +2794,12 @@ window.ANT.bills = (function () {
       });
   }
 
-  function shareBill(billId) {
-    sendBillMessage(billId, 'bill');
+  function shareBill(billId, customer) {
+    sendBillMessage(billId, 'bill', customer);
   }
 
-  function remindBill(billId) {
-    sendBillMessage(billId, 'reminder');
+  function remindBill(billId, customer) {
+    sendBillMessage(billId, 'reminder', customer);
   }
 
   /* Wiring --------------------------------------------------------------- */
@@ -2668,6 +2833,14 @@ window.ANT.bills = (function () {
         })[0];
 
         if (pick) openCustomer(pick);
+      });
+    });
+
+    each('[data-bill-open-cust]', function (b) {
+      b.addEventListener('click', function () {
+        var c = customerFor(b.getAttribute('data-bill-open-cust'));
+        if (c) openCustomer(c);
+        else toast('That customer is not available to open.', 'error');
       });
     });
 
@@ -2711,7 +2884,7 @@ window.ANT.bills = (function () {
             // Opened in a new tab so the shop keeps its place, and so the browser
             // shows it is the same document the customer will get.
             window.open(result.url, '_blank', 'noopener');
-            return loadBills().then(refreshStorage).then(paint);
+            return reloadCurrent().then(refreshStorage).then(paint);
           })
           .catch(function () {
             b.disabled = false;
@@ -2722,13 +2895,15 @@ window.ANT.bills = (function () {
 
     each('[data-bill-share]', function (b) {
       b.addEventListener('click', function () {
-        shareBill(b.getAttribute('data-bill-share'));
+        var bill = billFor(b.getAttribute('data-bill-share'));
+        shareBill(b.getAttribute('data-bill-share'), customerForBill(bill));
       });
     });
 
     each('[data-bill-remind]', function (b) {
       b.addEventListener('click', function () {
-        remindBill(b.getAttribute('data-bill-remind'));
+        var bill = billFor(b.getAttribute('data-bill-remind'));
+        remindBill(b.getAttribute('data-bill-remind'), customerForBill(bill));
       });
     });
 
@@ -2766,6 +2941,24 @@ window.ANT.bills = (function () {
         loadBills();
       });
     }
+
+    var allPrev = byId('billAllPrev');
+    if (allPrev) {
+      allPrev.addEventListener('click', function () {
+        if (state.allPage > 0) {
+          state.allPage -= 1;
+          loadAll();
+        }
+      });
+    }
+
+    var allNext = byId('billAllNext');
+    if (allNext) {
+      allNext.addEventListener('click', function () {
+        state.allPage += 1;
+        loadAll();
+      });
+    }
   }
 
   function each(selector, fn) {
@@ -2774,13 +2967,17 @@ window.ANT.bills = (function () {
 
   function render() {
     resetFor();
+    // A fresh visit starts on all bills. resetFor deliberately keeps the typed
+    // term for searches; only a route render clears it, so returning here after
+    // billing someone does not leave the page waiting on an old search.
+    state.term = '';
     paint();
     loadShop();
 
     var pending = pendingOrderId;
     pendingOrderId = null;
     if (pending) return selectOrderForBill(pending);
-    return Promise.resolve();
+    return loadAll();
   }
 
   /* Opens the page on one order: finds its customer, loads them, and ticks the
@@ -2793,25 +2990,25 @@ window.ANT.bills = (function () {
       .eq('id', orderId)
       .limit(1)
       .then(function (res) {
-        if (res.error || !res.data || !res.data.length) return;
+        if (res.error || !res.data || !res.data.length) return loadAll();
         var customerId = res.data[0].customer_id;
-        if (!customerId) return;
+        if (!customerId) return loadAll();
 
         return sb().from('customers')
           .select('id,code,name,mobile,address')
           .eq('id', customerId)
           .limit(1)
           .then(function (cres) {
-            if (cres.error || !cres.data || !cres.data.length) return;
+            if (cres.error || !cres.data || !cres.data.length) return loadAll();
             return openCustomer(cres.data[0]).then(function () {
               var here = state.orders.some(function (o) { return o.id === orderId; });
-              if (!here) return;
+              if (!here) return loadAll();
               state.selected[orderId] = true;
               paint();
             });
           });
       })
-      .catch(function () { return null; });
+      .catch(function () { return loadAll(); });
   }
 
   /* Creates a bill for one order without making the tailor open this page and
