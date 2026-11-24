@@ -53,8 +53,11 @@ window.ANT.measurements = (function () {
     error: null
   };
 
-  // A customer handed over by the Customers screen, consumed by render().
+  // A customer handed over by another screen, consumed by render(). Options can
+  // carry a dress type and ask that a saved measurement be put back on an order.
   var pendingCustomer = null;
+  var pendingOptions = null;
+  var returnToOrder = false;
 
   var custTimer = null;
 
@@ -391,6 +394,17 @@ window.ANT.measurements = (function () {
       }
       state.form = null;
       state.dressType = '';
+
+      // When this form was opened from an order, put the new measurement back
+      // on the row the tailor came from instead of dropping them here.
+      if (returnToOrder) {
+        returnToOrder = false;
+        var row = (res.data && (res.data.id ? res.data : res.data[0])) || {};
+        if (window.ANT.orders && typeof window.ANT.orders.resumeFromMeasurement === 'function') {
+          return window.ANT.orders.resumeFromMeasurement(row.id || null);
+        }
+      }
+
       toast('Measurement saved', 'success');
       loadHistory();
     });
@@ -659,30 +673,34 @@ window.ANT.measurements = (function () {
   }
 
   // Select the customer and put the new-measurement form straight on screen.
-  function applyCustomer(c) {
+  function applyCustomer(c, opts) {
     if (!c) return;
     state.customer = c;
     state.customerQuery = c.name || '';
     state.customers = [];
     state.form = 'new';
-    state.dressType = '';
+    // An order knows the garment already, so start on that dress type.
+    state.dressType = (opts && opts.dressType) || '';
     paint();
     loadHistory();
   }
 
   /* A Customers row action sends the person here. The customer is remembered
    * and the normal route change renders the page, so the tailor lands on the
-   * form with them already chosen. */
-  function focusCustomer(c) {
+   * form with them already chosen. An order can also ask for the saved row to
+   * be put straight back on the item it came from. */
+  function focusCustomer(c, opts) {
     if (!c) return Promise.resolve();
     pendingCustomer = c;
+    pendingOptions = opts || null;
+    returnToOrder = !!(opts && opts.returnToOrder);
     var here = (location.hash || '').replace(/^#\/?/, '').split('/')[0];
     if (here === 'measurements') return Promise.resolve(render());
     location.hash = '#/measurements';
     return Promise.resolve();
   }
 
-  return {
+  var api = {
     mount: function () {
       return '<div id="measurementsView"></div>';
     },
@@ -693,7 +711,10 @@ window.ANT.measurements = (function () {
 
     render: function () {
       var pending = pendingCustomer;
+      var opts = pendingOptions;
       pendingCustomer = null;
+      pendingOptions = null;
+      if (!pending) returnToOrder = false;
 
       state.search = '';
       state.customerQuery = '';
@@ -705,15 +726,22 @@ window.ANT.measurements = (function () {
       paint();
 
       if (!pending) return;
-      if (typeof pending !== 'string') return applyCustomer(pending);
+      if (typeof pending !== 'string') return applyCustomer(pending, opts);
       return sb().from('customers')
         .select('id,code,name,mobile')
         .eq('id', pending)
         .limit(1)
         .then(function (res) {
           if (res.error || !res.data || !res.data.length) return;
-          applyCustomer(res.data[0]);
+          applyCustomer(res.data[0], opts);
         });
     }
   };
+
+  // focusCustomer calls this directly when the browser is already here.
+  function render() {
+    return api.render();
+  }
+
+  return api;
 })();

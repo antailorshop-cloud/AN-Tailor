@@ -114,6 +114,9 @@ window.ANT.orders = (function () {
 
   var custTimer = null;
   var saveTimer = null;
+  // Set when a measurement saved on the Measurements page belongs on a row in
+  // this unsaved order. Consumed by render() once the route comes back here.
+  var pendingMeasurement = null;
 
   function me() {
     return window.ANT.auth.current() || {};
@@ -1028,7 +1031,11 @@ window.ANT.orders = (function () {
       });
       mCell = '<td>' + (state.measurements.length
         ? '<select class="ui-input" data-ord-item="' + i + '" data-f="measurement_id"' + roAttr() + '>' + mOpts.join('') + '</select>'
-        : '<span class="ord-fixed">No measurements</span>') + '</td>';
+        : '<span class="ord-fixed">No measurements</span>') +
+        (!state.readonly && state.formCustomer && state.formCustomer.id
+          ? '<button type="button" class="btn btn-sm btn-quiet ord-measure-btn" data-ord-measure="' + i + '">+ Add</button>'
+          : '') +
+        '</td>';
     }
 
     return '<tr>' +
@@ -1884,6 +1891,57 @@ window.ANT.orders = (function () {
       });
   }
 
+  /* The Measurements page saved a row for this order. Remember its id, then
+   * let the normal route change bring the tailor back here. */
+  function resumeFromMeasurement(measurementId) {
+    pendingMeasurement = measurementId || null;
+    var here = (location.hash || '').replace(/^#\/?/, '').split('/')[0];
+    if (here === 'orders') return render();
+    location.hash = '#/orders';
+    return Promise.resolve();
+  }
+
+  /* Put the unsaved order back exactly as it was, with the new measurement
+   * selected on the row it was asked from. Nothing here writes to the database:
+   * the tailor still presses Save order when the order is complete. */
+  function restoreDraft(measurementId) {
+    var draft = null;
+    try { draft = JSON.parse(sessionStorage.getItem('an-tailor-order-draft') || 'null'); } catch (e) {}
+    try { sessionStorage.removeItem('an-tailor-order-draft'); } catch (e) {}
+
+    if (!draft) return Promise.resolve();
+
+    state.form = draft.form || 'new';
+    state.readonly = !!draft.readonly;
+    state.formItems = (Array.isArray(draft.formItems) && draft.formItems.length)
+      ? draft.formItems : [blankItem()];
+    state.formCustomer = draft.formCustomer || null;
+    state.customerQuery = draft.customerQuery || '';
+    state.lastDelivery = draft.lastDelivery || '';
+    state.quickCustomerForm = false;
+    state.view = 'edit';
+    state.error = null;
+    state.saveError = '';
+
+    var idx = typeof draft.itemIndex === 'number' ? draft.itemIndex : 0;
+    if (measurementId && state.formItems[idx]) {
+      applyMeasurementToItem(state.formItems[idx], measurementId);
+      var floor = startingPriceFor(
+        state.formItems[idx].service, state.formItems[idx].dress_type, state.formItems[idx].lining
+      );
+      if (floor > 0 && num(state.formItems[idx].rate) < floor) state.formItems[idx].rate = floor;
+    }
+
+    var work = Promise.all([loadReference(), loadResale(), loadPrices()]);
+    if (state.formCustomer && state.formCustomer.id) {
+      work = work.then(function () { return loadMeasurements(state.formCustomer.id); });
+    }
+    return work.then(function () {
+      paint();
+      toast(measurementId ? 'Measurement saved and added to the order.' : 'Order restored.', 'success');
+    });
+  }
+
   function searchCustomers(term) {
     var t = String(term || '').trim();
     if (t.length < 1) return Promise.resolve();
@@ -2091,6 +2149,40 @@ window.ANT.orders = (function () {
     var qcForm = byId('ordQCSave');
     if (qcForm) qcForm.addEventListener('click', createInlineCustomer);
 
+    // Add a measurement for this customer without losing the rows already
+    // typed on this order. The draft is put back when the measurement is saved.
+    Array.prototype.forEach.call(document.querySelectorAll('[data-ord-measure]'), function (btn) {
+      btn.addEventListener('click', function () {
+        var i = parseInt(btn.getAttribute('data-ord-measure'), 10);
+        if (isNaN(i) || !state.formItems[i]) return;
+        if (!state.formCustomer || !state.formCustomer.id) {
+          return toast('Choose a customer first.', 'error');
+        }
+        readItems();
+        try {
+          sessionStorage.setItem('an-tailor-order-draft', JSON.stringify({
+            form: state.form,
+            formItems: state.formItems,
+            formCustomer: state.formCustomer,
+            customerQuery: state.customerQuery,
+            readonly: state.readonly,
+            lastDelivery: state.lastDelivery,
+            itemIndex: i,
+            dressType: state.formItems[i].dress_type || ''
+          }));
+        } catch (e) {}
+
+        if (window.ANT.measurements && typeof window.ANT.measurements.focusCustomer === 'function') {
+          window.ANT.measurements.focusCustomer(state.formCustomer, {
+            returnToOrder: true,
+            dressType: state.formItems[i].dress_type || ''
+          });
+        } else {
+          location.hash = '#/measurements';
+        }
+      });
+    });
+
     var applyDateAll = byId('ordApplyDateAll');
     if (applyDateAll) {
       applyDateAll.addEventListener('click', function () {
@@ -2279,7 +2371,7 @@ window.ANT.orders = (function () {
     loadOrders();
   }
 
-  return {
+  var api = {
     mount: function () {
       return '<div id="ordersView"></div>';
     },
@@ -2291,6 +2383,11 @@ window.ANT.orders = (function () {
       var pendingId = state.pendingCustomerId;
       state.pendingCustomer = null;
       state.pendingCustomerId = null;
+
+      var measure = pendingMeasurement;
+      pendingMeasurement = null;
+      // A draft left behind by a cancelled measurement detour is not wanted.
+      if (!measure) { try { sessionStorage.removeItem('an-tailor-order-draft'); } catch (e) {} }
 
       state.view = 'list';
       state.search = '';
@@ -2316,6 +2413,7 @@ window.ANT.orders = (function () {
         .then(loadWaShop)
         .then(function () { return loadOrders(); })
         .then(function () {
+          if (measure) return restoreDraft(measure);
           if (pending) return openNewForCustomer(pending);
           if (pendingId) {
             return loadCustomerById(pendingId).then(function (c) {
@@ -2336,6 +2434,9 @@ window.ANT.orders = (function () {
       location.hash = '#/orders';
       return Promise.resolve();
     },
+
+    // The Measurements page calls this after saving a row opened from an item.
+    resumeFromMeasurement: resumeFromMeasurement,
 
     // Lets another screen advance an order along the same straight line the
     // Orders page uses. The bench on the dashboard calls this so a status tap
@@ -2449,7 +2550,7 @@ window.ANT.orders = (function () {
       orderOnBill(id).then(function (onBill) {
         if (onBill) { saveStatus(id, next, cur, onDone, onFail, order); return; }
         if (onFail) onFail();
-        askForBill(order, id, next);
+        askForBill(order, id, next, cur, onDone, onFail);
       });
       return;
     }
@@ -2482,18 +2583,43 @@ window.ANT.orders = (function () {
       .catch(function () { return true; });
   }
 
-  /* The order is not on a bill: say so, and offer to open the Bills page with it
-   * already ticked so the bill is one more press and the status is set after. */
-  function askForBill(order, id, next) {
+  /* The order is not on a bill. The usual path is to make that one bill right
+   * here and then let the status through; if that cannot be done, the old route
+   * to the Bills page stays as the fallback. */
+  function askForBill(order, id, next, cur, onDone, onFail) {
     var code = (order && order.code) ? order.code : 'This order';
-    var go = confirm(code + ' is not on a bill yet.\n\n' +
-      'A bill is needed before the ' + next + ' message can carry it. ' +
-      'Create the bill first, then set ' + next + '.\n\n' +
-      'Open the Bills page with this order selected?');
-    if (!go) return;
     var bills = window.ANT && window.ANT.bills;
-    if (bills && typeof bills.focusOrder === 'function') bills.focusOrder(id);
-    else location.hash = '#/bills';
+    var go = window.confirm(code + ' is not on a bill yet.\n\n' +
+      'A bill is needed before the ' + next + ' message can carry it.\n\n' +
+      'OK = create a bill for this order now, then set ' + next + '.\n' +
+      'Cancel = open the Bills page with this order selected.');
+
+    if (!go || !bills || typeof bills.createForOrder !== 'function') {
+      if (bills && typeof bills.focusOrder === 'function') bills.focusOrder(id);
+      else location.hash = '#/bills';
+      return;
+    }
+
+    return bills.createForOrder(id).then(function (res) {
+      if (res && res.ok) {
+        toast((res.message || 'Bill created.') + ' Setting ' + next + '.', 'success');
+        saveStatus(id, next, cur, onDone, onFail, order);
+        return;
+      }
+      toast((res && res.error) || 'Bill could not be created.', 'error');
+      if (bills && typeof bills.focusOrder === 'function') bills.focusOrder(id);
+      else location.hash = '#/bills';
+    }).catch(function () {
+      if (bills && typeof bills.focusOrder === 'function') bills.focusOrder(id);
+      else location.hash = '#/bills';
+    });
   }
 
+  // The hand-off hooks call this when the browser is already on this page, so
+  // there is no route change to trigger a render for them.
+  function render() {
+    return api.render();
+  }
+
+  return api;
 })();

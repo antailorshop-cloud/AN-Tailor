@@ -2814,6 +2814,63 @@ window.ANT.bills = (function () {
       .catch(function () { return null; });
   }
 
+  /* Creates a bill for one order without making the tailor open this page and
+   * tick boxes. Used by the Finish/Delivery hold-back: the bill the message
+   * needs is made here, then the status can go through. Every write still goes
+   * through createBill, so the numbering, totals and rollback are unchanged. */
+  function createForOrder(orderId) {
+    if (!orderId) return Promise.resolve({ error: 'No order was given.' });
+
+    return sb().from('orders')
+      .select('customer_id')
+      .eq('id', orderId)
+      .limit(1)
+      .then(function (res) {
+        if (res.error || !res.data || !res.data.length) {
+          return { error: 'That order could not be found.' };
+        }
+        var customerId = res.data[0].customer_id;
+        if (!customerId) return { error: 'That order has no customer.' };
+
+        return sb().from('customers')
+          .select('id,code,name,mobile,address')
+          .eq('id', customerId)
+          .limit(1)
+          .then(function (cres) {
+            if (cres.error || !cres.data || !cres.data.length) {
+              return { error: 'The customer could not be found.' };
+            }
+            state.customer = cres.data[0];
+            state.selected = {};
+            state.notes = '';
+            state.editing = null;
+
+            return openCustomer(state.customer).then(function () {
+              var order = state.orders.filter(function (o) { return o.id === orderId; })[0];
+              if (!order) return { error: 'That order is not available for billing.' };
+              if (order.billed) return { error: 'That order is already on a bill.' };
+
+              state.selected[orderId] = true;
+              var totals = selectedTotals();
+              return paymentFromOrders([orderId])
+                .then(function (pay) { return createBill([orderId], totals, pay); })
+                .then(function (result) {
+                  state.selected = {};
+                  if (!result || result.failed) {
+                    return { error: (result && result.message) || 'The bill was not created.' };
+                  }
+                  return loadOrders().then(loadBills).then(function () {
+                    return { ok: true, message: result.message };
+                  });
+                });
+            });
+          });
+      })
+      .catch(function (e) {
+        return { error: (e && e.message) || 'The bill could not be created.' };
+      });
+  }
+
   /* Sent here from the Orders page when a Finish or Delivery was held back for
    * want of a bill. The order is remembered and applied once the page loads, so
    * the tailor lands on the customer with the order already ticked. */
@@ -2840,6 +2897,9 @@ window.ANT.bills = (function () {
     /* Opens this page on one order with it ticked, used by the same hold-back so
      * the bill is one press away. */
     focusOrder: focusOrder,
+    /* Creates the bill for one order in one press, then reports back so the
+     * status that was held back can go through. */
+    createForOrder: createForOrder,
     /* The order's bill, as a public PDF link, for the ready and delivered
      * messages. Draws the file first when it has never been shared, and returns
      * '' when the order is on no bill. */

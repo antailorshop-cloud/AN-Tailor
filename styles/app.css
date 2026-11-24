@@ -1644,6 +1644,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .ord-items-tools .ui-field { min-width: 180px; }
 .ord-items-tools .btn { margin-bottom: 1px; }
 
+.ord-measure-btn {
+  margin-top: 5px;
+}
+
 /* Inline new customer inside the order form. */
 .ord-new-cust {
   margin-top: var(--gap-sm);
