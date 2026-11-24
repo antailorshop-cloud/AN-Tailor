@@ -81,7 +81,9 @@ window.ANT.settings = (function () {
     'due_reminder_days', 'wa_bill_message', 'wa_reminder_message',
     'wa_ready_message', 'wa_delivered_message', 'bill_print_size', 'wa_bill_size',
     'receipt_print_size', 'gst_enabled', 'gstin', 'gst_state', 'gst_hsn',
-    'gst_cloth_rate', 'gst_cloth_items', 'gst_dress_hsn'];
+    'gst_cloth_rate', 'gst_cloth_items', 'gst_tailoring_rate',
+    'gst_resale_low_rate', 'gst_resale_high_rate', 'gst_garment_hsn',
+    'gst_service_sac'];
 
   var state = {
     tab: 'dress',
@@ -94,7 +96,8 @@ window.ANT.settings = (function () {
       wa_ready_message: '', wa_delivered_message: '', bill_print_size: '',
       wa_bill_size: '', receipt_print_size: '', gst_enabled: '0', gstin: '',
       gst_state: 'TN', gst_hsn: '', gst_cloth_rate: '', gst_cloth_items: '',
-      gst_dress_hsn: '' },
+      gst_tailoring_rate: '', gst_resale_low_rate: '', gst_resale_high_rate: '',
+      gst_garment_hsn: '', gst_service_sac: '' },
     staff: { rows: [], access: {}, loading: false, error: null },
     clear: { picked: {}, busy: false },
     exporting: false,
@@ -169,7 +172,8 @@ window.ANT.settings = (function () {
       wa_ready_message: '', wa_delivered_message: '', bill_print_size: '',
       wa_bill_size: '', receipt_print_size: '', gst_enabled: '0', gstin: '',
       gst_state: 'TN', gst_hsn: '', gst_cloth_rate: '', gst_cloth_items: '',
-      gst_dress_hsn: '' };
+      gst_tailoring_rate: '', gst_resale_low_rate: '', gst_resale_high_rate: '',
+      gst_garment_hsn: '', gst_service_sac: '' };
     rows.forEach(function (row) {
       if (SHOP_KEYS.indexOf(row.key) !== -1) {
         shop[row.key] = String(row.value == null ? '' : row.value);
@@ -633,27 +637,36 @@ window.ANT.settings = (function () {
 
   /* GST ------------------------------------------------------------------- */
 
-  // These rates are fixed by the shop's own rules, not typed into the database,
-  // so a mistyped digit cannot silently change what a customer is charged. The
-  // cloth rate is the one rate the owner sets, because it follows the HSN.
-  var GARMENT_LOW_RATE = 5;
-  var GARMENT_HIGH_RATE = 18;
+  /* The resale slab is the shop's fixed cut-off. Every rate is typed in by the
+   * Owner, so a mistyped digit cannot silently change what a customer is charged.
+   * GST stays off until every rate and code below is filled in. */
   var GARMENT_SLAB = 2500;
+
+  function gstRateProblem(value, label) {
+    var rate = String(value == null ? '' : value).trim();
+    if (!/^\d+(\.\d{1,2})?$/.test(rate) || parseFloat(rate) > 100) {
+      return 'Enter the ' + label + ' as a number from 0 to 100.';
+    }
+    return '';
+  }
 
   function gstProblem(s) {
     if (s.gst_enabled !== '1') return '';
     var gstin = String(s.gstin || '').toUpperCase().replace(/[^0-9A-Z]/g, '');
     if (gstin.length !== 15) return 'GSTIN must be 15 letters and digits.';
     if (s.gst_state !== 'TN' && s.gst_state !== 'OTHER') return 'Choose the place of supply.';
-    var rate = String(s.gst_cloth_rate || '').trim();
-    if (!/^\d+(\.\d{1,2})?$/.test(rate) || parseFloat(rate) > 100) {
-      return 'Enter the cloth GST rate, or 0 if cloth is exempt.';
+
+    var rateProblem = gstRateProblem(s.gst_tailoring_rate, 'tailoring and services GST rate') ||
+      gstRateProblem(s.gst_resale_low_rate, 'resale GST rate up to ' + money(GARMENT_SLAB)) ||
+      gstRateProblem(s.gst_resale_high_rate, 'resale GST rate above ' + money(GARMENT_SLAB)) ||
+      gstRateProblem(s.gst_cloth_rate, 'cloth GST rate');
+    if (rateProblem) return rateProblem;
+
+    if (!String(s.gst_service_sac || '').trim()) {
+      return 'Enter the SAC used for tailoring and all other services.';
     }
-    var dress = String(s.gst_dress_hsn || '').trim();
-    if (dress) {
-      var bad = dress.split(/[\n,;]/).map(function (line) { return line.trim(); })
-        .filter(function (line) { return !!line && !/^(.+?)\s*(?:[=:]\s*|\s+)(61|62)$/.test(line); });
-      if (bad.length) return 'Dress HSN lines must look like Shirt=62. Use 61 or 62 only.';
+    if (!String(s.gst_garment_hsn || '').trim()) {
+      return 'Enter the HSN used for ready-made garments.';
     }
     return '';
   }
@@ -687,12 +700,13 @@ window.ANT.settings = (function () {
       '</div>' +
       '<div class="ui-card" style="margin-bottom:16px">' +
         '<strong>Rates used</strong>' +
-        '<p class="ui-hint">Pure stitching, alterations and textile job work: 5% with SAC 9988, ' +
-          'whatever the stitching fee. Minor items such as thread, hooks or lining do not change it.</p>' +
-        '<p class="ui-hint">Stitched garments sold from your own fabric: HSN 61 or 62 by dress type, ' +
-          '5% up to ' + money(GARMENT_SLAB) + ' and 18% above. The slab is checked on the ' +
-          'post-discount price of each piece. Cloth sales use the HSN and rate set below. ' +
-          'Every rate is worked out of a GST-inclusive price, never added on top.</p>' +
+        '<p class="ui-hint">Tailoring and every other service use the tailoring rate with the ' +
+          'SAC typed below. Minor items such as thread, hooks or lining do not change it.</p>' +
+        '<p class="ui-hint">Resale ready-made garments use the lower rate up to ' +
+          money(GARMENT_SLAB) + ' and the higher rate above it, with the garment HSN typed ' +
+          'below. The slab is checked on the post-discount price of each piece. Resale items ' +
+          'named under cloth item names use the cloth HSN and rate instead.</p>' +
+        '<p class="ui-hint">Every rate is worked out of a GST-inclusive price, never added on top.</p>' +
         '<p class="ui-hint">' + (s.gst_state === 'OTHER'
           ? 'Other state: IGST is charged.'
           : 'Tamil Nadu: CGST and SGST are charged equally.') + '</p>' +
@@ -708,6 +722,10 @@ window.ANT.settings = (function () {
             { v: 'TN', t: 'Tamil Nadu - CGST + SGST' },
             { v: 'OTHER', t: 'Other state - IGST' }
           ], 'Tamil Nadu splits the tax into CGST and SGST; other states use IGST.') +
+          shopField('gstTailoringRate', 'Tailoring & services GST %', s.gst_tailoring_rate,
+            'Used on tailoring, Aari work, ironing, alterations and every other service. Use 0 when exempt.') +
+          shopField('gstServiceSac', 'SAC for tailoring & all other services', s.gst_service_sac,
+            'Printed beside the service tax line on orders and bills.') +
           shopField('gstHsn', 'HSN code for cloth', s.gst_hsn,
             'Printed beside the cloth tax line on the bill.') +
           shopField('gstClothRate', 'Cloth GST rate %', s.gst_cloth_rate,
@@ -715,10 +733,14 @@ window.ANT.settings = (function () {
           textareaField('gstClothItems', 'Cloth item names', s.gst_cloth_items,
             'One resale stock item name per line. Matching items are taxed as cloth; ' +
             'other resale items are ready-made garments.') +
-          textareaField('gstDressHsn', 'Garment HSN by dress type', s.gst_dress_hsn,
-            'One dress type per line, for example Shirt=62 or T-Shirt=61. ' +
-            'Use 61 for knitted garments and 62 for other garments. ' +
-            'Printed beside that garment\'s GST line on orders and bills.') +
+          shopField('gstResaleLowRate', 'Resale GST % up to ' + money(GARMENT_SLAB),
+            s.gst_resale_low_rate,
+            'Used when one resale piece costs ' + money(GARMENT_SLAB) + ' or less after discount. Use 0 when exempt.') +
+          shopField('gstResaleHighRate', 'Resale GST % above ' + money(GARMENT_SLAB),
+            s.gst_resale_high_rate,
+            'Used when one resale piece costs more than ' + money(GARMENT_SLAB) + ' after discount.') +
+          shopField('gstGarmentHsn', 'Garment HSN for resale', s.gst_garment_hsn,
+            'Printed beside the ready-made garment tax line on orders and bills.') +
         '</div>' +
         '<div class="form-actions">' +
           '<button type="submit" class="btn btn-primary">Save GST settings</button>' +
@@ -740,7 +762,11 @@ window.ANT.settings = (function () {
       gst_hsn: byId('gstHsn').value.trim(),
       gst_cloth_rate: byId('gstClothRate').value.trim(),
       gst_cloth_items: byId('gstClothItems').value.trim(),
-      gst_dress_hsn: byId('gstDressHsn').value.trim()
+      gst_tailoring_rate: byId('gstTailoringRate').value.trim(),
+      gst_resale_low_rate: byId('gstResaleLowRate').value.trim(),
+      gst_resale_high_rate: byId('gstResaleHighRate').value.trim(),
+      gst_garment_hsn: byId('gstGarmentHsn').value.trim(),
+      gst_service_sac: byId('gstServiceSac').value.trim()
     };
 
     var problem = gstProblem(draft);

@@ -177,11 +177,8 @@ window.ANT.bills = (function () {
 
   // GST is charged only when the Owner has switched it on and filled every
   // setting. A half-filled form never turns into a guessed rate: the bill prints
-  // as it always did until the settings are complete.
-  var GST_SERVICE_RATE = 5;
-  var SAC_SERVICE = '9988';
-  var GARMENT_LOW_RATE = 5;
-  var GARMENT_HIGH_RATE = 18;
+  // as it always did until the settings are complete. The slab is the shop's
+  // fixed resale cut-off; every rate is typed into Settings by the Owner.
   var GARMENT_SLAB = 2500;
 
   function gstRateText(value) {
@@ -199,7 +196,10 @@ window.ANT.bills = (function () {
     if (!shop || shop.gstEnabled !== '1') return false;
     if (gstinOf(shop).length !== 15) return false;
     if (shop.gstState !== 'TN' && shop.gstState !== 'OTHER') return false;
-    return gstRateText(shop.gstClothRate) !== null;
+    return gstRateText(shop.gstTailoringRate) !== null &&
+      gstRateText(shop.gstResaleLowRate) !== null &&
+      gstRateText(shop.gstResaleHighRate) !== null &&
+      gstRateText(shop.gstClothRate) !== null;
   }
 
   function clothNames(shop) {
@@ -209,33 +209,18 @@ window.ANT.bills = (function () {
       .filter(function (n) { return !!n; });
   }
 
-  /* HSN 61 and 62 are chosen per dress type by the Owner, not guessed from the
-   * dress name. The setting is plain text so it needs no table migration:
-   *
-   *   Shirt=62
-   *   T-Shirt=61
-   *
-   * A dress with no line simply prints without an HSN on its tax line. */
-  function dressHsnFor(dress, shop) {
-    var want = String(dress || '').trim().toLowerCase();
-    if (!want) return '';
-
-    var lines = String((shop && shop.gstDressHsn) || '').split(/[\n,;]/);
-    for (var i = 0; i < lines.length; i++) {
-      var m = /^\s*(.+?)\s*(?:[=:]\s*|\s+)(61|62)\s*$/.exec(lines[i]);
-      if (m && m[1].trim().toLowerCase() === want) return m[2];
-    }
-    return '';
-  }
-
   /* pieceNet is the price of one piece after the order discount has been spread
-   * over the line. The garment slab is tested on that figure, not on the typed
-   * rate: a ₹2,600 garment discounted by ₹200 is a ₹2,400 sale and takes 5%. */
+   * over the line. The resale slab is tested on that figure, not on the typed
+   * rate: a ₹2,600 garment discounted by ₹200 is a ₹2,400 sale and takes the
+   * lower rate. Dress type is no longer asked for on a resale row, so every
+   * ready-made garment uses the one HSN typed into Settings. */
   function gstRateForItem(it, shop, cloth, pieceNet) {
     if (String((it && it.service) || '') !== 'Resale') {
+      var sac = String((shop && shop.gstServiceSac) || '').trim();
       return {
-        label: 'Tailoring & stitching services', rate: GST_SERVICE_RATE,
-        code: SAC_SERVICE, codeType: 'SAC', hsn: '', sac: SAC_SERVICE
+        label: 'Tailoring & other services',
+        rate: gstRateText(shop && shop.gstTailoringRate),
+        code: sac, codeType: 'SAC', hsn: '', sac: sac
       };
     }
 
@@ -253,11 +238,12 @@ window.ANT.bills = (function () {
     }
 
     var piece = isFinite(pieceNet) ? pieceNet : num(it.rate);
-    var hsn = dressHsnFor(it && it.dress_type, shop);
+    var garmentHsn = String((shop && shop.gstGarmentHsn) || '').trim();
     return {
       label: 'Ready-made garments',
-      rate: piece > GARMENT_SLAB ? GARMENT_HIGH_RATE : GARMENT_LOW_RATE,
-      code: hsn, codeType: 'HSN', hsn: hsn, sac: ''
+      rate: gstRateText(piece > GARMENT_SLAB
+        ? (shop && shop.gstResaleHighRate) : (shop && shop.gstResaleLowRate)),
+      code: garmentHsn, codeType: 'HSN', hsn: garmentHsn, sac: ''
     };
   }
 
@@ -596,7 +582,9 @@ window.ANT.bills = (function () {
         var shop = { name: '', address: '', phone: '', email: '', instagram: '',
           upiId: '', payee: '', waBillMessage: '', waReminderMessage: '',
           printSize: '', waPrintSize: '', gstEnabled: '', gstin: '', gstState: '',
-          gstHsn: '', gstClothRate: '', gstClothItems: '', gstDressHsn: '' };
+          gstHsn: '', gstClothRate: '', gstClothItems: '',
+          gstTailoringRate: '', gstResaleLowRate: '', gstResaleHighRate: '',
+          gstGarmentHsn: '', gstServiceSac: '' };
 
         if (!res.error && res.data) {
           res.data.forEach(function (row) {
@@ -617,7 +605,11 @@ window.ANT.bills = (function () {
             else if (row.key === 'gst_hsn') shop.gstHsn = row.value || '';
             else if (row.key === 'gst_cloth_rate') shop.gstClothRate = row.value || '';
             else if (row.key === 'gst_cloth_items') shop.gstClothItems = row.value || '';
-            else if (row.key === 'gst_dress_hsn') shop.gstDressHsn = row.value || '';
+            else if (row.key === 'gst_tailoring_rate') shop.gstTailoringRate = row.value || '';
+            else if (row.key === 'gst_resale_low_rate') shop.gstResaleLowRate = row.value || '';
+            else if (row.key === 'gst_resale_high_rate') shop.gstResaleHighRate = row.value || '';
+            else if (row.key === 'gst_garment_hsn') shop.gstGarmentHsn = row.value || '';
+            else if (row.key === 'gst_service_sac') shop.gstServiceSac = row.value || '';
           });
         }
 
