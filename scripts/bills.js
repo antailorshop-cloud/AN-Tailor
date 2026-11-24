@@ -179,6 +179,7 @@ window.ANT.bills = (function () {
   // setting. A half-filled form never turns into a guessed rate: the bill prints
   // as it always did until the settings are complete.
   var GST_SERVICE_RATE = 5;
+  var SAC_SERVICE = '9988';
   var GARMENT_LOW_RATE = 5;
   var GARMENT_HIGH_RATE = 18;
   var GARMENT_SLAB = 2500;
@@ -208,9 +209,34 @@ window.ANT.bills = (function () {
       .filter(function (n) { return !!n; });
   }
 
-  function gstRateForItem(it, shop, cloth) {
+  /* HSN 61 and 62 are chosen per dress type by the Owner, not guessed from the
+   * dress name. The setting is plain text so it needs no table migration:
+   *
+   *   Shirt=62
+   *   T-Shirt=61
+   *
+   * A dress with no line simply prints without an HSN on its tax line. */
+  function dressHsnFor(dress, shop) {
+    var want = String(dress || '').trim().toLowerCase();
+    if (!want) return '';
+
+    var lines = String((shop && shop.gstDressHsn) || '').split(/[\n,;]/);
+    for (var i = 0; i < lines.length; i++) {
+      var m = /^\s*(.+?)\s*(?:[=:]\s*|\s+)(61|62)\s*$/.exec(lines[i]);
+      if (m && m[1].trim().toLowerCase() === want) return m[2];
+    }
+    return '';
+  }
+
+  /* pieceNet is the price of one piece after the order discount has been spread
+   * over the line. The garment slab is tested on that figure, not on the typed
+   * rate: a ₹2,600 garment discounted by ₹200 is a ₹2,400 sale and takes 5%. */
+  function gstRateForItem(it, shop, cloth, pieceNet) {
     if (String((it && it.service) || '') !== 'Resale') {
-      return { label: 'Tailoring & stitching services', rate: GST_SERVICE_RATE, hsn: '' };
+      return {
+        label: 'Tailoring & stitching services', rate: GST_SERVICE_RATE,
+        code: SAC_SERVICE, codeType: 'SAC', hsn: '', sac: SAC_SERVICE
+      };
     }
 
     var name = String((it && (it.variant || it.dress_type)) || '').toLowerCase();
@@ -218,21 +244,20 @@ window.ANT.bills = (function () {
       return name === n || name.indexOf(n) !== -1;
     });
     if (clothHit) {
+      var clothHsn = String(shop.gstHsn || '').trim();
       return {
         label: 'Cloth sales',
         rate: gstRateText(shop.gstClothRate),
-        hsn: String(shop.gstHsn || '').trim()
+        code: clothHsn, codeType: 'HSN', hsn: clothHsn, sac: ''
       };
     }
 
-    // The garment slab is per piece, so a line of three uses the price of one.
-    var piece = num(it.rate) > 0
-      ? num(it.rate)
-      : (num(it.quantity) > 0 ? num(it.line_total) / num(it.quantity) : num(it.line_total));
+    var piece = isFinite(pieceNet) ? pieceNet : num(it.rate);
+    var hsn = dressHsnFor(it && it.dress_type, shop);
     return {
       label: 'Ready-made garments',
       rate: piece > GARMENT_SLAB ? GARMENT_HIGH_RATE : GARMENT_LOW_RATE,
-      hsn: ''
+      code: hsn, codeType: 'HSN', hsn: hsn, sac: ''
     };
   }
 
@@ -260,17 +285,21 @@ window.ANT.bills = (function () {
         var net = round2(num(it.line_total) * ratio);
         if (!net) return;
 
-        var info = gstRateForItem(it, shop, cloth);
+        var qty = num(it.quantity);
+        var pieceNet = qty > 0 ? net / qty : net;
+        var info = gstRateForItem(it, shop, cloth, pieceNet);
         // Never charge a rate that was not configured.
         if (info.rate == null) return;
 
         // Inclusive arithmetic: ₹1,000 at 5% is ₹952.38 taxable and ₹47.62 GST.
         var taxable = round2(net / (1 + info.rate / 100));
         var tax = round2(net - taxable);
-        var key = info.label + '|' + info.rate + '|' + info.hsn;
+        var key = info.label + '|' + info.rate + '|' + info.codeType + '|' + info.code;
         if (!groups[key]) {
           groups[key] = {
-            label: info.label, rate: info.rate, hsn: info.hsn,
+            label: info.label, rate: info.rate,
+            code: info.code, codeType: info.codeType,
+            hsn: info.hsn, sac: info.sac,
             taxable: 0, tax: 0
           };
         }
@@ -567,7 +596,7 @@ window.ANT.bills = (function () {
         var shop = { name: '', address: '', phone: '', email: '', instagram: '',
           upiId: '', payee: '', waBillMessage: '', waReminderMessage: '',
           printSize: '', waPrintSize: '', gstEnabled: '', gstin: '', gstState: '',
-          gstHsn: '', gstClothRate: '', gstClothItems: '' };
+          gstHsn: '', gstClothRate: '', gstClothItems: '', gstDressHsn: '' };
 
         if (!res.error && res.data) {
           res.data.forEach(function (row) {
@@ -588,6 +617,7 @@ window.ANT.bills = (function () {
             else if (row.key === 'gst_hsn') shop.gstHsn = row.value || '';
             else if (row.key === 'gst_cloth_rate') shop.gstClothRate = row.value || '';
             else if (row.key === 'gst_cloth_items') shop.gstClothItems = row.value || '';
+            else if (row.key === 'gst_dress_hsn') shop.gstDressHsn = row.value || '';
           });
         }
 
@@ -1052,6 +1082,17 @@ window.ANT.bills = (function () {
     return '<span class="chip ' + kind + '">' + esc(status || 'Pending') + '</span>';
   }
 
+  // One wording for a tax line, shared by the on-screen summary and the printed
+  // bill. Old snapshots kept only hsn; newer ones carry code and codeType, so
+  // both shapes read the same way here.
+  function taxLineLabel(l) {
+    var label = l.label + ' ' + num(l.rate) + '%';
+    var code = l.code || l.hsn || l.sac || '';
+    var kind = l.codeType || (l.sac && !l.hsn ? 'SAC' : (code ? 'HSN' : ''));
+    if (code && kind) label += ' ' + kind + ' ' + code;
+    return label;
+  }
+
   function summaryCard() {
     var ids = selectedIds();
     if (!ids.length) return '';
@@ -1062,9 +1103,7 @@ window.ANT.bills = (function () {
       : '';
     var taxDetail = t.gst
       ? (t.gst.lines || []).map(function (l) {
-          var label = l.label + ' ' + num(l.rate) + '%';
-          if (l.hsn) label += ' (HSN ' + l.hsn + ')';
-          return label + ': ' + money(l.tax) + ' included';
+          return taxLineLabel(l) + ': ' + money(l.tax) + ' included';
         }).join(' \u00b7 ')
       : '';
 
@@ -2270,8 +2309,7 @@ window.ANT.bills = (function () {
             ? '<div><span class="label">Taxable Amount</span><span class="val">' +
                 money(snap.bill.taxable) + '</span></div>' +
               (tax.lines || []).map(function (l) {
-                var label = l.label + ' ' + num(l.rate) + '% (included)';
-                if (l.hsn) label += ' HSN ' + l.hsn;
+                var label = taxLineLabel(l) + ' (included)';
                 return '<div><span class="label">' + esc(label) + '</span><span class="val">' +
                   money(l.tax) + '</span></div>';
               }).join('') +
@@ -3479,6 +3517,7 @@ window.ANT.bills = (function () {
     // Exposed so the GST arithmetic can be checked without saving a live bill,
     // and so the Orders page can show the same breakdown before a bill exists.
     gstForOrders: gstForOrders,
+    taxLineLabel: taxLineLabel,
     __gstForOrders: gstForOrders,
     __computeTotals: computeTotals,
     __gstReady: gstReady,

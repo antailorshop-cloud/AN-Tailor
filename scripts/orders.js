@@ -101,7 +101,7 @@ window.ANT.orders = (function () {
     // because it belongs to the list as well as the order.
     waShop: { name: '', waReadyMessage: '', upiId: '', payee: '',
       gstEnabled: '', gstin: '', gstState: '', gstHsn: '',
-      gstClothRate: '', gstClothItems: '' },
+      gstClothRate: '', gstClothItems: '', gstDressHsn: '' },
     saving: false,
     saveError: '',
     // Carried from the Customers screen into the next New order form, so the
@@ -415,6 +415,7 @@ window.ANT.orders = (function () {
           else if (row.key === 'gst_hsn') shop.gstHsn = row.value || '';
           else if (row.key === 'gst_cloth_rate') shop.gstClothRate = row.value || '';
           else if (row.key === 'gst_cloth_items') shop.gstClothItems = row.value || '';
+          else if (row.key === 'gst_dress_hsn') shop.gstDressHsn = row.value || '';
         });
         state.waShop = shop;
       });
@@ -953,7 +954,8 @@ window.ANT.orders = (function () {
 
     return '<div class="ui-card">' +
       '<h2 class="ui-card-title">Items</h2>' +
-      '<p class="ui-card-sub">One row per garment. The rate box suggests your price list, but the agreed rate is what counts.</p>' +
+      '<p class="ui-card-sub">One row per garment. The rate box suggests your price list, but the agreed rate is what counts. ' +
+      'On a Resale row, choose the dress type so the right HSN is printed.</p>' +
       (!anyDress
         ? '<div class="empty"><div class="empty-title">No dress types yet</div>' +
           '<p class="empty-text">Add dress types under Settings first, then come back and build the order.</p></div>'
@@ -990,7 +992,7 @@ window.ANT.orders = (function () {
 
   // The columns a row shows depend on the service, matching the legacy editor:
   //   Tailoring  -> dress, lining, measurement
-  //   Resale     -> stock item only, with the rate taken from its sell price
+  //   Resale     -> stock item and dress type for HSN, rate from its sell price
   //   anything else (Aari Work, Ironing, Saree Pre-Pleating, Alteration,
   //   Embroidery) -> dress and delivery date, with no lining or measurement,
   //   because none of them describe a garment being cut
@@ -999,27 +1001,24 @@ window.ANT.orders = (function () {
     var tailoring = isTailoring(service);
     var resale = isResale(service);
 
-    var dressCell;
-    if (resale) {
-      dressCell = '<td class="ord-na">—</td>';
-    } else {
-      var dressOpts = ['<option value="">Choose a dress</option>'];
-      ['Gents', 'Ladies', 'Other'].forEach(function (cat) {
-        if (!groups[cat].length) return;
-        dressOpts.push('<optgroup label="' + esc(cat) + '">');
-        groups[cat].forEach(function (name) {
-          dressOpts.push('<option value="' + esc(name) + '"' + (name === it.dress_type ? ' selected' : '') + '>' + esc(name) + '</option>');
-        });
-        dressOpts.push('</optgroup>');
+    // Every row carries a dress type. On a Resale row it is not for cutting or a
+    // measurement - it is how the app finds HSN 61 or 62 for that garment.
+    var dressOpts = ['<option value="">Choose a dress</option>'];
+    ['Gents', 'Ladies', 'Other'].forEach(function (cat) {
+      if (!groups[cat].length) return;
+      dressOpts.push('<optgroup label="' + esc(cat) + '">');
+      groups[cat].forEach(function (name) {
+        dressOpts.push('<option value="' + esc(name) + '"' + (name === it.dress_type ? ' selected' : '') + '>' + esc(name) + '</option>');
       });
+      dressOpts.push('</optgroup>');
+    });
 
-      // A chosen measurement already names the garment, so the box is shown
-      // filled in rather than asking the tailor to repeat themselves.
-      dressCell = '<td>' + (it.measurement_id
-        ? '<span class="ord-fixed">' + esc(it.dress_type || 'From measurement') + '</span>'
-        : '<select class="ui-input" data-ord-item="' + i + '" data-f="dress_type"' + roAttr() + '>' + dressOpts.join('') + '</select>') +
-        '</td>';
-    }
+    // A chosen measurement already names the garment, so the box is shown
+    // filled in rather than asking the tailor to repeat themselves.
+    var dressCell = '<td>' + (!resale && it.measurement_id
+      ? '<span class="ord-fixed">' + esc(it.dress_type || 'From measurement') + '</span>'
+      : '<select class="ui-input" data-ord-item="' + i + '" data-f="dress_type"' + roAttr() + '>' + dressOpts.join('') + '</select>') +
+      '</td>';
 
     var liningCell = '<td class="ord-na">—</td>';
     if (tailoring) {
@@ -1119,8 +1118,9 @@ window.ANT.orders = (function () {
         ? '<div class="ord-total ord-total-gst" data-total="taxable"><span>Taxable amount</span>' +
             '<strong>' + money(tax.taxable) + '</strong></div>' +
           (tax.lines || []).map(function (l, i) {
-            var label = l.label + ' ' + num(l.rate) + '%';
-            if (l.hsn) label += ' (HSN ' + l.hsn + ')';
+            var label = window.ANT.bills && typeof window.ANT.bills.taxLineLabel === 'function'
+              ? window.ANT.bills.taxLineLabel(l)
+              : (l.label + ' ' + num(l.rate) + '%');
             return '<div class="ord-total ord-total-gst" data-total="gst-line-' + i + '">' +
               '<span>GST included: ' + esc(label) + '</span>' +
               '<strong>' + money(l.tax) + '</strong></div>';

@@ -81,7 +81,7 @@ window.ANT.settings = (function () {
     'due_reminder_days', 'wa_bill_message', 'wa_reminder_message',
     'wa_ready_message', 'wa_delivered_message', 'bill_print_size', 'wa_bill_size',
     'receipt_print_size', 'gst_enabled', 'gstin', 'gst_state', 'gst_hsn',
-    'gst_cloth_rate', 'gst_cloth_items'];
+    'gst_cloth_rate', 'gst_cloth_items', 'gst_dress_hsn'];
 
   var state = {
     tab: 'dress',
@@ -93,7 +93,8 @@ window.ANT.settings = (function () {
       due_reminder_days: '', wa_bill_message: '', wa_reminder_message: '',
       wa_ready_message: '', wa_delivered_message: '', bill_print_size: '',
       wa_bill_size: '', receipt_print_size: '', gst_enabled: '0', gstin: '',
-      gst_state: 'TN', gst_hsn: '', gst_cloth_rate: '', gst_cloth_items: '' },
+      gst_state: 'TN', gst_hsn: '', gst_cloth_rate: '', gst_cloth_items: '',
+      gst_dress_hsn: '' },
     staff: { rows: [], access: {}, loading: false, error: null },
     clear: { picked: {}, busy: false },
     exporting: false,
@@ -167,7 +168,8 @@ window.ANT.settings = (function () {
       due_reminder_days: '', wa_bill_message: '', wa_reminder_message: '',
       wa_ready_message: '', wa_delivered_message: '', bill_print_size: '',
       wa_bill_size: '', receipt_print_size: '', gst_enabled: '0', gstin: '',
-      gst_state: 'TN', gst_hsn: '', gst_cloth_rate: '', gst_cloth_items: '' };
+      gst_state: 'TN', gst_hsn: '', gst_cloth_rate: '', gst_cloth_items: '',
+      gst_dress_hsn: '' };
     rows.forEach(function (row) {
       if (SHOP_KEYS.indexOf(row.key) !== -1) {
         shop[row.key] = String(row.value == null ? '' : row.value);
@@ -647,6 +649,12 @@ window.ANT.settings = (function () {
     if (!/^\d+(\.\d{1,2})?$/.test(rate) || parseFloat(rate) > 100) {
       return 'Enter the cloth GST rate, or 0 if cloth is exempt.';
     }
+    var dress = String(s.gst_dress_hsn || '').trim();
+    if (dress) {
+      var bad = dress.split(/[\n,;]/).map(function (line) { return line.trim(); })
+        .filter(function (line) { return !!line && !/^(.+?)\s*(?:[=:]\s*|\s+)(61|62)$/.test(line); });
+      if (bad.length) return 'Dress HSN lines must look like Shirt=62. Use 61 or 62 only.';
+    }
     return '';
   }
 
@@ -679,10 +687,12 @@ window.ANT.settings = (function () {
       '</div>' +
       '<div class="ui-card" style="margin-bottom:16px">' +
         '<strong>Rates used</strong>' +
-        '<p class="ui-hint">Tailoring and stitching services: 5%. Ready-made garments: ' +
-          '5% up to ' + money(GARMENT_SLAB) + ' per piece and 18% above. ' +
-          'Cloth sales: the HSN and rate set below. Each rate is worked out of a ' +
-          'GST-inclusive price, not charged in addition to it.</p>' +
+        '<p class="ui-hint">Pure stitching, alterations and textile job work: 5% with SAC 9988, ' +
+          'whatever the stitching fee. Minor items such as thread, hooks or lining do not change it.</p>' +
+        '<p class="ui-hint">Stitched garments sold from your own fabric: HSN 61 or 62 by dress type, ' +
+          '5% up to ' + money(GARMENT_SLAB) + ' and 18% above. The slab is checked on the ' +
+          'post-discount price of each piece. Cloth sales use the HSN and rate set below. ' +
+          'Every rate is worked out of a GST-inclusive price, never added on top.</p>' +
         '<p class="ui-hint">' + (s.gst_state === 'OTHER'
           ? 'Other state: IGST is charged.'
           : 'Tamil Nadu: CGST and SGST are charged equally.') + '</p>' +
@@ -705,6 +715,10 @@ window.ANT.settings = (function () {
           textareaField('gstClothItems', 'Cloth item names', s.gst_cloth_items,
             'One resale stock item name per line. Matching items are taxed as cloth; ' +
             'other resale items are ready-made garments.') +
+          textareaField('gstDressHsn', 'Garment HSN by dress type', s.gst_dress_hsn,
+            'One dress type per line, for example Shirt=62 or T-Shirt=61. ' +
+            'Use 61 for knitted garments and 62 for other garments. ' +
+            'Printed beside that garment\'s GST line on orders and bills.') +
         '</div>' +
         '<div class="form-actions">' +
           '<button type="submit" class="btn btn-primary">Save GST settings</button>' +
@@ -725,7 +739,8 @@ window.ANT.settings = (function () {
       gst_state: byId('gstState').value,
       gst_hsn: byId('gstHsn').value.trim(),
       gst_cloth_rate: byId('gstClothRate').value.trim(),
-      gst_cloth_items: byId('gstClothItems').value.trim()
+      gst_cloth_items: byId('gstClothItems').value.trim(),
+      gst_dress_hsn: byId('gstDressHsn').value.trim()
     };
 
     var problem = gstProblem(draft);
