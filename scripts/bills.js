@@ -763,7 +763,7 @@ window.ANT.bills = (function () {
       '</tr></thead><tbody>' + state.allBills.map(function (b) {
         return historyRow(b, true);
       }).join('') + '</tbody></table>' +
-      (isOwner() ? '' : '<p class="pay-hint">Editing and archiving a bill is limited to the Owner.</p>') +
+      (isOwner() ? '' : '<p class="pay-hint">Editing, archiving and deleting a bill is limited to the Owner.</p>') +
       '</div>' + allPager();
   }
 
@@ -905,7 +905,7 @@ window.ANT.bills = (function () {
       '<th>Bill</th><th>Date</th><th class="num">Bill amount</th><th class="num">Balance</th>' +
       '<th>Paid by</th><th>Paid on</th><th></th>' +
       '</tr></thead><tbody>' + state.bills.map(historyRow).join('') + '</tbody></table>' +
-      (owner ? '' : '<p class="pay-hint">Editing and archiving a bill is limited to the Owner.</p>') +
+      (owner ? '' : '<p class="pay-hint">Editing, archiving and deleting a bill is limited to the Owner.</p>') +
       '</div>';
   }
 
@@ -952,7 +952,8 @@ window.ANT.bills = (function () {
       '<button class="btn btn-sm btn-secondary" data-bill-print="' + esc(b.id) + '">Print</button>' +
       (owner
         ? ' <button class="btn btn-sm btn-secondary" data-bill-edit="' + esc(b.id) + '">Edit</button>' +
-          ' <button class="btn btn-sm btn-secondary" data-bill-archive="' + esc(b.id) + '">Archive</button>'
+          ' <button class="btn btn-sm btn-secondary" data-bill-archive="' + esc(b.id) + '">Archive</button>' +
+          ' <button class="btn btn-sm btn-danger" data-bill-del="' + esc(b.id) + '">Delete</button>'
         : '') +
       '</td></tr>';
   }
@@ -1329,6 +1330,56 @@ window.ANT.bills = (function () {
         state.page = 0;
         return reloadCurrent();
       });
+  }
+
+  /* Deletes a bill outright. Owner only: the database policy is owner-only too,
+   * and bill_orders cascade with the bill, which frees those orders for a new
+   * bill without a separate repair step. */
+  function deleteBill(billId) {
+    if (!isOwner()) {
+      toast('Only the Owner can delete a bill.', 'error');
+      return Promise.resolve();
+    }
+
+    var bill = billFor(billId);
+    if (!bill) {
+      toast('That bill is not on this page.', 'error');
+      return Promise.resolve();
+    }
+
+    if (!window.confirm('Delete bill ' + bill.code + '?\n\n' +
+      'This removes the bill and frees its orders for billing again. ' +
+      'This cannot be undone.')) return Promise.resolve();
+
+    if (state.editing && state.editing.id === billId) closeEdit();
+
+    return sb().from('bills')
+      .delete()
+      .eq('id', billId)
+      .select('id')
+      .then(function (res) {
+        if (res.error || !res.data || !res.data.length) {
+          toast('The bill could not be deleted: ' + reason(res), 'error');
+          return null;
+        }
+        return removeStoredBillPdf(bill).then(function () {
+          toast('Bill ' + bill.code + ' deleted.', 'success');
+          state.page = 0;
+          state.allPage = 0;
+          return reloadCurrent().then(refreshStorage);
+        });
+      })
+      .catch(function (e) {
+        toast('The bill could not be deleted: ' + ((e && e.message) || 'the request failed.'), 'error');
+        return null;
+      });
+  }
+
+  function removeStoredBillPdf(bill) {
+    if (!bill || !sb().storage) return Promise.resolve();
+    return sb().storage.from(PDF_BUCKET)
+      .remove([pdfPath(bill.id)])
+      .catch(function () { return null; });
   }
 
   /* Printing ------------------------------------------------------------- */
@@ -2910,6 +2961,12 @@ window.ANT.bills = (function () {
     each('[data-bill-archive]', function (b) {
       b.addEventListener('click', function () {
         archive(b.getAttribute('data-bill-archive'));
+      });
+    });
+
+    each('[data-bill-del]', function (b) {
+      b.addEventListener('click', function () {
+        deleteBill(b.getAttribute('data-bill-del'));
       });
     });
 

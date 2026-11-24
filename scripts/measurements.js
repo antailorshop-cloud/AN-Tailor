@@ -353,6 +353,7 @@ window.ANT.measurements = (function () {
           (global && cust && cust.id
             ? '<button class="btn btn-sm btn-quiet" data-msr-open-cust="' + esc(cust.id) + '">Open customer</button>'
             : '') +
+          '<button class="btn btn-sm btn-secondary" data-msr-edit="' + esc(m.id) + '">Edit</button>' +
           '<button class="btn btn-sm btn-secondary" data-msr-copy="' + esc(m.id) + '">Copy to new</button>' +
           (isOwner()
             ? '<button class="btn btn-sm btn-danger" data-msr-del="' + esc(m.id) + '">Delete</button>'
@@ -656,6 +657,40 @@ window.ANT.measurements = (function () {
     return s;
   }
 
+  /* Puts a saved measurement back on the form so a wrong entry can be fixed in
+   * place. From the all-records view the row's customer is opened first, because
+   * the form lives in that customer's detail section. */
+  function editMeasurement(id) {
+    var row = findRow(id);
+    if (!row) return toast('That measurement is not on this page.', 'error');
+
+    // An explicit edit is not part of an order's "add measurement" detour.
+    returnToOrder = false;
+
+    var ready = Promise.resolve();
+    if (!state.customer || state.customer.id !== row.customer_id) {
+      var c = customerFor(row.customer_id);
+      if (!c) {
+        return toast('Open this customer first, then edit the measurement.', 'error');
+      }
+      state.customer = c;
+      state.customerQuery = c.name || '';
+      state.customers = [];
+      state.form = null;
+      state.dressType = '';
+      paint();
+      ready = loadHistory();
+    }
+
+    return ready.then(function () {
+      state.form = id;
+      state.dressType = row.dress_type || '';
+      paint();
+      var card = byId('msrFormCard');
+      if (card && typeof card.scrollIntoView === 'function') card.scrollIntoView({ block: 'nearest' });
+    });
+  }
+
   /* Events ------------------------------------------------------------- */
 
   function wire() {
@@ -771,6 +806,12 @@ window.ANT.measurements = (function () {
         if (atEnd) {
           try { input.setSelectionRange(cleaned.length, cleaned.length); } catch (err) {}
         }
+      });
+    });
+
+    Array.prototype.forEach.call(document.querySelectorAll('[data-msr-edit]'), function (btn) {
+      btn.addEventListener('click', function () {
+        editMeasurement(btn.getAttribute('data-msr-edit'));
       });
     });
 
