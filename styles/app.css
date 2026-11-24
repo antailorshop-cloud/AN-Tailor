@@ -1206,6 +1206,23 @@ button, input, select, textarea { font: inherit; color: inherit; }
   color: var(--text-muted);
 }
 
+.msr-block-customer {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 2px;
+  color: var(--brand-gold);
+  font-weight: 700;
+}
+
+.msr-block-customer-meta {
+  font-size: var(--fs-sm);
+  font-family: var(--font-mono);
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
 .msr-block-actions {
   display: flex;
   align-items: center;

@@ -47,7 +47,11 @@ window.ANT.measurements = (function () {
     customer: null,      // the chosen customer row
     customerQuery: '',
     dressType: '',
-    history: [],
+    history: [],         // measurements of the chosen customer
+    allHistory: [],      // measurements across every customer, for the default view
+    allCustomers: [],    // used to label the global list with a customer name
+    allLoading: false,
+    allError: null,
     form: null,          // null = closed, 'new', or a measurement row
     loading: false,
     error: null
@@ -87,10 +91,9 @@ window.ANT.measurements = (function () {
   /* Loading ------------------------------------------------------------ */
 
   function loadHistory() {
-    if (!state.customer) {
-      state.history = [];
-      return Promise.resolve();
-    }
+    // With no customer chosen the page shows every measurement, so the same
+    // reload call is used after a delete made from the global list.
+    if (!state.customer) return loadAll();
 
     state.loading = true;
     paint();
@@ -112,9 +115,78 @@ window.ANT.measurements = (function () {
       });
   }
 
+  /* The default view lists all measurements, newest first. Rows are paged so a
+   * busy shop still sees older records, and customers are fetched separately so
+   * a failed name lookup can never hide the measurements themselves. */
+  function loadAll() {
+    state.allLoading = true;
+    state.allError = null;
+    paint();
+
+    return Promise.all([loadAllCustomers(), loadAllRows()]).then(function (result) {
+      state.allCustomers = result[0];
+      state.allHistory = result[1].rows;
+      state.allError = result[1].error;
+      state.allLoading = false;
+      paint();
+    });
+  }
+
+  function loadAllCustomers() {
+    return sb().from('customers')
+      .select('id,code,name,mobile')
+      .order('name', true)
+      .then(function (res) {
+        return (!res.error && res.data) ? res.data : [];
+      });
+  }
+
+  function loadAllRows() {
+    var size = 500;
+    var from = 0;
+    var rows = [];
+    var seen = {};
+    var pages = 0;
+
+    function nextPage() {
+      return sb().from('measurements')
+        .select('*')
+        .order('created_at', false)
+        .range(from, from + size - 1)
+        .then(function (res) {
+          if (res.error) throw res.error;
+          var page = res.data || [];
+          var added = 0;
+          page.forEach(function (r) {
+            if (r && r.id && !seen[r.id]) {
+              seen[r.id] = true;
+              rows.push(r);
+              added++;
+            }
+          });
+
+          // A short page is the end. An empty repeat also ends a paged source
+          // that keeps handing back the same rows, so it cannot loop forever.
+          if (page.length < size || added === 0 || ++pages >= 100) {
+            return { rows: rows, error: null };
+          }
+          from += size;
+          return nextPage();
+        });
+    }
+
+    return nextPage().catch(function (e) {
+      return { rows: rows, error: (e && e.message) || 'The measurements could not be loaded.' };
+    });
+  }
+
   function searchCustomers(term) {
     var t = String(term || '').trim();
-    if (t.length < 1) return Promise.resolve();
+    if (t.length < 1) {
+      state.customers = [];
+      paint();
+      return Promise.resolve();
+    }
 
     // The term itself is the filter. It used to be gated on state.search, which
     // is the (unrelated, always empty) list filter, so typing never narrowed
@@ -140,7 +212,7 @@ window.ANT.measurements = (function () {
   function paint() {
     var host = byId('measurementsView');
     if (!host) return;
-    host.innerHTML = pageHead() + picker() + (state.customer ? detail() : hint());
+    host.innerHTML = pageHead() + picker() + (state.customer ? detail() : allCard());
     wire();
   }
 
@@ -153,11 +225,30 @@ window.ANT.measurements = (function () {
     '</div>';
   }
 
-  function hint() {
-    return '<div class="ui-card"><div class="empty">' +
-      '<div class="empty-title">Choose a customer</div>' +
-      '<p class="empty-text">Search above by name, mobile or code to open their measurements.</p>' +
-    '</div></div>';
+  /* Default view: every saved measurement, with the customer named on each
+   * block. Searching above still narrows the page to one customer's detail. */
+  function allCard() {
+    if (state.allError) return errorCard(state.allError);
+
+    var rows = state.allHistory;
+
+    if (state.allLoading && !rows.length) {
+      return '<div class="ui-card"><div class="empty"><div class="empty-title">Loading measurements...</div></div></div>';
+    }
+
+    if (!rows.length) {
+      return '<div class="ui-card"><div class="empty">' +
+        '<div class="empty-title">No measurements yet</div>' +
+        '<p class="empty-text">Search above to choose a customer, then record their first measurement.</p>' +
+      '</div></div>';
+    }
+
+    return '<div class="ui-card">' +
+      '<h2 class="ui-card-title">All measurements</h2>' +
+      '<p class="ui-card-sub">' + rows.length + (rows.length === 1 ? ' record' : ' records') +
+        ', newest first across every customer. Search above to open one customer’s history.</p>' +
+      rows.map(function (m) { return historyBlock(m, true); }).join('') +
+    '</div>';
   }
 
   function picker() {
@@ -190,17 +281,17 @@ window.ANT.measurements = (function () {
         '<div class="msr-cust-name">' + esc(c.name) + '</div>' +
         '<div class="msr-cust-meta">' + esc(c.code) + (c.mobile ? ' · ' + esc(c.mobile) : '') + '</div>' +
       '</div>' +
-      '<button class="btn btn-secondary" id="msrChange">Change customer</button>' +
+      '<button class="btn btn-secondary" id="msrChange">All measurements</button>' +
     '</div>' +
     (state.error ? errorCard() : '') +
     (state.form ? formHtml() : newButton()) +
     historyCard();
   }
 
-  function errorCard() {
+  function errorCard(message) {
     return '<div class="ui-card"><div class="empty">' +
       '<div class="empty-title">Could not load measurements</div>' +
-      '<p class="empty-text">' + esc(state.error) + '</p>' +
+      '<p class="empty-text">' + esc(message || state.error) + '</p>' +
     '</div></div>';
   }
 
@@ -232,21 +323,36 @@ window.ANT.measurements = (function () {
     '</div>';
   }
 
-  function historyBlock(m) {
+  function historyBlock(m, global) {
     var values = m.values || {};
     var keys = Object.keys(values);
     var filled = keys.filter(function (k) {
       return String(values[k] == null ? '' : values[k]).trim() !== '';
     });
+    var cust = global ? customerFor(m.customer_id) : null;
+    var customerLine = '';
+
+    if (global) {
+      var meta = cust && (cust.code || cust.mobile)
+        ? '<span class="msr-block-customer-meta">' + esc(cust.code || '') +
+            (cust.code && cust.mobile ? ' · ' : '') + esc(cust.mobile || '') + '</span>'
+        : '';
+      customerLine = '<div class="msr-block-customer">' +
+        esc((cust && cust.name) || 'Customer') + meta + '</div>';
+    }
 
     return '<div class="msr-block">' +
       '<div class="msr-block-head">' +
         '<div>' +
+          customerLine +
           '<span class="msr-block-dress">' + esc(m.dress_type) + '</span>' +
           '<span class="msr-block-code">' + esc(m.code) + '</span>' +
         '</div>' +
         '<div class="msr-block-actions">' +
           '<span class="msr-block-date">' + esc(dateLabel(m.created_at)) + '</span>' +
+          (global && cust && cust.id
+            ? '<button class="btn btn-sm btn-quiet" data-msr-open-cust="' + esc(cust.id) + '">Open customer</button>'
+            : '') +
           '<button class="btn btn-sm btn-secondary" data-msr-copy="' + esc(m.id) + '">Copy to new</button>' +
           (isOwner()
             ? '<button class="btn btn-sm btn-danger" data-msr-del="' + esc(m.id) + '">Delete</button>'
@@ -263,6 +369,12 @@ window.ANT.measurements = (function () {
         : '<p class="msr-block-empty">No values recorded.</p>') +
       (m.notes ? '<p class="msr-notes">' + esc(m.notes) + '</p>' : '') +
     '</div>';
+  }
+
+  function customerFor(id) {
+    if (!id) return null;
+    if (state.customer && state.customer.id === id) return state.customer;
+    return state.allCustomers.filter(function (c) { return c.id === id; })[0] || null;
   }
 
   /* Form --------------------------------------------------------------- */
@@ -342,7 +454,7 @@ window.ANT.measurements = (function () {
   }
 
   function findRow(id) {
-    var found = state.history.filter(function (r) { return r.id === id; })[0];
+    var found = state.history.concat(state.allHistory).filter(function (r) { return r.id === id; })[0];
     return found || null;
   }
 
@@ -586,11 +698,29 @@ window.ANT.measurements = (function () {
         state.customer = null;
         state.history = [];
         state.form = null;
+        state.dressType = '';
         state.customerQuery = '';
         state.customers = [];
-        paint();
+        returnToOrder = false;
+        loadAll();
       });
     }
+
+    // A block in the global list can open the customer it belongs to, so the
+    // tailor does not have to retype a name to see that person's full history.
+    Array.prototype.forEach.call(document.querySelectorAll('[data-msr-open-cust]'), function (btn) {
+      btn.addEventListener('click', function () {
+        var c = customerFor(btn.getAttribute('data-msr-open-cust'));
+        if (!c) return toast('That customer is not available to open.', 'error');
+        state.customer = c;
+        state.customerQuery = c.name || '';
+        state.customers = [];
+        state.form = null;
+        state.dressType = '';
+        paint();
+        loadHistory();
+      });
+    });
 
     var add = byId('msrNew');
     if (add) {
@@ -648,6 +778,18 @@ window.ANT.measurements = (function () {
       btn.addEventListener('click', function () {
         var row = findRow(btn.getAttribute('data-msr-copy'));
         if (!row) return;
+
+        // "Copy to new" needs a customer to save against. In the all-records
+        // view, take it from the row being copied instead of asking for a search.
+        if (!state.customer && row.customer_id) {
+          var c = customerFor(row.customer_id);
+          state.customer = c || { id: row.customer_id, code: '', name: 'Customer', mobile: '' };
+          state.customerQuery = c ? (c.name || '') : '';
+        }
+        if (!state.customer) {
+          return toast('Choose a customer first.', 'error');
+        }
+
         state.dressType = row.dress_type;
         state.form = 'new';
         paint();
@@ -721,18 +863,23 @@ window.ANT.measurements = (function () {
       state.customers = [];
       state.customer = null;
       state.history = [];
+      state.allHistory = [];
+      state.allCustomers = [];
+      state.allLoading = false;
+      state.allError = null;
       state.form = null;
       state.dressType = '';
       paint();
 
-      if (!pending) return;
+      // No hand-off means the tailor simply opened the page: show everything.
+      if (!pending) return loadAll();
       if (typeof pending !== 'string') return applyCustomer(pending, opts);
       return sb().from('customers')
         .select('id,code,name,mobile')
         .eq('id', pending)
         .limit(1)
         .then(function (res) {
-          if (res.error || !res.data || !res.data.length) return;
+          if (res.error || !res.data || !res.data.length) return loadAll();
           applyCustomer(res.data[0], opts);
         });
     }
