@@ -8,7 +8,8 @@
  *   total       = sum of order.total
  *   discount    = sum of order.discount
  *   advance     = sum of order.advance
- *   bill_amount = total - discount
+ *   taxable     = total - discount
+ *   bill_amount = taxable + GST (when the Owner has switched GST on)
  *   balance     = bill_amount - advance
  *
  * The discount is subtracted here exactly as the legacy sheet did, even though
@@ -87,6 +88,8 @@ window.ANT.bills = (function () {
     allPage: 0,
     allCount: 0,
     selected: {},
+    // The garments on each loaded order, used to decide which GST rate applies.
+    items: {},
     notes: '',
     editing: null,
     page: 0,
@@ -170,9 +173,139 @@ window.ANT.bills = (function () {
 
   /* Totals ---------------------------------------------------------------- */
 
+  // GST is charged only when the Owner has switched it on and filled every
+  // setting. A half-filled form never turns into a guessed rate: the bill prints
+  // as it always did until the settings are complete.
+  var GST_SERVICE_RATE = 5;
+  var GARMENT_LOW_RATE = 5;
+  var GARMENT_HIGH_RATE = 18;
+  var GARMENT_SLAB = 2500;
+
+  function gstRateText(value) {
+    var t = String(value == null ? '' : value).trim();
+    if (!/^\d+(\.\d{1,2})?$/.test(t)) return null;
+    var n = parseFloat(t);
+    return (isFinite(n) && n >= 0 && n <= 100) ? n : null;
+  }
+
+  function gstinOf(shop) {
+    return String((shop && shop.gstin) || '').toUpperCase().replace(/[^0-9A-Z]/g, '');
+  }
+
+  function gstReady(shop) {
+    if (!shop || shop.gstEnabled !== '1') return false;
+    if (gstinOf(shop).length !== 15) return false;
+    if (shop.gstState !== 'TN' && shop.gstState !== 'OTHER') return false;
+    return gstRateText(shop.gstClothRate) !== null;
+  }
+
+  function clothNames(shop) {
+    return String((shop && shop.gstClothItems) || '')
+      .split(/[\n,]/)
+      .map(function (n) { return n.trim().toLowerCase(); })
+      .filter(function (n) { return !!n; });
+  }
+
+  function gstRateForItem(it, shop, cloth) {
+    if (String((it && it.service) || '') !== 'Resale') {
+      return { label: 'Tailoring & stitching services', rate: GST_SERVICE_RATE, hsn: '' };
+    }
+
+    var name = String((it && (it.variant || it.dress_type)) || '').toLowerCase();
+    var clothHit = cloth.some(function (n) {
+      return name === n || name.indexOf(n) !== -1;
+    });
+    if (clothHit) {
+      return {
+        label: 'Cloth sales',
+        rate: gstRateText(shop.gstClothRate),
+        hsn: String(shop.gstHsn || '').trim()
+      };
+    }
+
+    // The garment slab is per piece, so a line of three uses the price of one.
+    var piece = num(it.rate) > 0
+      ? num(it.rate)
+      : (num(it.quantity) > 0 ? num(it.line_total) / num(it.quantity) : num(it.line_total));
+    return {
+      label: 'Ready-made garments',
+      rate: piece > GARMENT_SLAB ? GARMENT_HIGH_RATE : GARMENT_LOW_RATE,
+      hsn: ''
+    };
+  }
+
+  /* The tax is built from the items actually on the bill. A discount belongs to
+   * the whole order, so it is spread over that order's lines before any rate is
+   * applied; tax is therefore always on the amount after discount. */
+  function gstForOrders(list, shop) {
+    if (!gstReady(shop)) return null;
+
+    var cloth = clothNames(shop);
+    var groups = {};
+    var taxable = 0;
+
+    (list || []).forEach(function (o) {
+      var items = o.items || [];
+      if (!items.length) return;
+
+      var gross = 0;
+      items.forEach(function (it) { gross += num(it.line_total); });
+      var ratio = gross > 0 ? Math.max(0, (gross - num(o.discount)) / gross) : 0;
+
+      items.forEach(function (it) {
+        var net = round2(num(it.line_total) * ratio);
+        if (!net) return;
+
+        var info = gstRateForItem(it, shop, cloth);
+        // Never charge a rate that was not configured.
+        if (info.rate == null) return;
+
+        var key = info.label + '|' + info.rate + '|' + info.hsn;
+        if (!groups[key]) {
+          groups[key] = {
+            label: info.label, rate: info.rate, hsn: info.hsn,
+            taxable: 0, tax: 0
+          };
+        }
+        groups[key].taxable = round2(groups[key].taxable + net);
+        groups[key].tax = round2(groups[key].tax + round2(net * info.rate / 100));
+        taxable = round2(taxable + net);
+      });
+    });
+
+    var lines = Object.keys(groups).map(function (k) { return groups[k]; });
+    var total = 0;
+    lines.forEach(function (l) { total = round2(total + l.tax); });
+
+    var cgst = 0, sgst = 0, igst = 0;
+    if (shop.gstState === 'TN') {
+      cgst = round2(total / 2);
+      sgst = round2(total - cgst);
+    } else {
+      igst = total;
+    }
+
+    return {
+      lines: lines, taxable: taxable, total: total,
+      cgst: cgst, sgst: sgst, igst: igst,
+      state: shop.gstState, gstin: gstinOf(shop)
+    };
+  }
+
+  // A saved bill keeps the tax it was raised with, even if the shop changes its
+  // settings later. The breakdown is stored with the bill's PDF snapshot.
+  function storedTax(bill) {
+    var snap = bill && bill.pdf_snapshot;
+    return (snap && snap.bill && snap.bill.gst) || null;
+  }
+
+  function withItems(order) {
+    return Object.assign({}, order, { items: state.items[order.id] || [] });
+  }
+
   // The one place the bill arithmetic lives, so the summary, the insert and the
   // rollback all quote the same figure.
-  function computeTotals(list) {
+  function computeTotals(list, tax) {
     var total = 0;
     var discount = 0;
     var advance = 0;
@@ -183,12 +316,20 @@ window.ANT.bills = (function () {
       advance += num(o.advance);
     });
 
-    var billAmount = round2(total - discount);
+    // When tax is present, its own taxable figure is the authority: that is the
+    // amount after discount on which the lines were actually calculated.
+    var taxable = tax ? num(tax.taxable) : round2(total - discount);
+    // bill_amount is what the customer pays before their advance comes off. With
+    // GST on it includes the tax, so balance keeps meaning bill_amount - advance
+    // everywhere else in the app.
+    var billAmount = round2(taxable + (tax ? num(tax.total) : 0));
     return {
       count: (list || []).length,
       total: round2(total),
       discount: round2(discount),
       advance: round2(advance),
+      taxable: taxable,
+      gst: tax || null,
       billAmount: billAmount,
       balance: round2(billAmount - advance)
     };
@@ -207,7 +348,8 @@ window.ANT.bills = (function () {
   }
 
   function selectedTotals() {
-    return computeTotals(selectedOrders());
+    var list = selectedOrders();
+    return computeTotals(list, gstForOrders(list.map(withItems), state.shop));
   }
 
   function refreshForOrder(orderId) {
@@ -235,30 +377,43 @@ window.ANT.bills = (function () {
   }
 
   function recomputeBill(billId) {
-    return sb().from('bill_orders')
-      .select('order_id')
-      .eq('bill_id', billId)
-      .then(function (res) {
-        if (res.error) return null;
-        var orderIds = (res.data || []).map(function (r) { return r.order_id; });
-        if (!orderIds.length) return null;
+    // The tax a bill was raised with is kept with its snapshot. A later change
+    // to the shop's settings must not quietly rewrite a bill already sent out,
+    // so only that saved breakdown is reused here. A bill with no saved tax was
+    // raised before GST, and stays exactly as it was.
+    return sb().from('bills')
+      .select('pdf_snapshot')
+      .eq('id', billId)
+      .limit(1)
+      .then(function (bres) {
+        if (bres.error) return null;
+        var tax = storedTax((bres.data || [])[0]) || null;
 
-        return sb().from('orders')
-          .select('total,discount,advance')
-          .in('id', orderIds)
-          .then(function (ores) {
-            if (ores.error) return null;
-            var t = computeTotals(ores.data || []);
-            return sb().from('bills')
-              .update({
-                total: t.total,
-                discount: t.discount,
-                advance: t.advance,
-                bill_amount: t.billAmount,
-                balance: t.balance
-              })
-              .eq('id', billId)
-              .select('id');
+        return sb().from('bill_orders')
+          .select('order_id')
+          .eq('bill_id', billId)
+          .then(function (res) {
+            if (res.error) return null;
+            var orderIds = (res.data || []).map(function (r) { return r.order_id; });
+            if (!orderIds.length) return null;
+
+            return sb().from('orders')
+              .select('total,discount,advance')
+              .in('id', orderIds)
+              .then(function (ores) {
+                if (ores.error) return null;
+                var t = computeTotals(ores.data || [], tax);
+                return sb().from('bills')
+                  .update({
+                    total: t.total,
+                    discount: t.discount,
+                    advance: t.advance,
+                    bill_amount: t.billAmount,
+                    balance: t.balance
+                  })
+                  .eq('id', billId)
+                  .select('id');
+              });
           });
       });
   }
@@ -383,7 +538,8 @@ window.ANT.bills = (function () {
       .then(function (res) {
         var shop = { name: '', address: '', phone: '', email: '', instagram: '',
           upiId: '', payee: '', waBillMessage: '', waReminderMessage: '',
-          printSize: '', waPrintSize: '' };
+          printSize: '', waPrintSize: '', gstEnabled: '', gstin: '', gstState: '',
+          gstHsn: '', gstClothRate: '', gstClothItems: '' };
 
         if (!res.error && res.data) {
           res.data.forEach(function (row) {
@@ -398,6 +554,12 @@ window.ANT.bills = (function () {
             else if (row.key === 'wa_reminder_message') shop.waReminderMessage = row.value || '';
             else if (row.key === 'bill_print_size') shop.printSize = row.value || '';
             else if (row.key === 'wa_bill_size') shop.waPrintSize = row.value || '';
+            else if (row.key === 'gst_enabled') shop.gstEnabled = row.value || '';
+            else if (row.key === 'gstin') shop.gstin = row.value || '';
+            else if (row.key === 'gst_state') shop.gstState = row.value || '';
+            else if (row.key === 'gst_hsn') shop.gstHsn = row.value || '';
+            else if (row.key === 'gst_cloth_rate') shop.gstClothRate = row.value || '';
+            else if (row.key === 'gst_cloth_items') shop.gstClothItems = row.value || '';
           });
         }
 
@@ -432,7 +594,14 @@ window.ANT.bills = (function () {
         }
 
         state.orders = res.data || [];
-        return markBilled().then(paint);
+        var ids = state.orders.map(function (o) { return o.id; });
+        // Tax depends on what was actually ordered - a service, a ready-made
+        // garment or cloth - so the garments are loaded with the orders. A
+        // failed read leaves them empty and the bill simply carries no new tax.
+        return itemsForPrint(ids).then(function (items) {
+          state.items = items || {};
+          return markBilled().then(paint);
+        });
       });
   }
 
@@ -460,7 +629,7 @@ window.ANT.bills = (function () {
     var from = state.page * PAGE_SIZE;
 
     return sb().from('bills')
-      .select('id,code,total,discount,advance,bill_amount,balance,bill_date,notes,method,paid_on,pdf_path,created_at', { count: true })
+      .select('id,customer_id,code,total,discount,advance,bill_amount,balance,bill_date,notes,method,paid_on,pdf_path,pdf_snapshot,created_at', { count: true })
       .eq('customer_id', state.customer.id)
       .is('archived_at', null)
       .order('bill_date', false)
@@ -515,7 +684,7 @@ window.ANT.bills = (function () {
     var from = state.allPage * PAGE_SIZE;
 
     return sb().from('bills')
-      .select('id,customer_id,code,total,discount,advance,bill_amount,balance,bill_date,notes,method,paid_on,pdf_path,created_at', { count: true })
+      .select('id,customer_id,code,total,discount,advance,bill_amount,balance,bill_date,notes,method,paid_on,pdf_path,pdf_snapshot,created_at', { count: true })
       .is('archived_at', null)
       .order('bill_date', false)
       .order('created_at', false)
@@ -860,14 +1029,29 @@ window.ANT.bills = (function () {
     if (!ids.length) return '';
 
     var t = selectedTotals();
+    var taxLabel = t.gst
+      ? (t.gst.state === 'TN' ? 'CGST + SGST' : 'IGST')
+      : '';
+    var taxDetail = t.gst
+      ? (t.gst.lines || []).map(function (l) {
+          var label = l.label + ' ' + num(l.rate) + '%';
+          if (l.hsn) label += ' (HSN ' + l.hsn + ')';
+          return label + ': ' + money(l.tax);
+        }).join(' \u00b7 ')
+      : '';
+
     return '<div class="ui-card"><h2 class="ui-card-title">Bill summary</h2>' +
       '<div class="pay-grid">' +
       field('Orders', String(t.count)) +
       field('Total', money(t.total)) +
+      (t.gst ? field('Taxable amount', money(t.taxable)) : '') +
       field('Discount', '- ' + money(t.discount)) +
+      (t.gst ? field(taxLabel, money(t.gst.total)) : '') +
       field('Bill amount', money(t.billAmount)) +
       field('Balance due', money(Math.max(0, t.balance))) +
-      '</div></div>';
+      '</div>' +
+      (taxDetail ? '<p class="pay-hint">GST: ' + esc(taxDetail) + '</p>' : '') +
+      '</div>';
   }
 
   function field(label, value) {
@@ -1099,13 +1283,13 @@ window.ANT.bills = (function () {
   // Best effort on purpose. The bill is already saved by the time this runs, and
   // a missing snapshot only matters later, so a failure here is not worth turning
   // a good save into an error the shopkeeper has to act on.
-  function keepSnapshot(billRow, orderIds) {
+  function keepSnapshot(billRow, orderIds, tax) {
     if (!billRow || !billRow.id) return Promise.resolve();
 
     return ordersForPrint(orderIds || [])
       .then(function (list) {
         return sb().from('bills')
-          .update({ pdf_snapshot: billSnapshot(billRow, list) })
+          .update({ pdf_snapshot: billSnapshot(billRow, list, { tax: tax }) })
           .eq('id', billRow.id);
       })
       .catch(function () {
@@ -1145,7 +1329,7 @@ window.ANT.bills = (function () {
 
           return linkOrders(res.data.id, orderIds).then(function (bad) {
             if (!bad) {
-              return keepSnapshot(res.data, orderIds).then(function () {
+              return keepSnapshot(res.data, orderIds, t.gst).then(function () {
                 return { message: 'Bill ' + code + ' created.' };
               });
             }
@@ -1238,7 +1422,7 @@ window.ANT.bills = (function () {
                           advance: t.advance,
                           bill_amount: t.billAmount,
                           balance: t.balance
-                        }, orderIds);
+                        }, orderIds, t.gst);
                       }
                       return restoreBill(editing.id, previous, heldIds)
                         .then(function (extra) {
@@ -1473,7 +1657,7 @@ window.ANT.bills = (function () {
     if (!ids.length) return Promise.resolve({});
 
     return sb().from('order_items')
-      .select('order_id,category,dress_type,service,variant,lining,quantity,line_total')
+      .select('order_id,category,dress_type,service,variant,lining,quantity,rate,line_total')
       .in('order_id', ids)
       .then(function (res) {
         if (res.error || !res.data) return {};
@@ -1834,6 +2018,7 @@ window.ANT.bills = (function () {
 
     var shopName = snap.shop.name || 'AN TAILOR';
     var due = Math.max(0, num(snap.bill.balance));
+    var tax = snap.bill.gst || null;
     var settled = due <= 0;
     // Part-paid is its own state because it is the one that needs chasing, and a
     // stamp that only distinguishes paid from unpaid would call it settled.
@@ -1981,6 +2166,9 @@ window.ANT.bills = (function () {
               (snap.shop.email ? 'Email: ' + esc(snap.shop.email) : '') +
               '</div>'
             : '') +
+          (snap.shop.gstin
+            ? '<div class="shop-contact">GSTIN: ' + esc(snap.shop.gstin) + '</div>'
+            : '') +
         '</div>' +
         followBlock +
       '</div>' +
@@ -2043,6 +2231,26 @@ window.ANT.bills = (function () {
           (num(snap.bill.discount)
             ? '<div><span class="label">Discount</span><span class="val">- ' +
               money(snap.bill.discount) + '</span></div>'
+            : '') +
+          // Tax is a separate line, never folded into the row above. The
+          // taxable figure is after discount, and the component names tell the
+          // customer whether this is an intra-state or interstate supply.
+          (tax
+            ? '<div><span class="label">Taxable Amount</span><span class="val">' +
+                money(snap.bill.taxable) + '</span></div>' +
+              (tax.lines || []).map(function (l) {
+                var label = l.label + ' ' + num(l.rate) + '%';
+                if (l.hsn) label += ' (HSN ' + l.hsn + ')';
+                return '<div><span class="label">' + esc(label) + '</span><span class="val">' +
+                  money(l.tax) + '</span></div>';
+              }).join('') +
+              (tax.state === 'TN'
+                ? '<div><span class="label">CGST</span><span class="val">' +
+                    money(tax.cgst) + '</span></div>' +
+                  '<div><span class="label">SGST</span><span class="val">' +
+                    money(tax.sgst) + '</span></div>'
+                : '<div><span class="label">IGST</span><span class="val">' +
+                    money(tax.igst) + '</span></div>')
             : '') +
           '<div class="sub"><span class="label">Total Amount</span><span class="val">' +
             money(snap.bill.bill_amount) + '</span></div>' +
@@ -2317,6 +2525,11 @@ window.ANT.bills = (function () {
     var paid = round2(computeTotals(list || []).advance);
     var balance = round2(num(bill.bill_amount) - paid);
     var liveBill = Object.assign({}, bill, { advance: paid, balance: balance });
+    // The tax belongs to the bill as it was raised. A caller creating or editing
+    // one passes it in; every other caller uses the tax saved with the bill.
+    // A bill raised before GST was switched on has no saved tax and keeps its
+    // original figures - later settings must never silently rewrite it.
+    var tax = (ctx && ctx.tax) || storedTax(bill) || null;
     var due = window.ANT.upi ? window.ANT.upi.balanceDue(liveBill) : Math.max(0, balance);
 
     return {
@@ -2339,7 +2552,8 @@ window.ANT.bills = (function () {
         email: shop.email,
         instagram: shop.instagram,
         upiId: shop.upiId,
-        payee: shop.payee
+        payee: shop.payee,
+        gstin: gstinOf(shop)
       },
       customer: {
         code: customer.code,
@@ -2355,6 +2569,8 @@ window.ANT.bills = (function () {
         paid_on: bill.paid_on,
         total: num(bill.total),
         discount: num(bill.discount),
+        taxable: tax ? tax.taxable : round2(num(bill.total) - num(bill.discount)),
+        gst: tax || null,
         advance: paid,
         bill_amount: num(bill.bill_amount),
         balance: balance
@@ -2375,6 +2591,7 @@ window.ANT.bills = (function () {
               variant: it.variant,
               lining: it.lining,
               quantity: it.quantity,
+              rate: num(it.rate),
               line_total: num(it.line_total)
             };
           })
@@ -3228,6 +3445,11 @@ window.ANT.bills = (function () {
     // in words. A wrong word there is read as a statement of fact by whoever signs
     // a crossed cheque against the line, so it is tested rather than trusted.
     __amountInWords: amountInWords,
+    // Exposed so the GST arithmetic can be checked without saving a live bill.
+    __gstForOrders: gstForOrders,
+    __computeTotals: computeTotals,
+    __gstReady: gstReady,
+    __billSnapshot: billSnapshot,
     // The one-page fit, exposed for the same reason. It runs against a real
     // document in a real popup, so the harness drives it with one directly: the
     // arithmetic is checkable there, whereas a bill that came out as two pages is

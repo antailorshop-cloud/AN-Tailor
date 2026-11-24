@@ -80,7 +80,8 @@ window.ANT.settings = (function () {
     'shop_instagram', 'upi_id', 'upi_payee_name', 'payment_terms',
     'due_reminder_days', 'wa_bill_message', 'wa_reminder_message',
     'wa_ready_message', 'wa_delivered_message', 'bill_print_size', 'wa_bill_size',
-    'receipt_print_size'];
+    'receipt_print_size', 'gst_enabled', 'gstin', 'gst_state', 'gst_hsn',
+    'gst_cloth_rate', 'gst_cloth_items'];
 
   var state = {
     tab: 'dress',
@@ -91,7 +92,8 @@ window.ANT.settings = (function () {
       shop_instagram: '', upi_id: '', upi_payee_name: '', payment_terms: '',
       due_reminder_days: '', wa_bill_message: '', wa_reminder_message: '',
       wa_ready_message: '', wa_delivered_message: '', bill_print_size: '',
-      wa_bill_size: '', receipt_print_size: '' },
+      wa_bill_size: '', receipt_print_size: '', gst_enabled: '0', gstin: '',
+      gst_state: 'TN', gst_hsn: '', gst_cloth_rate: '', gst_cloth_items: '' },
     staff: { rows: [], access: {}, loading: false, error: null },
     clear: { picked: {}, busy: false },
     exporting: false,
@@ -164,7 +166,8 @@ window.ANT.settings = (function () {
       shop_instagram: '', upi_id: '', upi_payee_name: '', payment_terms: '',
       due_reminder_days: '', wa_bill_message: '', wa_reminder_message: '',
       wa_ready_message: '', wa_delivered_message: '', bill_print_size: '',
-      wa_bill_size: '', receipt_print_size: '' };
+      wa_bill_size: '', receipt_print_size: '', gst_enabled: '0', gstin: '',
+      gst_state: 'TN', gst_hsn: '', gst_cloth_rate: '', gst_cloth_items: '' };
     rows.forEach(function (row) {
       if (SHOP_KEYS.indexOf(row.key) !== -1) {
         shop[row.key] = String(row.value == null ? '' : row.value);
@@ -221,6 +224,9 @@ window.ANT.settings = (function () {
       '<button class="set-tab' + (state.tab === 'dress' ? ' is-active' : '') + '" data-set-tab="dress">Dress types</button>' +
       '<button class="set-tab' + (state.tab === 'price' ? ' is-active' : '') + '" data-set-tab="price">Prices</button>' +
       '<button class="set-tab' + (state.tab === 'shop' ? ' is-active' : '') + '" data-set-tab="shop">Shop &amp; UPI</button>' +
+      (isOwner()
+        ? '<button class="set-tab' + (state.tab === 'gst' ? ' is-active' : '') + '" data-set-tab="gst">GST</button>'
+        : '') +
       '<button class="set-tab' + (state.tab === 'whatsapp' ? ' is-active' : '') + '" data-set-tab="whatsapp">WhatsApp</button>' +
       '<button class="set-tab' + (state.tab === 'staff' ? ' is-active' : '') + '" data-set-tab="staff">Staff</button>' +
       (isOwner()
@@ -277,6 +283,7 @@ window.ANT.settings = (function () {
       '</div></div>';
     }
     if (state.tab === 'shop') return shopPanel();
+    if (state.tab === 'gst') return gstPanel();
     if (state.tab === 'whatsapp') return whatsappPanel();
     if (state.tab === 'staff') return staffPanel();
     if (state.tab === 'data') return clearPanel();
@@ -409,6 +416,25 @@ window.ANT.settings = (function () {
     return '<div class="ui-field">' +
       '<label class="ui-label" for="' + id + '">' + esc(label) + '</label>' +
       '<input class="ui-input" id="' + id + '" value="' + esc(value) + '" autocomplete="off">' +
+      (hint ? '<p class="ui-hint">' + esc(hint) + '</p>' : '') +
+    '</div>';
+  }
+
+  function selectField(id, label, value, options, hint) {
+    return '<div class="ui-field">' +
+      '<label class="ui-label" for="' + id + '">' + esc(label) + '</label>' +
+      '<select class="ui-input" id="' + id + '">' + options.map(function (o) {
+        return '<option value="' + esc(o.v) + '"' + (o.v === value ? ' selected' : '') + '>' +
+          esc(o.t) + '</option>';
+      }).join('') + '</select>' +
+      (hint ? '<p class="ui-hint">' + esc(hint) + '</p>' : '') +
+    '</div>';
+  }
+
+  function textareaField(id, label, value, hint) {
+    return '<div class="ui-field">' +
+      '<label class="ui-label" for="' + id + '">' + esc(label) + '</label>' +
+      '<textarea class="ui-input" id="' + id + '" rows="5">' + esc(value) + '</textarea>' +
       (hint ? '<p class="ui-hint">' + esc(hint) + '</p>' : '') +
     '</div>';
   }
@@ -599,6 +625,123 @@ window.ANT.settings = (function () {
         return;
       }
       toast('Shop settings saved', 'success');
+      load();
+    });
+  }
+
+  /* GST ------------------------------------------------------------------- */
+
+  // These rates are fixed by the shop's own rules, not typed into the database,
+  // so a mistyped digit cannot silently change what a customer is charged. The
+  // cloth rate is the one rate the owner sets, because it follows the HSN.
+  var GARMENT_LOW_RATE = 5;
+  var GARMENT_HIGH_RATE = 18;
+  var GARMENT_SLAB = 2500;
+
+  function gstProblem(s) {
+    if (s.gst_enabled !== '1') return '';
+    var gstin = String(s.gstin || '').toUpperCase().replace(/[^0-9A-Z]/g, '');
+    if (gstin.length !== 15) return 'GSTIN must be 15 letters and digits.';
+    if (s.gst_state !== 'TN' && s.gst_state !== 'OTHER') return 'Choose the place of supply.';
+    var rate = String(s.gst_cloth_rate || '').trim();
+    if (!/^\d+(\.\d{1,2})?$/.test(rate) || parseFloat(rate) > 100) {
+      return 'Enter the cloth GST rate, or 0 if cloth is exempt.';
+    }
+    return '';
+  }
+
+  function gstPanel() {
+    if (!isOwner()) {
+      return '<div class="ui-card"><div class="empty">' +
+        '<div class="empty-title">Owner only</div>' +
+        '<p class="empty-text">Only the Owner can change GST settings.</p>' +
+      '</div></div>';
+    }
+    if (state.loading) {
+      return '<div class="ui-card"><div class="empty"><div class="empty-title">Loading...</div></div></div>';
+    }
+
+    var s = state.shop;
+    var problem = gstProblem(s);
+    var on = s.gst_enabled === '1' && !problem;
+
+    return '<div class="ui-card cust-form">' +
+      '<h2 class="ui-card-title">GST</h2>' +
+      '<p class="ui-hint">Bills stay exactly as they are until you switch GST on ' +
+        'and save every field below. A missing rate is never guessed.</p>' +
+      '<div class="ui-card" style="margin-bottom:16px">' +
+        '<strong>' + (on ? 'GST is ON for new bills.' : 'GST is OFF.') + '</strong>' +
+        '<p class="ui-hint">' + (problem ? esc(problem) : (on
+          ? 'New bills show tax as a separate line and carry this GSTIN.'
+          : 'Turn it on and fill in the details to begin.')) + '</p>' +
+      '</div>' +
+      '<div class="ui-card" style="margin-bottom:16px">' +
+        '<strong>Rates used</strong>' +
+        '<p class="ui-hint">Tailoring and stitching services: 5%. Ready-made garments: ' +
+          '5% up to ' + money(GARMENT_SLAB) + ' per piece and 18% above. ' +
+          'Cloth sales: the HSN and rate set below.</p>' +
+        '<p class="ui-hint">' + (s.gst_state === 'OTHER'
+          ? 'Other state: IGST is charged.'
+          : 'Tamil Nadu: CGST and SGST are charged equally.') + '</p>' +
+      '</div>' +
+      '<form id="gstForm" novalidate>' +
+        '<div class="form-grid">' +
+          selectField('gstEnable', 'GST calculation', s.gst_enabled === '1' ? '1' : '0', [
+            { v: '0', t: 'Off - do not charge GST' },
+            { v: '1', t: 'On - charge GST on new bills' }
+          ], 'Leave Off until the GSTIN and rates are correct.') +
+          shopField('gstin', 'GSTIN', s.gstin, '15 letters and digits. Printed on the bill.') +
+          selectField('gstState', 'Place of supply', s.gst_state || 'TN', [
+            { v: 'TN', t: 'Tamil Nadu - CGST + SGST' },
+            { v: 'OTHER', t: 'Other state - IGST' }
+          ], 'Tamil Nadu splits the tax into CGST and SGST; other states use IGST.') +
+          shopField('gstHsn', 'HSN code for cloth', s.gst_hsn,
+            'Printed beside the cloth tax line on the bill.') +
+          shopField('gstClothRate', 'Cloth GST rate %', s.gst_cloth_rate,
+            'The rate for cloth sales under that HSN. Use 0 when exempt.') +
+          textareaField('gstClothItems', 'Cloth item names', s.gst_cloth_items,
+            'One resale stock item name per line. Matching items are taxed as cloth; ' +
+            'other resale items are ready-made garments.') +
+        '</div>' +
+        '<div class="form-actions">' +
+          '<button type="submit" class="btn btn-primary">Save GST settings</button>' +
+        '</div>' +
+      '</form>' +
+    '</div>';
+  }
+
+  function saveGst() {
+    if (!isOwner()) {
+      toast('Only the Owner can change GST settings.', 'error');
+      return;
+    }
+
+    var draft = {
+      gst_enabled: byId('gstEnable').value,
+      gstin: byId('gstin').value.trim().toUpperCase().replace(/[^0-9A-Z]/g, ''),
+      gst_state: byId('gstState').value,
+      gst_hsn: byId('gstHsn').value.trim(),
+      gst_cloth_rate: byId('gstClothRate').value.trim(),
+      gst_cloth_items: byId('gstClothItems').value.trim()
+    };
+
+    var problem = gstProblem(draft);
+    if (problem) {
+      toast(problem, 'error');
+      return;
+    }
+
+    Promise.all(Object.keys(draft).map(function (key) {
+      return putSetting(key, draft[key]);
+    })).then(function (results) {
+      var bad = results.filter(function (r) { return r && r.error; })[0];
+      if (bad) {
+        toast(bad.error.message, 'error');
+        return;
+      }
+      toast(draft.gst_enabled === '1'
+        ? 'GST settings saved. New bills will include tax.'
+        : 'GST settings saved. Tax is switched off.', 'success');
       load();
     });
   }
@@ -1879,6 +2022,14 @@ window.ANT.settings = (function () {
       });
     }
 
+    var gst = byId('gstForm');
+    if (gst) {
+      gst.addEventListener('submit', function (e) {
+        e.preventDefault();
+        saveGst();
+      });
+    }
+
     var wa = byId('waForm');
     if (wa) {
       wa.addEventListener('submit', function (e) {
@@ -1990,6 +2141,9 @@ window.ANT.settings = (function () {
 
     // Exposed so the harness can pin the tick boxes to the rule in auth.js
     // without reaching inside the module. Nothing in the app calls it.
-    __effectiveAreas: effectiveAreas
+    __effectiveAreas: effectiveAreas,
+    // The GST settings gate is pure validation, so it is exposed for the same
+    // reason: a half-filled form must be provably inert.
+    __gstProblem: gstProblem
   };
 })();
