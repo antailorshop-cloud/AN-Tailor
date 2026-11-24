@@ -72,6 +72,10 @@ window.ANT.payments = (function () {
     saved: false
   };
 
+  // An order handed over by the Orders list's Pay button. It is applied once
+  // the outstanding list has loaded, so the amount form is ready straight away.
+  var pendingOrderId = null;
+
   function byId(id) { return document.getElementById(id); }
 
   function num(value) {
@@ -928,15 +932,31 @@ window.ANT.payments = (function () {
     state.customer = null;
     state.loading = true;
     paint();
-    loadPayments().then(function () { return loadOrders(); });
+    loadPayments().then(function () { return loadOrders(); }).then(function () {
+      var pending = pendingOrderId;
+      pendingOrderId = null;
+      if (pending) openRecord(pending);
+    });
     // The shop name is only wanted by the receipt, so it is fetched alongside
     // rather than on its own tick, and its failure cannot delay the page.
     loadShop();
   }
 
+  /* Sent here from the Orders list's Pay button. Every step is the same as
+   * clicking the order by hand, just without making the tailor find it again. */
+  function focusOrder(orderId) {
+    if (!orderId) return Promise.resolve();
+    pendingOrderId = orderId;
+    var here = (location.hash || '').replace(/^#\/?/, '').split('/')[0];
+    if (here === 'payments') return render();
+    location.hash = '#/payments';
+    return Promise.resolve();
+  }
+
   return {
     mount: mount,
     render: render,
+    focusOrder: focusOrder,
     /* One-tap settle, used by the dashboard. Kept here rather than in the
      * dashboard so the payment rules live in exactly one file. */
     settle: settle,

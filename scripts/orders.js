@@ -101,7 +101,15 @@ window.ANT.orders = (function () {
     // because it belongs to the list as well as the order.
     waShop: { name: '', waReadyMessage: '', upiId: '', payee: '' },
     saving: false,
-    saveError: ''
+    saveError: '',
+    // Carried from the Customers screen into the next New order form, so the
+    // tailor does not have to find the same person a second time.
+    pendingCustomer: null,
+    pendingCustomerId: null,
+    // Last delivery date typed on this form. New rows copy it, and the Apply to
+    // all button writes it to every row at once.
+    lastDelivery: '',
+    quickCustomerForm: false
   };
 
   var custTimer = null;
@@ -615,8 +623,12 @@ window.ANT.orders = (function () {
       '<td>' + renderStatusCell(o) + '</td>' +
       '<td class="ord-row-actions">' +
         '<button class="btn btn-sm btn-secondary" data-ord-open="' + esc(o.id) + '">Open</button>' +
+        (num(o.balance) > 0 && o.status !== 'Cancelled'
+          ? '<button class="btn btn-sm btn-primary" data-ord-pay="' + esc(o.id) + '">Pay</button>'
+          : '') +
+        '<button class="btn btn-sm btn-secondary" data-ord-bill="' + esc(o.id) + '">Bill</button>' +
         (canTell(o)
-          ? ' <button class="btn btn-sm btn-secondary" data-ord-tell="' + esc(o.id) + '">Tell customer</button>'
+          ? '<button class="btn btn-sm btn-secondary" data-ord-tell="' + esc(o.id) + '">Tell customer</button>'
           : '') +
       '</td>' +
     '</tr>';
@@ -845,15 +857,55 @@ window.ANT.orders = (function () {
       '</div>';
     }
 
+    // A walk-in can be added right here. It saves through the Customers module
+    // and selects the new row on this form, so the tailor never leaves the order.
+    var quick = state.quickCustomerForm
+      ? '<div class="ord-quick-cust">' +
+          '<div class="form-grid">' +
+            '<div class="ui-field">' +
+              '<label class="ui-label" for="ordQCName">Name</label>' +
+              '<input class="ui-input" id="ordQCName" maxlength="120" autocomplete="off">' +
+            '</div>' +
+            '<div class="ui-field">' +
+              '<label class="ui-label" for="ordQCMobile">Mobile</label>' +
+              '<input class="ui-input" id="ordQCMobile" inputmode="tel" autocomplete="off">' +
+            '</div>' +
+            '<div class="ui-field span-2">' +
+              '<label class="ui-label" for="ordQCAddress">Address (optional)</label>' +
+              '<input class="ui-input" id="ordQCAddress" autocomplete="off">' +
+            '</div>' +
+          '</div>' +
+          '<div class="form-actions">' +
+            '<button class="btn btn-sm btn-primary" id="ordQCSave">Save customer</button>' +
+            '<button class="btn btn-sm btn-quiet" id="ordQCCancel">Cancel</button>' +
+          '</div>' +
+        '</div>'
+      : '<button class="btn btn-sm btn-secondary ord-new-cust" id="ordNewCust">+ New customer</button>';
+
+    // Show who is already chosen on a new order. Without this the search box
+    // holding their name was the only clue, and it was easy to miss.
+    var chosen = state.formCustomer
+      ? '<div class="msr-cust ord-selected-cust">' +
+          '<div>' +
+            '<div class="msr-cust-name">' + esc(state.formCustomer.name || '') + '</div>' +
+            '<div class="msr-cust-meta">' + esc(state.formCustomer.code || '') +
+              (state.formCustomer.mobile ? ' · ' + esc(state.formCustomer.mobile) : '') +
+            '</div>' +
+          '</div>' +
+        '</div>'
+      : '';
+
     return '<div class="ui-card">' +
       '<h2 class="ui-card-title">Customer</h2>' +
       '<p class="ui-card-sub">An order always belongs to a customer, so the same person keeps all their orders together.</p>' +
+      chosen +
       '<div class="ui-field">' +
         '<label class="ui-label" for="ordCustSearch">Search by name, mobile or code</label>' +
         '<input class="ui-input" id="ordCustSearch" type="search" autocomplete="off" spellcheck="false" ' +
           'value="' + esc(state.customerQuery) + '">' +
       '</div>' +
       results +
+      quick +
     '</div>';
   }
 
@@ -878,6 +930,16 @@ window.ANT.orders = (function () {
           return itemRow(it, i, groups);
         }).join('') + '</tbody>' +
         '</table></div>' : '') +
+      (anyDress && !state.readonly && state.formItems.length
+        ? '<div class="ord-items-tools">' +
+            '<div class="ui-field">' +
+              '<label class="ui-label" for="ordApplyDate">Delivery date for all items</label>' +
+              '<input class="ui-input" id="ordApplyDate" type="date" value="' + esc(state.lastDelivery) + '">' +
+            '</div>' +
+            '<button class="btn btn-sm btn-secondary" id="ordApplyDateAll">Apply to all items</button>' +
+            '<span class="ui-hint">New rows also copy the last date you entered.</span>' +
+          '</div>'
+        : '') +
       (anyDress && !state.readonly
         ? '<div class="ord-add-row">' +
             '<button class="btn btn-secondary" id="ordAddItem"' +
@@ -1741,17 +1803,85 @@ window.ANT.orders = (function () {
       });
   }
 
-  function startNew() {
+  // Opens a fresh order, optionally already assigned to a customer. The plain
+  // + New order button passes nothing; the Customers screen quick action passes
+  // the row it just saved, so the same person is not picked twice.
+  function openNewForCustomer(c) {
+    var chosen = c || null;
     state.form = 'new';
     state.readonly = false;
     state.formItems = [blankItem()];
-    state.formCustomer = null;
-    state.customerQuery = '';
+    state.formCustomer = chosen;
+    state.customerQuery = chosen ? (chosen.name || '') : '';
     state.customers = [];
     state.measurements = [];
     state.resale = [];
+    state.lastDelivery = '';
+    state.quickCustomerForm = false;
     state.view = 'edit';
-    Promise.all([loadReference(), loadResale(), loadPrices()]).then(paint);
+    var work = Promise.all([loadReference(), loadResale(), loadPrices()]);
+    if (chosen && chosen.id) work = work.then(function () { return loadMeasurements(chosen.id); });
+    return work.then(paint);
+  }
+
+  function startNew() {
+    return openNewForCustomer(null);
+  }
+
+  // Creates a walk-in from inside the order form, then selects them on it.
+  function createInlineCustomer() {
+    if (!window.ANT.customers || typeof window.ANT.customers.createQuick !== 'function') {
+      return toast('The customer form is not ready. Try again.', 'error');
+    }
+
+    var nameEl = byId('ordQCName');
+    var mobileEl = byId('ordQCMobile');
+    var addressEl = byId('ordQCAddress');
+    var name = nameEl ? nameEl.value.trim() : '';
+    var mobile = mobileEl ? mobileEl.value.trim() : '';
+    var address = addressEl ? addressEl.value.trim() : '';
+
+    if (!name) {
+      toast('Enter a name', 'error');
+      if (nameEl) nameEl.focus();
+      return;
+    }
+    if (!mobile) {
+      toast('Enter a mobile number', 'error');
+      if (mobileEl) mobileEl.focus();
+      return;
+    }
+
+    var btn = byId('ordQCSave');
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
+
+    return window.ANT.customers.createQuick({
+      name: name, mobile: mobile, address: address, notes: ''
+    }).then(function (res) {
+      var row = res && res.data;
+      if ((res && res.error) || !row || !row.id) {
+        if (btn) { btn.disabled = false; btn.textContent = 'Save customer'; }
+        return toast((res && res.error && res.error.message) || 'Customer could not be saved.', 'error');
+      }
+      state.formCustomer = row;
+      state.customerQuery = row.name || name;
+      state.customers = [];
+      state.quickCustomerForm = false;
+      toast('Customer added', 'success');
+      return loadMeasurements(row.id).then(paint);
+    });
+  }
+
+  // Only an id was carried from another screen, so read the row here.
+  function loadCustomerById(id) {
+    return sb().from('customers')
+      .select('id,code,name,mobile,address')
+      .eq('id', id)
+      .limit(1)
+      .then(function (res) {
+        if (res.error || !res.data || !res.data.length) return null;
+        return res.data[0];
+      });
   }
 
   function searchCustomers(term) {
@@ -1862,6 +1992,26 @@ window.ANT.orders = (function () {
       });
     });
 
+    // From the order straight to its money. The target screens already hold the
+    // rules, so these buttons only hand the order over and let them load it.
+    Array.prototype.forEach.call(document.querySelectorAll('[data-ord-pay]'), function (btn) {
+      btn.addEventListener('click', function () {
+        var id = btn.getAttribute('data-ord-pay');
+        if (window.ANT.payments && typeof window.ANT.payments.focusOrder === 'function') {
+          window.ANT.payments.focusOrder(id);
+        }
+      });
+    });
+
+    Array.prototype.forEach.call(document.querySelectorAll('[data-ord-bill]'), function (btn) {
+      btn.addEventListener('click', function () {
+        var id = btn.getAttribute('data-ord-bill');
+        if (window.ANT.bills && typeof window.ANT.bills.focusOrder === 'function') {
+          window.ANT.bills.focusOrder(id);
+        }
+      });
+    });
+
     Array.prototype.forEach.call(document.querySelectorAll('.ord-set'), function (btn) {
       btn.addEventListener('click', function () {
         var id = btn.getAttribute('data-ord-id');
@@ -1920,6 +2070,41 @@ window.ANT.orders = (function () {
       });
     });
 
+    var newCust = byId('ordNewCust');
+    if (newCust) {
+      newCust.addEventListener('click', function () {
+        state.quickCustomerForm = true;
+        paint();
+        var field = byId('ordQCName');
+        if (field) field.focus();
+      });
+    }
+
+    var qcCancel = byId('ordQCCancel');
+    if (qcCancel) {
+      qcCancel.addEventListener('click', function () {
+        state.quickCustomerForm = false;
+        paint();
+      });
+    }
+
+    var qcForm = byId('ordQCSave');
+    if (qcForm) qcForm.addEventListener('click', createInlineCustomer);
+
+    var applyDateAll = byId('ordApplyDateAll');
+    if (applyDateAll) {
+      applyDateAll.addEventListener('click', function () {
+        var picker = byId('ordApplyDate');
+        var date = picker ? picker.value : '';
+        if (!date) return toast('Choose a delivery date first.', 'error');
+        readItems();
+        state.formItems.forEach(function (it) { it.delivery_date = date; });
+        state.lastDelivery = date;
+        paint();
+        toast('Delivery date applied to all ' + state.formItems.length + ' items.', 'success');
+      });
+    }
+
     var addItem = byId('ordAddItem');
     if (addItem) {
       addItem.addEventListener('click', function () {
@@ -1927,7 +2112,12 @@ window.ANT.orders = (function () {
         if (state.formItems.length >= MAX_ITEMS) {
           return toast('An order cannot contain more than ' + MAX_ITEMS + ' items.', 'error');
         }
-        state.formItems.push(blankItem());
+        var row = blankItem();
+        // Orders usually share one delivery date, so a new row starts with the
+        // date already used rather than asking for it again.
+        var dated = state.formItems.filter(function (x) { return x.delivery_date; });
+        row.delivery_date = state.lastDelivery || (dated.length ? dated[dated.length - 1].delivery_date : '');
+        state.formItems.push(row);
         paint();
       });
     }
@@ -1983,6 +2173,7 @@ window.ANT.orders = (function () {
         }
 
         readItems();
+        if (f === 'delivery_date') state.lastDelivery = state.formItems[i].delivery_date || '';
         var floor = startingPriceFor(state.formItems[i].service, state.formItems[i].dress_type, state.formItems[i].lining);
         var rateEl = document.querySelector('[data-ord-item="' + i + '"][data-f="rate"]');
         if ((f === 'dress_type' || f === 'lining') && floor > 0 && num(state.formItems[i].rate) < floor) {
@@ -2094,6 +2285,13 @@ window.ANT.orders = (function () {
     },
 
     render: function () {
+      // A customer handed over by the Customers screen is consumed here, after
+      // the normal reset, so it cannot be wiped by it.
+      var pending = state.pendingCustomer;
+      var pendingId = state.pendingCustomerId;
+      state.pendingCustomer = null;
+      state.pendingCustomerId = null;
+
       state.view = 'list';
       state.search = '';
       state.searchNote = '';
@@ -2110,11 +2308,33 @@ window.ANT.orders = (function () {
       state.measurements = [];
       state.dressTypes = [];
       state.resale = [];
+      state.lastDelivery = '';
+      state.quickCustomerForm = false;
       state.waShop = { name: '', waReadyMessage: '', upiId: '', payee: '' };
       paint();
-      Promise.all([loadReference(), loadResale(), loadPrices()]).then(loadWaShop).then(function () {
-        return loadOrders();
-      });
+      return Promise.all([loadReference(), loadResale(), loadPrices()])
+        .then(loadWaShop)
+        .then(function () { return loadOrders(); })
+        .then(function () {
+          if (pending) return openNewForCustomer(pending);
+          if (pendingId) {
+            return loadCustomerById(pendingId).then(function (c) {
+              if (c) return openNewForCustomer(c);
+            });
+          }
+        });
+    },
+
+    // A Customers row action calls this. The person is remembered and the usual
+    // route change renders the page, so the order form opens already assigned.
+    startForCustomer: function (c) {
+      var id = (typeof c === 'string') ? c : (c && c.id);
+      state.pendingCustomer = (typeof c === 'string') ? null : c;
+      state.pendingCustomerId = id || null;
+      var here = (location.hash || '').replace(/^#\/?/, '').split('/')[0];
+      if (here === 'orders') return render();
+      location.hash = '#/orders';
+      return Promise.resolve();
     },
 
     // Lets another screen advance an order along the same straight line the

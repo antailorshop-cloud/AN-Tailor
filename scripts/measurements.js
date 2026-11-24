@@ -53,6 +53,9 @@ window.ANT.measurements = (function () {
     error: null
   };
 
+  // A customer handed over by the Customers screen, consumed by render().
+  var pendingCustomer = null;
+
   var custTimer = null;
 
   function me() {
@@ -655,6 +658,30 @@ window.ANT.measurements = (function () {
     });
   }
 
+  // Select the customer and put the new-measurement form straight on screen.
+  function applyCustomer(c) {
+    if (!c) return;
+    state.customer = c;
+    state.customerQuery = c.name || '';
+    state.customers = [];
+    state.form = 'new';
+    state.dressType = '';
+    paint();
+    loadHistory();
+  }
+
+  /* A Customers row action sends the person here. The customer is remembered
+   * and the normal route change renders the page, so the tailor lands on the
+   * form with them already chosen. */
+  function focusCustomer(c) {
+    if (!c) return Promise.resolve();
+    pendingCustomer = c;
+    var here = (location.hash || '').replace(/^#\/?/, '').split('/')[0];
+    if (here === 'measurements') return Promise.resolve(render());
+    location.hash = '#/measurements';
+    return Promise.resolve();
+  }
+
   return {
     mount: function () {
       return '<div id="measurementsView"></div>';
@@ -662,7 +689,12 @@ window.ANT.measurements = (function () {
 
     cleanNumber: cleanNumber,
 
+    focusCustomer: focusCustomer,
+
     render: function () {
+      var pending = pendingCustomer;
+      pendingCustomer = null;
+
       state.search = '';
       state.customerQuery = '';
       state.customers = [];
@@ -671,6 +703,17 @@ window.ANT.measurements = (function () {
       state.form = null;
       state.dressType = '';
       paint();
+
+      if (!pending) return;
+      if (typeof pending !== 'string') return applyCustomer(pending);
+      return sb().from('customers')
+        .select('id,code,name,mobile')
+        .eq('id', pending)
+        .limit(1)
+        .then(function (res) {
+          if (res.error || !res.data || !res.data.length) return;
+          applyCustomer(res.data[0]);
+        });
     }
   };
 })();

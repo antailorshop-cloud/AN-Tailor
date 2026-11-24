@@ -1520,8 +1520,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 
 .ord-row-actions {
-  text-align: right;
-  white-space: nowrap;
+  display: flex;
+  gap: 5px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
 }
 
 .ord-status-bar {
@@ -1628,6 +1630,37 @@ button, input, select, textarea { font: inherit; color: inherit; }
   gap: var(--gap-sm);
   margin-top: var(--gap-sm);
   flex-wrap: wrap;
+}
+
+/* Apply one delivery date to every row, and keep the last typed date handy. */
+.ord-items-tools {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--gap-sm);
+  margin-top: var(--gap-sm);
+  flex-wrap: wrap;
+}
+
+.ord-items-tools .ui-field { min-width: 180px; }
+.ord-items-tools .btn { margin-bottom: 1px; }
+
+/* Inline new customer inside the order form. */
+.ord-new-cust {
+  margin-top: var(--gap-sm);
+}
+
+.ord-quick-cust {
+  margin-top: var(--gap-sm);
+  padding: var(--gap);
+  border: 1px solid var(--surface-line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.ord-quick-cust .form-actions { margin-top: var(--gap-sm); }
+
+.ord-selected-cust {
+  margin-top: var(--gap-sm);
 }
 
 /* Money summary */

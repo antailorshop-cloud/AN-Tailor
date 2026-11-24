@@ -28,6 +28,7 @@ window.ANT.customers = (function () {
     rows: [],
     loading: false,
     form: null,   // null = closed, 'new', or a customer row being edited
+    lastSaved: null, // customer just saved, so the next step is one tap away
     error: null
   };
 
@@ -228,6 +229,10 @@ window.ANT.customers = (function () {
       '<td class="num">' + esc(c.mobile || '—') + '</td>' +
       '<td>' + (archived ? '<span class="chip chip-muted">Archived</span>' : '<span class="chip chip-success">Active</span>') + '</td>' +
       '<td class="cust-actions">' +
+        (!archived
+          ? '<button class="btn btn-sm btn-primary" data-cust-new-order="' + esc(c.id) + '">New order</button>' +
+            '<button class="btn btn-sm btn-secondary" data-cust-measure="' + esc(c.id) + '">Measurement</button>'
+          : '') +
         (canEdit ? '<button class="btn btn-sm btn-secondary" data-cust-edit="' + esc(c.id) + '">Edit</button>' : '') +
         (archived
           ? '<button class="btn btn-sm btn-quiet" data-cust-restore="' + esc(c.id) + '">Restore</button>'
@@ -320,10 +325,46 @@ window.ANT.customers = (function () {
     '</div>';
   }
 
+  // After saving a customer, the two most common next steps are a new order or
+  // a measurement. Offering them here removes the search-this-person-again step.
+  function quickActionsHtml() {
+    var c = state.lastSaved;
+    if (!c) return '';
+    return '<div class="ui-card">' +
+      '<h2 class="ui-card-title">Next for ' + esc(c.name || 'customer') + '</h2>' +
+      '<p class="ui-card-sub">Customer saved. Continue without searching for them again.</p>' +
+      '<div class="cust-actions">' +
+        '<button class="btn btn-primary" data-cust-new-order="' + esc(c.id) + '">New order</button>' +
+        '<button class="btn btn-secondary" data-cust-measure="' + esc(c.id) + '">Add measurement</button>' +
+        '<button class="btn btn-quiet" id="custQuickDone">Done</button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function findCustomer(id) {
+    return state.rows.filter(function (r) { return r.id === id; })[0] || null;
+  }
+
+  function startOrderFor(c) {
+    if (window.ANT.orders && typeof window.ANT.orders.startForCustomer === 'function') {
+      window.ANT.orders.startForCustomer(c);
+    } else {
+      location.hash = '#/orders';
+    }
+  }
+
+  function openMeasurementFor(c) {
+    if (window.ANT.measurements && typeof window.ANT.measurements.focusCustomer === 'function') {
+      window.ANT.measurements.focusCustomer(c);
+    } else {
+      location.hash = '#/measurements';
+    }
+  }
+
   function paint() {
     var host = byId('customersView');
     if (!host) return;
-    host.innerHTML = pageHead() + formHtml() +
+    host.innerHTML = pageHead() + formHtml() + quickActionsHtml() +
       '<div class="ui-card">' + toolbar() + table() + '</div>';
     wire();
     focusSearchEnd();
@@ -385,6 +426,16 @@ window.ANT.customers = (function () {
         toast(res.error.message, 'error');
         return;
       }
+      // Keep the saved row so the next step (order / measurement) is one tap
+      // away. insertCustomer uses .single() (object); update uses .select()
+      // (array), so accept both shapes.
+      var savedRow = (res.data && (res.data.id ? res.data : res.data[0])) || {};
+      state.lastSaved = {
+        id: savedRow.id || (editing && state.form ? state.form.id : null),
+        name: values.name,
+        mobile: values.mobile,
+        code: savedRow.code || ''
+      };
       state.form = null;
       toast(editing ? 'Customer updated' : 'Customer added', 'success');
       load();
@@ -543,6 +594,30 @@ window.ANT.customers = (function () {
         remove(btn.getAttribute('data-cust-delete'));
       });
     });
+
+    Array.prototype.forEach.call(document.querySelectorAll('[data-cust-new-order]'), function (btn) {
+      btn.addEventListener('click', function () {
+        var id = btn.getAttribute('data-cust-new-order');
+        var c = findCustomer(id) || (state.lastSaved && state.lastSaved.id === id ? state.lastSaved : null);
+        if (c) startOrderFor(c);
+      });
+    });
+
+    Array.prototype.forEach.call(document.querySelectorAll('[data-cust-measure]'), function (btn) {
+      btn.addEventListener('click', function () {
+        var id = btn.getAttribute('data-cust-measure');
+        var c = findCustomer(id) || (state.lastSaved && state.lastSaved.id === id ? state.lastSaved : null);
+        if (c) openMeasurementFor(c);
+      });
+    });
+
+    var quickDone = byId('custQuickDone');
+    if (quickDone) {
+      quickDone.addEventListener('click', function () {
+        state.lastSaved = null;
+        paint();
+      });
+    }
   }
 
   return {
@@ -554,9 +629,25 @@ window.ANT.customers = (function () {
       state.search = '';
       state.page = 0;
       state.form = null;
+      state.lastSaved = null;
       state.showArchived = false;
       paint();
       load();
+    },
+
+    // Orders calls this to add a customer without leaving the order form.
+    // It creates the row and hands back just the fields an order needs.
+    createQuick: function (values) {
+      return insertCustomer({
+        name: values.name,
+        mobile: values.mobile,
+        address: values.address || '',
+        notes: values.notes || ''
+      }).then(function (res) {
+        if (res && res.error) return { error: res.error };
+        var row = (res && res.data && (res.data.id ? res.data : res.data[0])) || {};
+        return { data: row };
+      });
     }
   };
 })();
