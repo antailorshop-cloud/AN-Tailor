@@ -198,42 +198,21 @@ window.ANT.bills = (function () {
     if (shop.gstState !== 'TN' && shop.gstState !== 'OTHER') return false;
     return gstRateText(shop.gstTailoringRate) !== null &&
       gstRateText(shop.gstResaleLowRate) !== null &&
-      gstRateText(shop.gstResaleHighRate) !== null &&
-      gstRateText(shop.gstClothRate) !== null;
-  }
-
-  function clothNames(shop) {
-    return String((shop && shop.gstClothItems) || '')
-      .split(/[\n,]/)
-      .map(function (n) { return n.trim().toLowerCase(); })
-      .filter(function (n) { return !!n; });
+      gstRateText(shop.gstResaleHighRate) !== null;
   }
 
   /* pieceNet is the price of one piece after the order discount has been spread
    * over the line. The resale slab is tested on that figure, not on the typed
    * rate: a ₹2,600 garment discounted by ₹200 is a ₹2,400 sale and takes the
    * lower rate. Dress type is no longer asked for on a resale row, so every
-   * ready-made garment uses the one HSN typed into Settings. */
-  function gstRateForItem(it, shop, cloth, pieceNet) {
+   * resale item uses the one garment HSN typed into Settings. */
+  function gstRateForItem(it, shop, pieceNet) {
     if (String((it && it.service) || '') !== 'Resale') {
       var sac = String((shop && shop.gstServiceSac) || '').trim();
       return {
         label: 'Tailoring & other services',
         rate: gstRateText(shop && shop.gstTailoringRate),
         code: sac, codeType: 'SAC', hsn: '', sac: sac
-      };
-    }
-
-    var name = String((it && (it.variant || it.dress_type)) || '').toLowerCase();
-    var clothHit = cloth.some(function (n) {
-      return name === n || name.indexOf(n) !== -1;
-    });
-    if (clothHit) {
-      var clothHsn = String(shop.gstHsn || '').trim();
-      return {
-        label: 'Cloth sales',
-        rate: gstRateText(shop.gstClothRate),
-        code: clothHsn, codeType: 'HSN', hsn: clothHsn, sac: ''
       };
     }
 
@@ -254,7 +233,6 @@ window.ANT.bills = (function () {
   function gstForOrders(list, shop) {
     if (!gstReady(shop)) return null;
 
-    var cloth = clothNames(shop);
     var groups = {};
     var netTotal = 0;
     var taxableTotal = 0;
@@ -273,7 +251,7 @@ window.ANT.bills = (function () {
 
         var qty = num(it.quantity);
         var pieceNet = qty > 0 ? net / qty : net;
-        var info = gstRateForItem(it, shop, cloth, pieceNet);
+        var info = gstRateForItem(it, shop, pieceNet);
         // Never charge a rate that was not configured.
         if (info.rate == null) return;
 
@@ -582,7 +560,6 @@ window.ANT.bills = (function () {
         var shop = { name: '', address: '', phone: '', email: '', instagram: '',
           upiId: '', payee: '', waBillMessage: '', waReminderMessage: '',
           printSize: '', waPrintSize: '', gstEnabled: '', gstin: '', gstState: '',
-          gstHsn: '', gstClothRate: '', gstClothItems: '',
           gstTailoringRate: '', gstResaleLowRate: '', gstResaleHighRate: '',
           gstGarmentHsn: '', gstServiceSac: '' };
 
@@ -602,9 +579,6 @@ window.ANT.bills = (function () {
             else if (row.key === 'gst_enabled') shop.gstEnabled = row.value || '';
             else if (row.key === 'gstin') shop.gstin = row.value || '';
             else if (row.key === 'gst_state') shop.gstState = row.value || '';
-            else if (row.key === 'gst_hsn') shop.gstHsn = row.value || '';
-            else if (row.key === 'gst_cloth_rate') shop.gstClothRate = row.value || '';
-            else if (row.key === 'gst_cloth_items') shop.gstClothItems = row.value || '';
             else if (row.key === 'gst_tailoring_rate') shop.gstTailoringRate = row.value || '';
             else if (row.key === 'gst_resale_low_rate') shop.gstResaleLowRate = row.value || '';
             else if (row.key === 'gst_resale_high_rate') shop.gstResaleHighRate = row.value || '';
@@ -645,8 +619,8 @@ window.ANT.bills = (function () {
 
         state.orders = res.data || [];
         var ids = state.orders.map(function (o) { return o.id; });
-        // Tax depends on what was actually ordered - a service, a ready-made
-        // garment or cloth - so the garments are loaded with the orders. A
+        // Tax depends on what was actually ordered - a service or a resale
+        // garment - so the garments are loaded with the orders. A
         // failed read leaves them empty and the bill simply carries no new tax.
         return itemsForPrint(ids).then(function (items) {
           state.items = items || {};

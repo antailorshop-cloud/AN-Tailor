@@ -100,8 +100,7 @@ window.ANT.orders = (function () {
     // the shop's own name and the owner's own words. Kept apart from state.form
     // because it belongs to the list as well as the order.
     waShop: { name: '', waReadyMessage: '', upiId: '', payee: '',
-      gstEnabled: '', gstin: '', gstState: '', gstHsn: '',
-      gstClothRate: '', gstClothItems: '', gstTailoringRate: '',
+      gstEnabled: '', gstin: '', gstState: '', gstTailoringRate: '',
       gstResaleLowRate: '', gstResaleHighRate: '', gstGarmentHsn: '',
       gstServiceSac: '' },
     saving: false,
@@ -403,8 +402,7 @@ window.ANT.orders = (function () {
           return;
         }
         var shop = { name: '', waReadyMessage: '', upiId: '', payee: '',
-          gstEnabled: '', gstin: '', gstState: '', gstHsn: '',
-          gstClothRate: '', gstClothItems: '', gstTailoringRate: '',
+          gstEnabled: '', gstin: '', gstState: '', gstTailoringRate: '',
           gstResaleLowRate: '', gstResaleHighRate: '', gstGarmentHsn: '',
           gstServiceSac: '' };
         ((res && res.data) || []).forEach(function (row) {
@@ -415,9 +413,6 @@ window.ANT.orders = (function () {
           else if (row.key === 'gst_enabled') shop.gstEnabled = row.value || '';
           else if (row.key === 'gstin') shop.gstin = row.value || '';
           else if (row.key === 'gst_state') shop.gstState = row.value || '';
-          else if (row.key === 'gst_hsn') shop.gstHsn = row.value || '';
-          else if (row.key === 'gst_cloth_rate') shop.gstClothRate = row.value || '';
-          else if (row.key === 'gst_cloth_items') shop.gstClothItems = row.value || '';
           else if (row.key === 'gst_tailoring_rate') shop.gstTailoringRate = row.value || '';
           else if (row.key === 'gst_resale_low_rate') shop.gstResaleLowRate = row.value || '';
           else if (row.key === 'gst_resale_high_rate') shop.gstResaleHighRate = row.value || '';

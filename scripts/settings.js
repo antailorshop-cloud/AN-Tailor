@@ -80,10 +80,9 @@ window.ANT.settings = (function () {
     'shop_instagram', 'upi_id', 'upi_payee_name', 'payment_terms',
     'due_reminder_days', 'wa_bill_message', 'wa_reminder_message',
     'wa_ready_message', 'wa_delivered_message', 'bill_print_size', 'wa_bill_size',
-    'receipt_print_size', 'gst_enabled', 'gstin', 'gst_state', 'gst_hsn',
-    'gst_cloth_rate', 'gst_cloth_items', 'gst_tailoring_rate',
-    'gst_resale_low_rate', 'gst_resale_high_rate', 'gst_garment_hsn',
-    'gst_service_sac'];
+    'receipt_print_size', 'gst_enabled', 'gstin', 'gst_state',
+    'gst_tailoring_rate', 'gst_resale_low_rate', 'gst_resale_high_rate',
+    'gst_garment_hsn', 'gst_service_sac'];
 
   var state = {
     tab: 'dress',
@@ -95,9 +94,8 @@ window.ANT.settings = (function () {
       due_reminder_days: '', wa_bill_message: '', wa_reminder_message: '',
       wa_ready_message: '', wa_delivered_message: '', bill_print_size: '',
       wa_bill_size: '', receipt_print_size: '', gst_enabled: '0', gstin: '',
-      gst_state: 'TN', gst_hsn: '', gst_cloth_rate: '', gst_cloth_items: '',
-      gst_tailoring_rate: '', gst_resale_low_rate: '', gst_resale_high_rate: '',
-      gst_garment_hsn: '', gst_service_sac: '' },
+      gst_state: 'TN', gst_tailoring_rate: '', gst_resale_low_rate: '',
+      gst_resale_high_rate: '', gst_garment_hsn: '', gst_service_sac: '' },
     staff: { rows: [], access: {}, loading: false, error: null },
     clear: { picked: {}, busy: false },
     exporting: false,
@@ -171,9 +169,8 @@ window.ANT.settings = (function () {
       due_reminder_days: '', wa_bill_message: '', wa_reminder_message: '',
       wa_ready_message: '', wa_delivered_message: '', bill_print_size: '',
       wa_bill_size: '', receipt_print_size: '', gst_enabled: '0', gstin: '',
-      gst_state: 'TN', gst_hsn: '', gst_cloth_rate: '', gst_cloth_items: '',
-      gst_tailoring_rate: '', gst_resale_low_rate: '', gst_resale_high_rate: '',
-      gst_garment_hsn: '', gst_service_sac: '' };
+      gst_state: 'TN', gst_tailoring_rate: '', gst_resale_low_rate: '',
+      gst_resale_high_rate: '', gst_garment_hsn: '', gst_service_sac: '' };
     rows.forEach(function (row) {
       if (SHOP_KEYS.indexOf(row.key) !== -1) {
         shop[row.key] = String(row.value == null ? '' : row.value);
@@ -437,14 +434,6 @@ window.ANT.settings = (function () {
     '</div>';
   }
 
-  function textareaField(id, label, value, hint) {
-    return '<div class="ui-field">' +
-      '<label class="ui-label" for="' + id + '">' + esc(label) + '</label>' +
-      '<textarea class="ui-input" id="' + id + '" rows="5">' + esc(value) + '</textarea>' +
-      (hint ? '<p class="ui-hint">' + esc(hint) + '</p>' : '') +
-    '</div>';
-  }
-
   /* One paper picker, used several times. The wording differs because the sheet
    * means something different for a bill than for a slip, and the size only ever
    * affects how the document is laid out - never a figure printed on it.
@@ -658,8 +647,7 @@ window.ANT.settings = (function () {
 
     var rateProblem = gstRateProblem(s.gst_tailoring_rate, 'tailoring and services GST rate') ||
       gstRateProblem(s.gst_resale_low_rate, 'resale GST rate up to ' + money(GARMENT_SLAB)) ||
-      gstRateProblem(s.gst_resale_high_rate, 'resale GST rate above ' + money(GARMENT_SLAB)) ||
-      gstRateProblem(s.gst_cloth_rate, 'cloth GST rate');
+      gstRateProblem(s.gst_resale_high_rate, 'resale GST rate above ' + money(GARMENT_SLAB));
     if (rateProblem) return rateProblem;
 
     if (!String(s.gst_service_sac || '').trim()) {
@@ -702,10 +690,9 @@ window.ANT.settings = (function () {
         '<strong>Rates used</strong>' +
         '<p class="ui-hint">Tailoring and every other service use the tailoring rate with the ' +
           'SAC typed below. Minor items such as thread, hooks or lining do not change it.</p>' +
-        '<p class="ui-hint">Resale ready-made garments use the lower rate up to ' +
+        '<p class="ui-hint">Every resale item uses the lower rate up to ' +
           money(GARMENT_SLAB) + ' and the higher rate above it, with the garment HSN typed ' +
-          'below. The slab is checked on the post-discount price of each piece. Resale items ' +
-          'named under cloth item names use the cloth HSN and rate instead.</p>' +
+          'below. The slab is checked on the post-discount price of each piece.</p>' +
         '<p class="ui-hint">Every rate is worked out of a GST-inclusive price, never added on top.</p>' +
         '<p class="ui-hint">' + (s.gst_state === 'OTHER'
           ? 'Other state: IGST is charged.'
@@ -726,13 +713,6 @@ window.ANT.settings = (function () {
             'Used on tailoring, Aari work, ironing, alterations and every other service. Use 0 when exempt.') +
           shopField('gstServiceSac', 'SAC for tailoring & all other services', s.gst_service_sac,
             'Printed beside the service tax line on orders and bills.') +
-          shopField('gstHsn', 'HSN code for cloth', s.gst_hsn,
-            'Printed beside the cloth tax line on the bill.') +
-          shopField('gstClothRate', 'Cloth GST rate %', s.gst_cloth_rate,
-            'The rate for cloth sales under that HSN. Use 0 when exempt.') +
-          textareaField('gstClothItems', 'Cloth item names', s.gst_cloth_items,
-            'One resale stock item name per line. Matching items are taxed as cloth; ' +
-            'other resale items are ready-made garments.') +
           shopField('gstResaleLowRate', 'Resale GST % up to ' + money(GARMENT_SLAB),
             s.gst_resale_low_rate,
             'Used when one resale piece costs ' + money(GARMENT_SLAB) + ' or less after discount. Use 0 when exempt.') +
@@ -759,9 +739,6 @@ window.ANT.settings = (function () {
       gst_enabled: byId('gstEnable').value,
       gstin: byId('gstin').value.trim().toUpperCase().replace(/[^0-9A-Z]/g, ''),
       gst_state: byId('gstState').value,
-      gst_hsn: byId('gstHsn').value.trim(),
-      gst_cloth_rate: byId('gstClothRate').value.trim(),
-      gst_cloth_items: byId('gstClothItems').value.trim(),
       gst_tailoring_rate: byId('gstTailoringRate').value.trim(),
       gst_resale_low_rate: byId('gstResaleLowRate').value.trim(),
       gst_resale_high_rate: byId('gstResaleHighRate').value.trim(),
