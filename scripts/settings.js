@@ -667,19 +667,22 @@ window.ANT.settings = (function () {
 
     return '<div class="ui-card cust-form">' +
       '<h2 class="ui-card-title">GST</h2>' +
-      '<p class="ui-hint">Bills stay exactly as they are until you switch GST on ' +
-        'and save every field below. A missing rate is never guessed.</p>' +
+      '<p class="ui-hint">Prices entered on orders already include GST. Bills work ' +
+        'the tax out of those prices; it is never added on top. Bills stay exactly ' +
+        'as they are until you switch GST on and save every field below. A missing ' +
+        'rate is never guessed.</p>' +
       '<div class="ui-card" style="margin-bottom:16px">' +
         '<strong>' + (on ? 'GST is ON for new bills.' : 'GST is OFF.') + '</strong>' +
         '<p class="ui-hint">' + (problem ? esc(problem) : (on
-          ? 'New bills show tax as a separate line and carry this GSTIN.'
+          ? 'New bills show the GST included in each price as a separate line and carry this GSTIN.'
           : 'Turn it on and fill in the details to begin.')) + '</p>' +
       '</div>' +
       '<div class="ui-card" style="margin-bottom:16px">' +
         '<strong>Rates used</strong>' +
         '<p class="ui-hint">Tailoring and stitching services: 5%. Ready-made garments: ' +
           '5% up to ' + money(GARMENT_SLAB) + ' per piece and 18% above. ' +
-          'Cloth sales: the HSN and rate set below.</p>' +
+          'Cloth sales: the HSN and rate set below. Each rate is worked out of a ' +
+          'GST-inclusive price, not charged in addition to it.</p>' +
         '<p class="ui-hint">' + (s.gst_state === 'OTHER'
           ? 'Other state: IGST is charged.'
           : 'Tamil Nadu: CGST and SGST are charged equally.') + '</p>' +
@@ -688,7 +691,7 @@ window.ANT.settings = (function () {
         '<div class="form-grid">' +
           selectField('gstEnable', 'GST calculation', s.gst_enabled === '1' ? '1' : '0', [
             { v: '0', t: 'Off - do not charge GST' },
-            { v: '1', t: 'On - charge GST on new bills' }
+            { v: '1', t: 'On - work GST out of new bill prices' }
           ], 'Leave Off until the GSTIN and rates are correct.') +
           shopField('gstin', 'GSTIN', s.gstin, '15 letters and digits. Printed on the bill.') +
           selectField('gstState', 'Place of supply', s.gst_state || 'TN', [
@@ -740,7 +743,7 @@ window.ANT.settings = (function () {
         return;
       }
       toast(draft.gst_enabled === '1'
-        ? 'GST settings saved. New bills will include tax.'
+        ? 'GST settings saved. GST will be worked out of new bill prices.'
         : 'GST settings saved. Tax is switched off.', 'success');
       load();
     });

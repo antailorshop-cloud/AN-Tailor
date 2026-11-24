@@ -1712,6 +1712,16 @@ button, input, select, textarea { font: inherit; color: inherit; }
   font-variant-numeric: tabular-nums;
 }
 
+.ord-total-gst {
+  padding-left: 12px;
+  border-left: 2px solid var(--surface-line);
+  font-size: var(--fs-xs);
+}
+
+.ord-total-gst strong { font-size: var(--fs-sm); }
+
+.ord-total-net { font-weight: 600; color: var(--text-strong); }
+
 .ord-total-balance {
   padding-top: 6px;
   border-top: 1px solid var(--surface-line);

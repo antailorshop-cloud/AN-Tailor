@@ -5,11 +5,13 @@
  * owed. The legacy system already worked this way and the arithmetic is kept
  * exactly as it was:
  *
- *   total       = sum of order.total
+ *   total       = sum of order.total, as typed on the orders
  *   discount    = sum of order.discount
  *   advance     = sum of order.advance
- *   taxable     = total - discount
- *   bill_amount = taxable + GST (when the Owner has switched GST on)
+ *   net         = total - discount, already including GST in the entered prices
+ *   taxable     = net / (1 + rate), worked back out of that inclusive amount
+ *   GST         = net - taxable, so it is never added on top of the price
+ *   bill_amount = net
  *   balance     = bill_amount - advance
  *
  * The discount is subtracted here exactly as the legacy sheet did, even though
@@ -236,13 +238,15 @@ window.ANT.bills = (function () {
 
   /* The tax is built from the items actually on the bill. A discount belongs to
    * the whole order, so it is spread over that order's lines before any rate is
-   * applied; tax is therefore always on the amount after discount. */
+   * applied. The price on an order already includes GST, so the tax is worked
+   * back out of the amount after discount rather than being added to it. */
   function gstForOrders(list, shop) {
     if (!gstReady(shop)) return null;
 
     var cloth = clothNames(shop);
     var groups = {};
-    var taxable = 0;
+    var netTotal = 0;
+    var taxableTotal = 0;
 
     (list || []).forEach(function (o) {
       var items = o.items || [];
@@ -260,6 +264,9 @@ window.ANT.bills = (function () {
         // Never charge a rate that was not configured.
         if (info.rate == null) return;
 
+        // Inclusive arithmetic: ₹1,000 at 5% is ₹952.38 taxable and ₹47.62 GST.
+        var taxable = round2(net / (1 + info.rate / 100));
+        var tax = round2(net - taxable);
         var key = info.label + '|' + info.rate + '|' + info.hsn;
         if (!groups[key]) {
           groups[key] = {
@@ -267,15 +274,28 @@ window.ANT.bills = (function () {
             taxable: 0, tax: 0
           };
         }
-        groups[key].taxable = round2(groups[key].taxable + net);
-        groups[key].tax = round2(groups[key].tax + round2(net * info.rate / 100));
-        taxable = round2(taxable + net);
+        groups[key].taxable = round2(groups[key].taxable + taxable);
+        groups[key].tax = round2(groups[key].tax + tax);
+        netTotal = round2(netTotal + net);
+        taxableTotal = round2(taxableTotal + taxable);
       });
     });
 
     var lines = Object.keys(groups).map(function (k) { return groups[k]; });
-    var total = 0;
-    lines.forEach(function (l) { total = round2(total + l.tax); });
+    // Rounding each line separately can leave a paise apart from the net total.
+    // The net is the authority, so any odd paise is put on one taxed line rather
+    // than letting the displayed GST disagree with the bill amount.
+    var total = round2(netTotal - taxableTotal);
+    if (lines.length) {
+      var summed = 0;
+      lines.forEach(function (l) { summed = round2(summed + l.tax); });
+      var odd = round2(total - summed);
+      if (odd) {
+        var target = lines.filter(function (l) { return num(l.rate) > 0; }).pop() ||
+          lines[lines.length - 1];
+        target.tax = round2(target.tax + odd);
+      }
+    }
 
     var cgst = 0, sgst = 0, igst = 0;
     if (shop.gstState === 'TN') {
@@ -286,9 +306,9 @@ window.ANT.bills = (function () {
     }
 
     return {
-      lines: lines, taxable: taxable, total: total,
+      lines: lines, taxable: taxableTotal, net: netTotal, total: total,
       cgst: cgst, sgst: sgst, igst: igst,
-      state: shop.gstState, gstin: gstinOf(shop)
+      state: shop.gstState, gstin: gstinOf(shop), inclusive: true
     };
   }
 
@@ -316,13 +336,21 @@ window.ANT.bills = (function () {
       advance += num(o.advance);
     });
 
-    // When tax is present, its own taxable figure is the authority: that is the
-    // amount after discount on which the lines were actually calculated.
-    var taxable = tax ? num(tax.taxable) : round2(total - discount);
-    // bill_amount is what the customer pays before their advance comes off. With
-    // GST on it includes the tax, so balance keeps meaning bill_amount - advance
-    // everywhere else in the app.
-    var billAmount = round2(taxable + (tax ? num(tax.total) : 0));
+    // Prices on the orders already include GST, so the amount after discount is
+    // the bill amount. When tax is present its own taxable figure is the amount
+    // worked back out of that net, not a second amount added to the bill.
+    var net = round2(total - discount);
+    var taxable = tax ? num(tax.taxable) : net;
+    // A bill raised before this change kept additive tax in its snapshot. That
+    // saved bill keeps its original amount: a payment refresh must never quietly
+    // reduce what the customer was already asked to pay.
+    var additiveSaved = !!tax && tax.inclusive !== true;
+    // bill_amount is what the customer pays before their advance comes off. For
+    // a new inclusive bill it never changes just because GST was worked out of
+    // it, so balance keeps meaning bill_amount - advance everywhere else.
+    var billAmount = additiveSaved
+      ? round2(taxable + num(tax.total))
+      : net;
     return {
       count: (list || []).length,
       total: round2(total),
@@ -1036,21 +1064,22 @@ window.ANT.bills = (function () {
       ? (t.gst.lines || []).map(function (l) {
           var label = l.label + ' ' + num(l.rate) + '%';
           if (l.hsn) label += ' (HSN ' + l.hsn + ')';
-          return label + ': ' + money(l.tax);
+          return label + ': ' + money(l.tax) + ' included';
         }).join(' \u00b7 ')
       : '';
 
     return '<div class="ui-card"><h2 class="ui-card-title">Bill summary</h2>' +
       '<div class="pay-grid">' +
       field('Orders', String(t.count)) +
-      field('Total', money(t.total)) +
+      field('Total (incl. GST)', money(t.total)) +
       (t.gst ? field('Taxable amount', money(t.taxable)) : '') +
       field('Discount', '- ' + money(t.discount)) +
-      (t.gst ? field(taxLabel, money(t.gst.total)) : '') +
+      (t.gst ? field(taxLabel + ' (included)', money(t.gst.total)) : '') +
       field('Bill amount', money(t.billAmount)) +
       field('Balance due', money(Math.max(0, t.balance))) +
       '</div>' +
-      (taxDetail ? '<p class="pay-hint">GST: ' + esc(taxDetail) + '</p>' : '') +
+      (taxDetail ? '<p class="pay-hint">GST worked out of the price: ' +
+        esc(taxDetail) + '</p>' : '') +
       '</div>';
   }
 
@@ -2227,29 +2256,31 @@ window.ANT.bills = (function () {
       '<div class="midrow' + (payBlock ? '' : ' solo') + '">' +
         payBlock +
         '<div class="totals">' +
-          '<div><span class="label">Sub Total</span><span class="val">' + money(snap.bill.total) + '</span></div>' +
+          '<div><span class="label">' + (tax ? 'Sub Total (Incl. GST)' : 'Sub Total') +
+            '</span><span class="val">' + money(snap.bill.total) + '</span></div>' +
           (num(snap.bill.discount)
             ? '<div><span class="label">Discount</span><span class="val">- ' +
               money(snap.bill.discount) + '</span></div>'
             : '') +
-          // Tax is a separate line, never folded into the row above. The
-          // taxable figure is after discount, and the component names tell the
-          // customer whether this is an intra-state or interstate supply.
+          // Prices on the orders include GST, so the tax is shown as a separate
+          // breakdown of the total, never as a second amount added to it. The
+          // component names tell the customer whether this is an intra-state or
+          // interstate supply.
           (tax
             ? '<div><span class="label">Taxable Amount</span><span class="val">' +
                 money(snap.bill.taxable) + '</span></div>' +
               (tax.lines || []).map(function (l) {
-                var label = l.label + ' ' + num(l.rate) + '%';
-                if (l.hsn) label += ' (HSN ' + l.hsn + ')';
+                var label = l.label + ' ' + num(l.rate) + '% (included)';
+                if (l.hsn) label += ' HSN ' + l.hsn;
                 return '<div><span class="label">' + esc(label) + '</span><span class="val">' +
                   money(l.tax) + '</span></div>';
               }).join('') +
               (tax.state === 'TN'
-                ? '<div><span class="label">CGST</span><span class="val">' +
+                ? '<div><span class="label">CGST (included)</span><span class="val">' +
                     money(tax.cgst) + '</span></div>' +
-                  '<div><span class="label">SGST</span><span class="val">' +
+                  '<div><span class="label">SGST (included)</span><span class="val">' +
                     money(tax.sgst) + '</span></div>'
-                : '<div><span class="label">IGST</span><span class="val">' +
+                : '<div><span class="label">IGST (included)</span><span class="val">' +
                     money(tax.igst) + '</span></div>')
             : '') +
           '<div class="sub"><span class="label">Total Amount</span><span class="val">' +
@@ -3445,7 +3476,9 @@ window.ANT.bills = (function () {
     // in words. A wrong word there is read as a statement of fact by whoever signs
     // a crossed cheque against the line, so it is tested rather than trusted.
     __amountInWords: amountInWords,
-    // Exposed so the GST arithmetic can be checked without saving a live bill.
+    // Exposed so the GST arithmetic can be checked without saving a live bill,
+    // and so the Orders page can show the same breakdown before a bill exists.
+    gstForOrders: gstForOrders,
     __gstForOrders: gstForOrders,
     __computeTotals: computeTotals,
     __gstReady: gstReady,

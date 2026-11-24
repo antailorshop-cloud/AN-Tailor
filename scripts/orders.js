@@ -99,7 +99,9 @@ window.ANT.orders = (function () {
     // The shop name and the ready-message wording, so the WhatsApp button says
     // the shop's own name and the owner's own words. Kept apart from state.form
     // because it belongs to the list as well as the order.
-    waShop: { name: '', waReadyMessage: '', upiId: '', payee: '' },
+    waShop: { name: '', waReadyMessage: '', upiId: '', payee: '',
+      gstEnabled: '', gstin: '', gstState: '', gstHsn: '',
+      gstClothRate: '', gstClothItems: '' },
     saving: false,
     saveError: '',
     // Carried from the Customers screen into the next New order form, so the
@@ -206,6 +208,30 @@ window.ANT.orders = (function () {
       advance: a,
       balance: round2(total - d - a)
     };
+  }
+
+  /* The GST breakdown is the same calculation the Bills page uses, run over the
+   * rows currently on the form. Prices are inclusive, so this shows how much of
+   * each entered price is tax; it never changes the figures saved on the order. */
+  function gstForForm(discount) {
+    var bills = window.ANT.bills;
+    if (!bills || typeof bills.gstForOrders !== 'function') return null;
+
+    var items = (state.formItems || []).map(function (it) {
+      return {
+        service: it.service || '',
+        variant: it.resale_item || it.variant || '',
+        dress_type: it.dress_type || '',
+        rate: num(it.rate),
+        quantity: num(it.qty),
+        line_total: lineTotal(it)
+      };
+    });
+
+    return bills.gstForOrders(
+      [{ discount: num(discount), items: items }],
+      state.waShop || {}
+    );
   }
 
   function latestDelivery(items) {
@@ -362,24 +388,33 @@ window.ANT.orders = (function () {
       });
   }
 
-  /* The shop name and the owner's ready-message wording, read once for the page.
-   * A failure here only costs the WhatsApp button its custom wording, so it is
-   * logged rather than thrown: a tailor should still be able to open an order
-   * when the settings table is unhappy. */
+  /* The shop name, the owner's ready-message wording and the GST settings, read
+   * once for the page. A failure here only costs the WhatsApp button its custom
+   * wording and the totals card its GST breakdown, so it is logged rather than
+   * thrown: a tailor should still be able to open an order when the settings
+   * table is unhappy. */
   function loadWaShop() {
     return sb().from('shop_settings')
       .select('key,value')
       .then(function (res) {
         if (res && res.error) {
-          console.warn('Orders: the shop WhatsApp wording could not be read; the default message will be used.', res.error);
+          console.warn('Orders: the shop settings could not be read; the default wording will be used and GST will stay hidden.', res.error);
           return;
         }
-        var shop = { name: '', waReadyMessage: '', upiId: '', payee: '' };
+        var shop = { name: '', waReadyMessage: '', upiId: '', payee: '',
+          gstEnabled: '', gstin: '', gstState: '', gstHsn: '',
+          gstClothRate: '', gstClothItems: '' };
         ((res && res.data) || []).forEach(function (row) {
           if (row.key === 'shop_name') shop.name = row.value || '';
           else if (row.key === 'wa_ready_message') shop.waReadyMessage = row.value || '';
           else if (row.key === 'upi_id') shop.upiId = row.value || '';
           else if (row.key === 'upi_payee_name') shop.payee = row.value || '';
+          else if (row.key === 'gst_enabled') shop.gstEnabled = row.value || '';
+          else if (row.key === 'gstin') shop.gstin = row.value || '';
+          else if (row.key === 'gst_state') shop.gstState = row.value || '';
+          else if (row.key === 'gst_hsn') shop.gstHsn = row.value || '';
+          else if (row.key === 'gst_cloth_rate') shop.gstClothRate = row.value || '';
+          else if (row.key === 'gst_cloth_items') shop.gstClothItems = row.value || '';
         });
         state.waShop = shop;
       });
@@ -1069,6 +1104,47 @@ window.ANT.orders = (function () {
     '</tr>';
   }
 
+  /* The money summary on an order. Each figure carries its own data-total key so
+   * adding a GST line cannot quietly shift the values written by refreshTotals. */
+  function totalsRows(t) {
+    var tax = gstForForm(t.discount);
+    var net = round2(t.total - t.discount);
+
+    return '<div class="ord-totals">' +
+      '<div class="ord-total" data-total="total"><span>Total (incl. GST)</span>' +
+        '<strong>' + money(t.total) + '</strong></div>' +
+      '<div class="ord-total" data-total="discount"><span>Discount</span>' +
+        '<strong>- ' + money(t.discount) + '</strong></div>' +
+      (tax
+        ? '<div class="ord-total ord-total-gst" data-total="taxable"><span>Taxable amount</span>' +
+            '<strong>' + money(tax.taxable) + '</strong></div>' +
+          (tax.lines || []).map(function (l, i) {
+            var label = l.label + ' ' + num(l.rate) + '%';
+            if (l.hsn) label += ' (HSN ' + l.hsn + ')';
+            return '<div class="ord-total ord-total-gst" data-total="gst-line-' + i + '">' +
+              '<span>GST included: ' + esc(label) + '</span>' +
+              '<strong>' + money(l.tax) + '</strong></div>';
+          }).join('') +
+          '<div class="ord-total ord-total-gst" data-total="gst">' +
+            '<span>GST included (' + (tax.state === 'TN' ? 'CGST + SGST' : 'IGST') + ')</span>' +
+            '<strong>' + money(tax.total) + '</strong></div>' +
+          (tax.state === 'TN'
+            ? '<div class="ord-total ord-total-gst" data-total="cgst">' +
+                '<span>CGST included</span><strong>' + money(tax.cgst) + '</strong></div>' +
+              '<div class="ord-total ord-total-gst" data-total="sgst">' +
+                '<span>SGST included</span><strong>' + money(tax.sgst) + '</strong></div>'
+            : '<div class="ord-total ord-total-gst" data-total="igst">' +
+                '<span>IGST included</span><strong>' + money(tax.igst) + '</strong></div>')
+        : '') +
+      '<div class="ord-total ord-total-net" data-total="net"><span>Payable (incl. GST)</span>' +
+        '<strong>' + money(net) + '</strong></div>' +
+      '<div class="ord-total" data-total="advance"><span>Advance</span>' +
+        '<strong>- ' + money(t.advance) + '</strong></div>' +
+      '<div class="ord-total ord-total-balance" data-total="balance">' +
+        '<span>Balance due</span><strong>' + money(t.balance) + '</strong></div>' +
+    '</div>';
+  }
+
   function totalsCard(order, t) {
     var editing = state.form !== 'new';
 
@@ -1112,12 +1188,7 @@ window.ANT.orders = (function () {
           '</textarea>' +
         '</div>' +
       '</div>' +
-      '<div class="ord-totals">' +
-        '<div class="ord-total"><span>Total</span><strong>' + money(t.total) + '</strong></div>' +
-        '<div class="ord-total"><span>Discount</span><strong>- ' + money(t.discount) + '</strong></div>' +
-        '<div class="ord-total"><span>Advance</span><strong>- ' + money(t.advance) + '</strong></div>' +
-        '<div class="ord-total ord-total-balance"><span>Balance due</span><strong>' + money(t.balance) + '</strong></div>' +
-      '</div>' +
+      totalsRows(t) +
     '</div>';
   }
 
@@ -2403,12 +2474,31 @@ window.ANT.orders = (function () {
 
     var box = document.querySelector('.ord-totals');
     if (!box) return;
-    var values = box.querySelectorAll('.ord-total strong');
-    if (values.length < 4) return;
-    values[0].textContent = money(t.total);
-    values[1].textContent = '- ' + money(t.discount);
-    values[2].textContent = '- ' + money(t.advance);
-    values[3].textContent = money(t.balance);
+
+    function put(key, value) {
+      var el = box.querySelector('[data-total="' + key + '"] strong');
+      if (el) el.textContent = value;
+    }
+
+    put('total', money(t.total));
+    put('discount', '- ' + money(t.discount));
+    put('net', money(round2(t.total - t.discount)));
+    put('advance', '- ' + money(t.advance));
+    put('balance', money(t.balance));
+
+    var tax = gstForForm(t.discount);
+    if (!tax) return;
+    put('taxable', money(tax.taxable));
+    put('gst', money(tax.total));
+    if (tax.state === 'TN') {
+      put('cgst', money(tax.cgst));
+      put('sgst', money(tax.sgst));
+    } else {
+      put('igst', money(tax.igst));
+    }
+    (tax.lines || []).forEach(function (l, i) {
+      put('gst-line-' + i, money(l.tax));
+    });
   }
 
   function closeEdit() {
@@ -2495,7 +2585,12 @@ window.ANT.orders = (function () {
 
     // The tap-to-pay line's appender, exposed so the harness can check it with a
     // shop address of its own - a file:// test page has none to build a link from.
-    __withPayBlock: withPayBlock
+    __withPayBlock: withPayBlock,
+
+    // Exposed so the inclusive GST shown on the order can be checked without
+    // waiting for a Supabase read or saving an order.
+    __gstForForm: gstForForm,
+    __totalsRows: totalsRows
   };
 
   function announceStatusChange(order, wasAuto, before, after) {
