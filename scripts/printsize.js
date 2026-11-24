@@ -201,12 +201,13 @@ window.ANT.printsize = (function () {
        * answers that by shrinking the whole thing to 91%, which is what left the
        * white gap down the side. Tightened, it lands at 200mm and prints true. */
       return '.' + base + '-half{width:' + billWidthMm(key) + 'mm;min-height:' + pageHeightMm(key) + 'mm;' +
-        'padding:4.5mm 4.5mm 12mm;margin-left:0;margin-right:0}' +
-        '.' + base + '-half .stamp{bottom:6mm;right:6mm}' +
-        '.' + base + '-half .orn{margin-top:1mm}' +
-        '.' + base + '-half .bill-bar{margin:2mm 0 1.5mm}' +
-        '.' + base + '-half .sect{margin:1.5mm 0 1.5mm}' +
-        '.' + base + '-half .parties{margin:3mm 0 2mm}' +
+        'padding:3.5mm 3.5mm 12mm;margin-left:0;margin-right:0}' +
+        '.' + base + '-half .stamp{bottom:3mm;right:5mm}' +
+        '.' + base + '-half .orn{margin-top:.8mm}' +
+        '.' + base + '-half .bill-bar{margin:1.8mm 0 1.2mm}' +
+        '.' + base + '-half .sect{margin:1.4mm 0 1mm}' +
+        '.' + base + '-half .parties{margin:2mm 0 1.5mm}' +
+        '.' + base + '-half .footmast{margin-top:auto}' +
         cutCss();
     }
 
@@ -249,15 +250,45 @@ window.ANT.printsize = (function () {
      * handed to the A5 document alone, so the plain selector is already scoped. */
     if (key === 'A5') return '.' + base + '{width:' + billWidthMm(key) + 'mm;max-width:100%' +
       (base === 'bill' ? ';min-height:' + pageHeightMm(key) + 'mm' : '') + '}' +
-      '.' + base + '{padding:4.5mm 4.5mm 12mm}' +
-      '.' + base + ' .stamp{bottom:6mm;right:6mm}' +
-      '.' + base + ' .orn{margin-top:1mm}' +
-      '.' + base + ' .bill-bar{margin:2mm 0 1.5mm}' +
-      '.' + base + ' .sect{margin:1.5mm 0 1.5mm}' +
-      '.' + base + ' .parties{margin:3mm 0 2mm}' +
+      '.' + base + '{padding:3.5mm 3.5mm 12mm}' +
+      '.' + base + ' .stamp{bottom:3mm;right:6mm}' +
+      '.' + base + ' .orn{margin-top:.8mm}' +
+      '.' + base + ' .bill-bar{margin:1.8mm 0 1.2mm}' +
+      '.' + base + ' .sect{margin:1.4mm 0 1mm}' +
+      '.' + base + ' .parties{margin:2mm 0 1.5mm}' +
+      '.' + base + ' .footmast{margin-top:auto}' +
       centreCss(base);
     return '.' + base + '{width:' + billWidthMm(key) + 'mm;max-width:100%' +
-      (base === 'bill' ? ';min-height:' + pageHeightMm(key) + 'mm' : '') + '}' + centreCss(base);
+      (base === 'bill' ? ';min-height:' + pageHeightMm(key) + 'mm' : '') +
+      ';padding:7mm 7mm 18mm}' +
+      '.' + base + ' .head{gap:4mm;padding-bottom:2.8mm}' +
+      '.' + base + ' .shop-logo{width:30mm;height:30mm}' +
+      '.' + base + ' .shop-name{font-size:20px}' +
+      '.' + base + ' .shop-sub{font-size:8px}' +
+      '.' + base + ' .shop-contact{font-size:9.5px}' +
+      '.' + base + ' .orn{margin-top:2.4mm}' +
+      '.' + base + ' .bill-bar{margin:3.6mm 0 2.6mm;padding:2.8mm 0}' +
+      '.' + base + ' .bill-bar-label{font-size:7.5px}' +
+      '.' + base + ' .bill-bar-val{font-size:12.5px}' +
+      '.' + base + ' .sect{margin:4mm 0 2.4mm;font-size:9px}' +
+      '.' + base + ' .parties{margin:3.8mm 0 3mm;gap:4mm}' +
+      '.' + base + ' .c-row{padding:1.7mm 2.6mm;font-size:11px}' +
+      '.' + base + ' .c-row span{font-size:7.8px}' +
+      '.' + base + ' .caddr-label{padding:1.7mm 2.6mm;font-size:7.8px}' +
+      '.' + base + ' .caddr-val{padding:1.9mm 2.6mm;font-size:11px;min-height:15mm}' +
+      '.' + base + ' th,' + '.' + base + ' td{padding:2.2mm 1.5mm;font-size:11px}' +
+      '.' + base + ' th{font-size:8.3px}' +
+      '.' + base + ' .item-note{font-size:9.5px}' +
+      '.' + base + ' .midrow{margin-top:4.4mm;gap:4mm}' +
+      '.' + base + ' .paycard-title{font-size:8.8px;padding:1.4mm 2.2mm}' +
+      '.' + base + ' .payrow{padding:1.3mm 2.2mm;font-size:10.5px}' +
+      '.' + base + ' .scanbox .qr{width:20mm;height:20mm}' +
+      '.' + base + ' .scanbox-text .pay-amt{font-size:13px}' +
+      '.' + base + ' .totals div{padding:1.35mm 2.2mm;font-size:11.5px}' +
+      '.' + base + ' .totals .due{padding:2.4mm 2.2mm;font-size:14px}' +
+      '.' + base + ' .words{margin:5mm 0 0;padding:2mm 0 0;font-size:10.5px}' +
+      '.' + base + ' .footmast{margin-top:auto}' +
+      centreCss(base);
   }
 
   /* The bill on the middle of its paper.

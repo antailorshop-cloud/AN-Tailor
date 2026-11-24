@@ -1048,6 +1048,49 @@ window.ANT.bills = (function () {
     return '<span class="chip ' + kind + '">' + esc(status || 'Pending') + '</span>';
   }
 
+  /* The compact GST summary printed on the customer's bill.
+   *
+   * The shop charges one rate per garment class and the bill is read by a
+   * customer, not an accountant, so the rows are named by rate alone - "GST 5%"
+   * and "GST 18%" - and every line at the same rate is added into that one row.
+   * The CGST/SGST split is still worked out in gstForOrders and saved on the
+   * bill and its snapshot; it is simply not three rows of arithmetic on the
+   * customer's copy. A line with no taxable value is dropped rather than
+   * printed as zero, which is what keeps a one-rate bill from carrying an empty
+   * row and a gap under the totals.
+   *
+   * Old snapshots may have no lines at all, so the total is used as a last
+   * resort and the rate is worked back out of it. */
+  function gstSummary(tax) {
+    if (!tax) return [];
+
+    var byRate = {};
+    (tax.lines || []).forEach(function (l) {
+      if (!(num(l.taxable) > 0)) return;
+      var rate = num(l.rate);
+      var key = String(rate);
+      if (!byRate[key]) byRate[key] = { rate: rate, tax: 0 };
+      byRate[key].tax = round2(byRate[key].tax + num(l.tax));
+    });
+
+    var rows = Object.keys(byRate).map(function (k) { return byRate[k]; });
+
+    if (!rows.length && num(tax.total) > 0) {
+      var taxable = num(tax.taxable);
+      rows.push({
+        rate: taxable > 0 ? Math.round(num(tax.total) / taxable * 10000) / 100 : 0,
+        tax: num(tax.total)
+      });
+    }
+
+    rows.sort(function (a, b) { return a.rate - b.rate; });
+    return rows;
+  }
+
+  function gstRateLabel(rate) {
+    return 'GST ' + (Math.round(num(rate) * 100) / 100) + '%';
+  }
+
   // One wording for a tax line, shared by the on-screen summary and the printed
   // bill. Old snapshots kept only hsn; newer ones carry code and codeType, so
   // both shapes read the same way here.
@@ -1788,8 +1831,8 @@ window.ANT.bills = (function () {
 
   var PRINT_CSS = [
     '*{box-sizing:border-box}',
-    'body{font:12.5px/1.5 "Segoe UI",system-ui,-apple-system,Arial,sans-serif;color:#1f2937;margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}',
-    '.bill{width:190mm;margin:0;padding:4mm;border:2px solid #0f2239;border-radius:0}',
+    'body{font:12px/1.35 "Segoe UI",system-ui,-apple-system,Arial,sans-serif;color:#1f2937;margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}',
+    '.bill{display:flex;flex-direction:column;width:190mm;margin:0;padding:4mm;border:2px solid #0f2239;border-radius:0}',
 '.bill::after{content:"";position:absolute;inset:2mm;border:1px solid #b08d3f;pointer-events:none}',
 '.bill{position:relative}',
 
@@ -1850,10 +1893,10 @@ window.ANT.bills = (function () {
     '.follow-link{display:inline-block;margin:.5mm 0 .2mm;color:#f0d9a0;font-weight:600;word-break:break-all;text-decoration:none;border-bottom:.4mm solid #4a5a80}',
     '.follow-id{font-size:7.5px;color:#a9b4c9;letter-spacing:.05em;text-transform:uppercase}',
 
-    '.notes{margin:4mm 0 0;font-size:10.5px;padding:2.4mm 3mm;background:#f7f4ea;border-left:2px solid #b08d3f;color:#374151}',
+    '.notes{margin:3mm 0 0;font-size:10px;padding:1.8mm 2.5mm;background:#f7f4ea;border-left:2px solid #b08d3f;color:#374151}',
 
     /* Reference frame - ornate gold double border with corner flourishes --- */
-    '.bill{border:2px solid #b8934f;border-radius:0;padding:4.5mm;background:#fffdf7}',
+    '.bill{border:2px solid #b8934f;border-radius:0;padding:4mm;background:#fffdf7}',
     '.bill::before{content:"";position:absolute;inset:1.6mm;border:1px solid #cdb894;pointer-events:none}',
     '.bill::after{display:none}',
     '.cnr{position:absolute;width:11mm;height:11mm;border:1.6px solid #b8934f;border-radius:50%;border-right:none;border-bottom:none;z-index:1}',
@@ -1862,16 +1905,16 @@ window.ANT.bills = (function () {
     '.cnr.bl{bottom:1.6mm;left:1.6mm;transform:rotate(-90deg)}',
     '.cnr.br{bottom:1.6mm;right:1.6mm;transform:rotate(180deg)}',
 
-    '.head{display:flex;align-items:flex-start;justify-content:space-between;gap:4mm;padding-bottom:3mm;border-bottom:none;flex-wrap:nowrap}',
+    '.head{display:flex;align-items:flex-start;justify-content:space-between;gap:2.5mm;padding-bottom:1.5mm;border-bottom:none;flex-wrap:nowrap}',
     '.mastlogo{flex:0 0 auto}',
     '.mastcenter{flex:1 1 auto;min-width:0;text-align:center}',
-    '.shop-logo{width:26mm;height:26mm;border:2px solid #b8934f;padding:1mm;background:#fff}',
-    '.shop-name{font-size:19px;letter-spacing:.22em;color:#22314f}',
-    '.shop-sub{color:#b8934f;letter-spacing:.28em}',
-    '.shop-contact{font-size:9px;color:#5a5346;margin-top:1.2mm;letter-spacing:.03em;text-transform:none}',
-    '.orn{display:flex;align-items:center;justify-content:center;margin:2.8mm 0 0}',
-    '.orn::before,.orn::after{content:"";width:32mm;height:1px;background:#cdb894;flex:0 0 auto}',
-    '.orn span{width:4.4mm;height:4.4mm;border:1.3px solid #b8934f;border-radius:50%;margin:0 2.4mm;flex:0 0 auto}',
+    '.shop-logo{width:21mm;height:21mm;border:2px solid #b8934f;padding:.8mm;background:#fff}',
+    '.shop-name{font-size:16px;letter-spacing:.16em;color:#22314f}',
+    '.shop-sub{font-size:7px;color:#b8934f;letter-spacing:.2em;margin-top:.3mm}',
+    '.shop-contact{font-size:8px;color:#5a5346;margin-top:.6mm;letter-spacing:.02em;text-transform:none}',
+    '.orn{display:flex;align-items:center;justify-content:center;margin:1.2mm 0 0}',
+    '.orn::before,.orn::after{content:"";width:26mm;height:1px;background:#cdb894;flex:0 0 auto}',
+    '.orn span{width:3.6mm;height:3.6mm;border:1.3px solid #b8934f;border-radius:50%;margin:0 1.8mm;flex:0 0 auto}',
     /* The stamp is put in a band kept clear for it, rather than at a fixed
      * distance above the foot of the sheet.
      *
@@ -1888,21 +1931,21 @@ window.ANT.bills = (function () {
      * suit the band rather than the other way round: a stamp leaning 9 degrees is
      * about 12mm tall all round, where at 12 degrees the box enclosing it was
      * nearly 16mm and would not have fitted at all. */
-    '.bill{padding-bottom:25mm}',
-    '.stamp{position:absolute;bottom:7.5mm;right:15mm;padding:1.2mm 3mm;transform:rotate(-8deg);border:2px solid;border-radius:0;font-weight:700;font-size:8.5px;letter-spacing:.6px;text-transform:uppercase;z-index:2;box-shadow:0 2px 5px rgba(0,0,0,0.12);display:inline-block;text-align:center;line-height:1.3}',
+    '.bill{padding-bottom:14mm}',
+    '.stamp{position:absolute;bottom:6mm;right:12mm;padding:1mm 2.5mm;transform:rotate(-8deg);border:2px solid;border-radius:0;font-weight:700;font-size:8px;letter-spacing:.6px;text-transform:uppercase;z-index:2;box-shadow:0 2px 5px rgba(0,0,0,0.12);display:inline-block;text-align:center;line-height:1.3}',
     '.stamp-paid{color:#155724;border-color:#155724;background:#d4edda}',
     '.stamp-part{color:#856404;border-color:#856404;background:#fff3cd}',
     '.stamp-due{color:#721c24;border-color:#721c24;background:#f8d7da}',
 
-    '.bill-bar{margin:3mm 0 2mm;padding:2.2mm 0;background:none;border:none;border-top:1px solid #cdb894;border-bottom:1px solid #cdb894;border-radius:0}',
+    '.bill-bar{margin:1.8mm 0 1.2mm;padding:1.4mm 0;background:none;border:none;border-top:1px solid #cdb894;border-bottom:1px solid #cdb894;border-radius:0}',
     '.bill-bar-item{border-right:none}',
     '.bill-bar-item + .bill-bar-item{border-left:1px solid #e6d9bd}',
-    '.bill-bar-label{color:#b8934f;letter-spacing:.22em}',
-    '.bill-bar-val{color:#22314f}',
+    '.bill-bar-label{color:#b8934f;letter-spacing:.18em;font-size:6.6px}',
+    '.bill-bar-val{color:#22314f;font-size:10.5px;margin-top:.4mm}',
 
-    '.sect{display:flex;align-items:center;gap:1.8mm;font-size:8.5px;font-weight:700;letter-spacing:.26em;text-transform:uppercase;color:#b8934f;margin:3.4mm 0 2mm}',
-    '.sect::before{content:"";width:5px;height:5px;background:#b8934f;transform:rotate(45deg);flex:0 0 auto}',
-    '.parties{display:flex;gap:4mm;align-items:stretch}',
+    '.sect{display:flex;align-items:center;gap:1.2mm;font-size:7.5px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:#b8934f;margin:2mm 0 1.2mm}',
+    '.sect::before{content:"";width:4px;height:4px;background:#b8934f;transform:rotate(45deg);flex:0 0 auto}',
+    '.parties{display:flex;gap:2.5mm;align-items:stretch;margin:2.2mm 0 1.6mm}',
     /* Corners. One family of radius, so the bill reads as a single set of boxes
      * rather than as a gold frame around a heap of squares. A hairline-bordered
      * box needs a smaller radius than the heavy outer frame or the curve looks
@@ -1910,53 +1953,60 @@ window.ANT.bills = (function () {
      * keeps 2mm. Corners that are too tight are what make a careful document look
      * like a form. */
     '.cdetails{flex:1 1 58%;min-width:0;border:1px solid #e0d3af;border-radius:0;overflow:hidden}',
-    '.c-row{display:flex;padding:1.4mm 2.4mm;font-size:10.5px;border-bottom:1px solid #f0e9d8}',
+    '.c-row{display:flex;padding:.95mm 1.8mm;font-size:9.5px;border-bottom:1px solid #f0e9d8}',
     '.c-row:last-child{border-bottom:none}',
-    '.c-row span{flex:0 0 30mm;color:#9a8a5f;letter-spacing:.14em;text-transform:uppercase;font-size:7.5px;padding-top:.6mm}',
+    '.c-row span{flex:0 0 25mm;color:#9a8a5f;letter-spacing:.1em;text-transform:uppercase;font-size:6.6px;padding-top:.4mm}',
     '.c-row b{color:#22314f;font-weight:600}',
     '.caddr{flex:1 1 42%;min-width:0;border:1px solid #e0d3af;border-radius:0;overflow:hidden}',
-    '.caddr-label{font-size:7.5px;letter-spacing:.26em;text-transform:uppercase;color:#b8934f;font-weight:700;padding:1.4mm 2.4mm;border-bottom:1px solid #f0e9d8}',
-    '.caddr-val{padding:1.6mm 2.4mm;font-size:10.5px;color:#22314f;min-height:16mm}',
+    '.caddr-label{font-size:6.6px;letter-spacing:.2em;text-transform:uppercase;color:#b8934f;font-weight:700;padding:.95mm 1.8mm;border-bottom:1px solid #f0e9d8}',
+    '.caddr-val{padding:1.1mm 1.8mm;font-size:9.5px;color:#22314f;min-height:10mm}',
 
-    'table{margin:2.6mm 0 0}',
-    'th{background:#22314f;color:#fffdf7;border:1px solid #22314f}',
+    'table{margin:1.6mm 0 0}',
+    'th{background:#22314f;color:#fffdf7;border:1px solid #22314f;font-size:7px}',
     'td{border:1px solid #dcd0ae}',
-    'th,td{padding:1.7mm 1.4mm;font-size:10px}',
+    'th,td{padding:1mm 1mm;font-size:9.2px}',
+    '.item-note{font-size:8px;margin-top:.2mm}',
 
-    '.midrow{display:flex;gap:4mm;align-items:stretch}',
+    '.midrow{display:flex;gap:3mm;align-items:stretch;margin-top:1.6mm}',
     // No payment card on the bill, so the totals get a measure of their own and
     // are pushed to the right rather than left hanging at two fifths of the page.
     '.midrow.solo{justify-content:flex-end}',
     '.midrow.solo .totals{flex:0 1 72mm}',
-    '.paycard{flex:1 1 58%;min-width:0;border:1px solid #d9cba6;border-radius:0;overflow:hidden}',
-    '.paycard-title{font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:#b8934f;font-weight:700;padding:1.6mm 2.4mm;border-bottom:1px solid #e6d9bd}',
-    '.payrow{display:flex;justify-content:space-between;padding:1.5mm 2.4mm;font-size:10.5px;border-bottom:1px solid #f0e9d8}',
-    '.payrow span{color:#9a8a5f;letter-spacing:.14em;text-transform:uppercase;font-size:7.5px;padding-top:.6mm}',
+    '.paycard{flex:1 1 58%;min-width:0;border:1px solid #d9cba6;border-radius:0;overflow:hidden;display:flex;flex-direction:column}',
+    '.paycard-title{font-size:8px;letter-spacing:.18em;text-transform:uppercase;color:#b8934f;font-weight:700;padding:1mm 1.8mm;border-bottom:1px solid #e6d9bd}',
+    '.payrow{display:flex;justify-content:space-between;padding:.9mm 1.8mm;font-size:9.5px;border-bottom:1px solid #f0e9d8}',
+    '.payrow span{color:#9a8a5f;letter-spacing:.1em;text-transform:uppercase;font-size:6.6px;padding-top:.4mm}',
     '.payrow b{color:#22314f}',
-    '.scanbox{display:flex;gap:3mm;margin:2mm 2.4mm 2.4mm;padding:2.2mm;background:#fbf7ec;border:1px solid #e8ddbf;border-radius:0;align-items:center}',
-    '.scanbox .qr{width:18mm;height:18mm}',
-    '.scanbox .qr-plate{background:#ffffff;border:1px solid #e0d3af;padding:1.4mm}',
-    '.scanbox-text .pay-amt{font-family:Georgia,"Times New Roman",serif;font-size:13px;font-weight:700;color:#b8934f;margin:.8mm 0}',
-    '.scanbox-head{font-size:8.5px;letter-spacing:.24em;text-transform:uppercase;color:#b8934f;font-weight:700}',
+    '.scanbox{display:flex;gap:2.2mm;margin:1.2mm 1.8mm 1.4mm;padding:1.4mm;background:#fbf7ec;border:1px solid #e8ddbf;border-radius:0;align-items:center;flex:1 1 auto}',
+    '.scanbox .qr{width:14mm;height:14mm}',
+    '.scanbox .qr-plate{background:#ffffff;border:1px solid #e0d3af;padding:1mm}',
+    '.scanbox-text{min-width:0}',
+    '.scanbox-text .pay-amt{font-family:Georgia,"Times New Roman",serif;font-size:11px;font-weight:700;color:#b8934f;margin:.3mm 0}',
+    '.scanbox-head{font-size:7px;letter-spacing:.2em;text-transform:uppercase;color:#b8934f;font-weight:700}',
+    '.scanbox .pay-id{font-size:8px}',
+    '.scanbox .pay-link{font-size:8px;margin:0}',
     '.totals{margin:0;width:auto;flex:1 1 42%;border:1px solid #d9cba6;border-radius:0;overflow:hidden}',
-    '.totals .due{background:#fbf6ea}',
-    '.words{margin:5mm 0 0;padding:2.2mm 0 0;border-top:1px solid #e8e0c8}',
+    '.totals div{padding:.65mm 1.6mm;font-size:9.8px;line-height:1.3}',
+    '.totals .sub{margin-top:.4mm;padding-top:1.1mm}',
+    '.totals .due{background:#fbf6ea;margin-top:.8mm;padding:1.5mm 1.6mm;font-size:12px}',
+    '.words{margin:2.2mm 0 0;padding:1.1mm 0 0;border-top:1px solid #e8e0c8;font-size:9px}',
 
-    '.footmast{text-align:center;margin-top:5mm}',
-    '.fm-name{font-family:Georgia,"Times New Roman",serif;font-size:15px;letter-spacing:.3em;color:#22314f;text-transform:uppercase;font-weight:700}',
-    '.fm-tag{font-family:Georgia,"Times New Roman",serif;font-style:italic;font-size:9.5px;color:#b8934f;margin-top:.8mm}',
-    '.fm-contact{font-size:8.5px;color:#555;margin-top:1.4mm;letter-spacing:.06em}',
-    '.fm-handle{font-size:8.5px;color:#22314f;font-weight:700;margin-top:.8mm}',
-    '.fm-rule{height:1px;background:#cdb894;margin:3mm 8mm 0}',
-    '.fm-line{margin-top:2mm;font-size:8px;letter-spacing:.3em;text-transform:uppercase;color:#8a7a54}',
+    '.footmast{text-align:center;margin-top:auto;padding-top:1.5mm}',
+    '.fm-name{font-family:Georgia,"Times New Roman",serif;font-size:12px;letter-spacing:.26em;color:#22314f;text-transform:uppercase;font-weight:700}',
+    '.fm-tag{font-family:Georgia,"Times New Roman",serif;font-style:italic;font-size:8px;color:#b8934f;margin-top:.3mm}',
+    '.fm-contact{font-size:7.5px;color:#555;margin-top:.6mm;letter-spacing:.06em}',
+    '.fm-handle{font-size:7.5px;color:#22314f;font-weight:700;margin-top:.4mm}',
+    '.fm-rule{height:1px;background:#cdb894;margin:1.2mm 12mm 0}',
+    '.fm-line{margin-top:.8mm;font-size:7px;letter-spacing:.22em;text-transform:uppercase;color:#8a7a54}',
 
-    '.follow{position:static;flex:0 0 auto;width:auto;display:block;background:#ffffff;color:#22314f;border:1px solid #cdb894;border-radius:0;padding:1.6mm;text-align:center;box-shadow:0 2px 5px rgba(0,0,0,.08)}',
+    '.follow{position:static;flex:0 0 auto;width:auto;display:block;background:#ffffff;color:#22314f;border:1px solid #cdb894;border-radius:0;padding:1.2mm;text-align:center;box-shadow:0 2px 5px rgba(0,0,0,.08)}',
     '.follow .qr-plate{border:none;background:#ffffff;margin:0 auto;padding:0;display:inline-block}',
-    '.follow .qr{width:12mm;height:12mm}',
+    '.follow .qr{width:10mm;height:10mm}',
     '.follow-text{margin-top:0mm;text-align:center;width:100%}',
-    '.follow-head{justify-content:center;font-size:7px;letter-spacing:.25em;color:#b8934f;text-align:center;width:100%;margin-bottom:2mm}',
-    '.follow-link{display:block;color:#22314f;font-size:8px;margin-top:0;text-align:center;text-decoration:none;border-bottom:none}',
-    '.follow-id{color:#8a8676;font-size:6.5px;text-align:center;width:100%}',
+    '.follow-head{justify-content:center;font-size:6.5px;letter-spacing:.2em;color:#b8934f;text-align:center;width:100%;margin-bottom:1mm}',
+    '.follow .follow-glyph{width:9px;height:9px}',
+    '.follow-link{display:block;color:#22314f;font-size:7px;margin-top:0;text-align:center;text-decoration:none;border-bottom:none}',
+    '.follow-id{color:#8a8676;font-size:5.8px;text-align:center;width:100%}',
     '',
 
     '@media print{body{margin:0;padding:0}',
@@ -2274,18 +2324,13 @@ window.ANT.bills = (function () {
           (tax
             ? '<div><span class="label">Taxable Amount</span><span class="val">' +
                 money(snap.bill.taxable) + '</span></div>' +
-              (tax.lines || []).map(function (l) {
-                var label = taxLineLabel(l) + ' (included)';
-                return '<div><span class="label">' + esc(label) + '</span><span class="val">' +
-                  money(l.tax) + '</span></div>';
-              }).join('') +
-              (tax.state === 'TN'
-                ? '<div><span class="label">CGST (included)</span><span class="val">' +
-                    money(tax.cgst) + '</span></div>' +
-                  '<div><span class="label">SGST (included)</span><span class="val">' +
-                    money(tax.sgst) + '</span></div>'
-                : '<div><span class="label">IGST (included)</span><span class="val">' +
-                    money(tax.igst) + '</span></div>')
+              // One row per rate actually used on the bill. gstSummary drops
+              // zero-taxable lines, so a one-rate bill has no empty second row
+              // and the totals close up without a blank gap.
+              gstSummary(tax).map(function (row) {
+                return '<div><span class="label">' + esc(gstRateLabel(row.rate)) +
+                  '</span><span class="val">' + money(row.tax) + '</span></div>';
+              }).join('')
             : '') +
           '<div class="sub"><span class="label">Total Amount</span><span class="val">' +
             money(snap.bill.bill_amount) + '</span></div>' +
@@ -2297,7 +2342,17 @@ window.ANT.bills = (function () {
 
 
 
+      '<div class="words"><span>Amount in words: </span><b>' +
+        esc(snap.words || amountInWords(num(snap.bill.bill_amount))) + '</b></div>' +
+
       (snap.bill.notes ? '<div class="notes">' + esc(snap.bill.notes) + '</div>' : '') +
+
+      '<div class="footmast">' +
+        '<div class="fm-name">' + esc(shopName) + '</div>' +
+        '<div class="fm-tag">Professional Tailoring Services</div>' +
+        '<div class="fm-rule"></div>' +
+        '<div class="fm-line">Thank you for choosing us</div>' +
+      '</div>' +
 
       '</div>' +
       '</body></html>';
@@ -3484,6 +3539,10 @@ window.ANT.bills = (function () {
     // and so the Orders page can show the same breakdown before a bill exists.
     gstForOrders: gstForOrders,
     taxLineLabel: taxLineLabel,
+    // Compact customer-facing summary, kept separate from gstForOrders so the
+    // saved CGST/SGST figures and GST reports stay untouched.
+    __gstSummary: gstSummary,
+    __gstRateLabel: gstRateLabel,
     __gstForOrders: gstForOrders,
     __computeTotals: computeTotals,
     __gstReady: gstReady,

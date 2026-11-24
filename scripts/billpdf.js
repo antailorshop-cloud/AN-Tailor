@@ -101,8 +101,16 @@ var signsDrawn = 0;
    * being told the size - the caller knows the sheet and this works out what the
    * sheet means for the bill sitting on it. */
   function halfRoom(sheet) {
-    if (!sheet || sheet.portrait) return 0;
-    return sheet.w / 2 - window.ANT.printsize.GAP_MM;
+    if (!sheet) return 0;
+    /* Every sheet gets the width the bill is actually laid out to, not zero for
+     * the portrait ones. A bill that fitted needs exactly that width and is
+     * unaffected; a long bill that fitToOnePage had to shrink is narrower than
+     * the paper, and this is what centres the shrunken bill in its own area
+     * instead of leaving all the spare paper on the right. On the half sheet the
+     * area is the left half only, so the bill still stops short of the cut. */
+    return window.ANT.printsize.billWidthMm(
+      sheet.portrait ? (sheet.w === 148 ? 'A5' : 'A4') : 'A4HALF'
+    );
   }
 
   function px(v) { return v * MM; }
