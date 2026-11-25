@@ -151,6 +151,21 @@ Could not read shop settings (HTTP 403). {"message":"permission denied for table
 If that still happens, copy the current Secret key into Vault again and
 redeploy the function.
 
+**`403` with `permission denied for table shop_settings`**
+
+The key is valid, but `service_role` has no table privileges. This project was
+created with automatic table exposure turned off, so run:
+
+`supabase/migrations/2026-11-25-shop-settings-service-grant.sql`
+
+```sql
+grant usage on schema public to service_role;
+grant select, insert, update on public.shop_settings to service_role;
+```
+
+RLS bypass does not replace a table grant, so this step is required once per
+project.
+
 To check which key Vault holds:
 
 ```sql

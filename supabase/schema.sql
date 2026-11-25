@@ -304,6 +304,13 @@ revoke all on all tables in schema public from anon;
 alter default privileges in schema public
   grant select, insert, update, delete on tables to authenticated;
 
+-- The PDF archive reminder Edge Function talks to shop_settings with the
+-- service_role key. Because automatic table exposure is off, that role needs
+-- its own grant: RLS bypass does not replace table privileges. See
+-- migrations/2026-11-25-shop-settings-service-grant.sql.
+grant usage on schema public to service_role;
+grant select, insert, update on shop_settings to service_role;
+
 -- is_owner() and is_member() are created in rls.sql, which grants
 -- execute on them. They are deliberately not referenced here, because
 -- this file has to run before rls.sql exists.
