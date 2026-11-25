@@ -2772,14 +2772,16 @@ window.ANT.bills = (function () {
    * paid and what is still owed. A payment lands on the orders, never on the
    * bill, so a PDF rebuilt from the snapshot months later has to take those two
    * from the orders again or it asks the customer for money already received. */
-  function withLivePaid(snap, list) {
+  function withLivePaid(snap, list, shop) {
     var paid = round2(computeTotals(list || []).advance);
     var balance = round2(num(snap.bill && snap.bill.bill_amount) - paid);
     var bill = Object.assign({}, snap.bill, { advance: paid, balance: balance });
     return Object.assign({}, snap, {
       bill: bill,
       dueLabel: window.ANT.upi ? window.ANT.upi.balanceDue(bill) : Math.max(0, balance),
-      payLink: payLink(bill)
+      // The shop is passed in when this runs from Orders or WhatsApp, where
+      // state.shop was never loaded. Without it the rebuilt QR pays nobody.
+      payLink: payLink(bill, shop)
     });
   }
 
@@ -2850,51 +2852,69 @@ window.ANT.bills = (function () {
       });
   }
 
-  /* Rebuilds a bill whose file is gone or was never made. The saved snapshot is
-   * used when there is one, so the bill that comes back is the bill that was
-   * raised. Only a bill too old to have a snapshot is rebuilt from live orders,
-   * which can differ from the original if the orders have been edited since.
+  /* Rebuilds a bill whose file is gone or was never made, reading everything it
+   * needs from the database rather than from this page's state. The old version
+   * needed the bill to be on screen, which is no good after a store clear: an
+   * Orders page or a WhatsApp link has no Bills state at all.
    *
-   * Whichever is used, the paid figure is taken from the orders again: that is
-   * the one part of a bill that changes after it is raised, and a snapshot that
-   * froze it would reprint a settled bill as unpaid. */
-  function regenerateBillPdf(billId) {
-    var bill = billFor(billId);
-    if (!bill) return Promise.resolve({ url: '', error: 'That bill is not on this page.' });
+   * The saved snapshot is used when there is one, so the bill that comes back is
+   * the bill that was raised, even if an order has since been edited. Only a bill
+   * too old to have a snapshot is rebuilt from live orders. In both cases the
+   * paid figure is taken from the orders again, because money lands after the
+   * bill was drawn. */
+  function regenerateBillPdfFromDb(billId) {
+    if (!billId) {
+      return Promise.resolve({ url: '', error: 'No bill was named.' });
+    }
     if (!window.ANT.billpdf || !sb().storage) {
       return Promise.resolve({ url: '', error: 'PDF storage is not set up yet.' });
     }
 
-    var ctx = { customer: customerForBill(bill) };
-    var path = pdfPath(bill.id);
-
     return sb().from('bills')
-      .select('pdf_snapshot')
+      .select('id,code,customer_id,total,discount,advance,bill_amount,balance,bill_date,notes,method,paid_on,pdf_path,pdf_snapshot')
       .eq('id', billId)
       .limit(1)
       .then(function (res) {
         if (res.error) throw res.error;
-        var saved = res.data && res.data[0] && res.data[0].pdf_snapshot;
+        if (!res.data || !res.data.length) throw new Error('That bill could not be found.');
+        var bill = res.data[0];
 
-        // The orders are read whether or not a snapshot was saved, because the
-        // paid figure always comes from them now - a snapshot frozen at the
-        // moment the bill was raised would otherwise reprint asking for money
-        // the customer has since paid.
-        return sb().from('bill_orders')
-          .select('order_id')
-          .eq('bill_id', billId)
-          .then(function (link) {
-            if (link.error) throw link.error;
-            return ordersForPrint((link.data || []).map(function (r) { return r.order_id; }));
-          })
-          .then(function (list) {
-            return writeBlob(bill, saved ? withLivePaid(saved, list) : billSnapshot(bill, list, ctx), path);
+        return Promise.all([
+          sb().from('bill_orders').select('order_id').eq('bill_id', billId),
+          sb().from('customers')
+            .select('id,code,name,mobile,address')
+            .eq('id', bill.customer_id)
+            .limit(1),
+          fetchShop()
+        ]).then(function (parts) {
+          if (parts[0].error) throw parts[0].error;
+          var orderIds = (parts[0].data || []).map(function (r) { return r.order_id; });
+          var shop = parts[2];
+          var cres = parts[1];
+          var customer = (cres && cres.data && cres.data[0]) ||
+            { code: '', name: '', mobile: '', address: '' };
+
+          // fresh: the paid figure on the rebuilt file must include a payment
+          // made since this page was opened.
+          return ordersForPrint(orderIds, true).then(function (list) {
+            var saved = bill.pdf_snapshot;
+            var snap = saved
+              ? withLivePaid(saved, list, shop)
+              : billSnapshot(bill, list, { shop: shop, customer: customer });
+            return writeBlob(bill, snap, pdfPath(bill.id));
           });
+        });
       })
       .then(function (url) { return { url: url, error: '' }; })
       .catch(function (e) {
         return { url: '', error: (e && e.message) ? e.message : String(e) };
       });
+  }
+
+  // The Bills page's retry button used to need the row on screen. Now every
+  // caller - page, Orders or WhatsApp - goes through the same database read.
+  function regenerateBillPdf(billId) {
+    return regenerateBillPdfFromDb(billId);
   }
 
   /* The public URL for a stored bill, tagged with the moment it was drawn.
@@ -2937,6 +2957,19 @@ window.ANT.bills = (function () {
     var page = base ? String(base).split('?')[0].split('#')[0] : viewBase();
     if (!page) return url;
     return page + '?u=' + encodeURIComponent(url);
+  }
+
+  /* A bill's path in the database is only a claim that the file exists. It stops
+   * being true the moment a file is removed from the bucket - by the archive
+   * clear, by a manual delete, or by a half-finished upload. A cheap HEAD before
+   * a link is reused turns a dead WhatsApp link into a rebuilt one. A failed
+   * request is treated as "still there", because an offline phone must not redraw
+   * every bill it looks at; a real 404 is the case that matters. */
+  function filePresent(url) {
+    if (!url || typeof fetch !== 'function') return Promise.resolve(true);
+    return fetch(url, { method: 'HEAD', cache: 'no-store' })
+      .then(function (res) { return !!res.ok; })
+      .catch(function () { return true; });
   }
 
   /* The bill PDF for the order, as a link the shop can send on WhatsApp.
@@ -2982,49 +3015,61 @@ window.ANT.bills = (function () {
           if (bres.error || !bres.data || !bres.data.length) return '';
           var bill = bres.data[0];
           var orderIds = (link.data || []).map(function (r) { return r.order_id; });
+          var saved = bill.pdf_snapshot;
           var stored = bill.pdf_path
-            ? versioned(sb().storage.from(PDF_BUCKET).publicUrl(bill.pdf_path), bill.pdf_snapshot)
+            ? versioned(sb().storage.from(PDF_BUCKET).publicUrl(bill.pdf_path), saved)
             : '';
 
           // The orders carry what has been paid, so they are read even when a
           // file is already stored - a payment since it was drawn is exactly
           // what would leave it showing a balance the customer has settled.
           // Only the money matters for that decision, so the garment lines are
-          // not fetched unless the stored file has to be redrawn.
-          return ordersForPrint(orderIds, true, true)
-            .then(function (list) {
-              var paidNow = round2(computeTotals(list || []).advance);
-              var drawnPaid = round2(num(bill.pdf_snapshot && bill.pdf_snapshot.bill.advance));
+          // not fetched unless the stored file has to be redrawn. The HEAD check
+          // is paired with it: a path whose file was removed is not reusable.
+          return Promise.all([
+            ordersForPrint(orderIds, true, true),
+            filePresent(stored)
+          ]).then(function (pair) {
+            var list = pair[0] || [];
+            var present = pair[1];
+            var paidNow = round2(computeTotals(list).advance);
+            var drawnPaid = round2(num(saved && saved.bill && saved.bill.advance));
 
-              // The stored file is still the truth when the money has not moved.
-              if (stored && paidNow === drawnPaid) return stored;
-              // With no PDF renderer the stored file is all there is; a stale
-              // balance on the link beats no link at all.
-              if (!window.ANT.billpdf) return stored;
+            // The stored file is still the truth when it exists and the money
+            // has not moved. A path with no file behind it falls through and is
+            // rebuilt below.
+            if (stored && present && paidNow === drawnPaid) return stored;
+            // With no PDF renderer the stored file is all there is; a stale
+            // balance on the link beats no link at all.
+            if (!window.ANT.billpdf) return stored;
 
-              // The file is redrawn. The garment lines, the customer and the
-              // shop are each needed and none depends on another, so they are
-              // read together.
-              return Promise.all([
-                itemsForPrint(orderIds),
-                sb().from('customers')
-                  .select('id,code,name,mobile,address')
-                  .eq('id', bill.customer_id)
-                  .limit(1),
-                fetchShop()
-              ]).then(function (parts) {
-                var byItems = parts[0];
-                var cres = parts[1];
-                var shop = parts[2];
-                list.forEach(function (o) { o.items = byItems[o.id] || []; });
-                var customer = (cres.data && cres.data[0]) ||
-                  { code: '', name: '', mobile: '', address: '' };
+            // The file is redrawn. The garment lines, the customer and the
+            // shop are each needed and none depends on another, so they are
+            // read together. A saved snapshot wins over live orders: it is the
+            // bill as it was raised, not the bill as it might now have been
+            // edited, with only the paid figures brought up to date.
+            return Promise.all([
+              itemsForPrint(orderIds),
+              sb().from('customers')
+                .select('id,code,name,mobile,address')
+                .eq('id', bill.customer_id)
+                .limit(1),
+              fetchShop()
+            ]).then(function (parts) {
+              var byItems = parts[0];
+              var cres = parts[1];
+              var shop = parts[2];
+              list.forEach(function (o) { o.items = byItems[o.id] || []; });
+              var customer = (cres && cres.data && cres.data[0]) ||
+                { code: '', name: '', mobile: '', address: '' };
 
-                var snap = billSnapshot(bill, list, { shop: shop, customer: customer });
-                return writeBlob(bill, snap, pdfPath(bill.id))
-                  .then(function (url) { return versioned(url, snap) || stored; });
-              });
+              var snap = saved
+                ? withLivePaid(saved, list, shop)
+                : billSnapshot(bill, list, { shop: shop, customer: customer });
+              return writeBlob(bill, snap, pdfPath(bill.id))
+                .then(function (url) { return versioned(url, snap) || stored; });
             });
+          });
         });
       })
       .catch(function () { return ''; })
@@ -3671,6 +3716,10 @@ window.ANT.bills = (function () {
     __computeTotals: computeTotals,
     __gstReady: gstReady,
     __billSnapshot: billSnapshot,
+    // Exposed so the harness can rebuild a bill without loading the Bills page.
+    // A PDF cleared for archive has to come back from an Orders page message too,
+    // where none of this module's page state exists.
+    __regenerateBillPdfFromDb: regenerateBillPdfFromDb,
     // The one-page fit, exposed for the same reason. It runs against a real
     // document in a real popup, so the harness drives it with one directly: the
     // arithmetic is checkable there, whereas a bill that came out as two pages is
