@@ -96,6 +96,9 @@ window.ANT.bills = (function () {
     editing: null,
     page: 0,
     count: 0,
+    // Archived bills are hidden from the normal list. The Owner can switch the
+    // Bills page to this view to find one and put it back with Unarchive.
+    showArchived: false,
     loading: false,
     busy: false,
     error: null,
@@ -652,11 +655,14 @@ window.ANT.bills = (function () {
   function loadBills() {
     var from = state.page * PAGE_SIZE;
 
-    return sb().from('bills')
-      .select('id,customer_id,code,total,discount,advance,bill_amount,balance,bill_date,notes,method,paid_on,pdf_path,pdf_snapshot,created_at', { count: true })
-      .eq('customer_id', state.customer.id)
-      .is('archived_at', null)
-      .order('bill_date', false)
+    var q = sb().from('bills')
+      .select('id,customer_id,code,total,discount,advance,bill_amount,balance,bill_date,notes,method,paid_on,pdf_path,pdf_snapshot,archived_at,created_at', { count: true })
+      .eq('customer_id', state.customer.id);
+    q = state.showArchived
+      ? q.not('archived_at', 'is', null)
+      : q.is('archived_at', null);
+
+    return q.order('bill_date', false)
       .order('created_at', false)
       .range(from, from + PAGE_SIZE - 1)
       .then(function (res) {
@@ -707,10 +713,13 @@ window.ANT.bills = (function () {
   function loadAllBills() {
     var from = state.allPage * PAGE_SIZE;
 
-    return sb().from('bills')
-      .select('id,customer_id,code,total,discount,advance,bill_amount,balance,bill_date,notes,method,paid_on,pdf_path,pdf_snapshot,created_at', { count: true })
-      .is('archived_at', null)
-      .order('bill_date', false)
+    var q = sb().from('bills')
+      .select('id,customer_id,code,total,discount,advance,bill_amount,balance,bill_date,notes,method,paid_on,pdf_path,pdf_snapshot,archived_at,created_at', { count: true });
+    q = state.showArchived
+      ? q.not('archived_at', 'is', null)
+      : q.is('archived_at', null);
+
+    return q.order('bill_date', false)
       .order('created_at', false)
       .range(from, from + PAGE_SIZE - 1)
       .then(function (res) {
@@ -892,6 +901,10 @@ window.ANT.bills = (function () {
       '<p class="ui-hint">Search by mobile number, name or customer code. ' +
         'A full 10-digit number opens that customer straight away; a name that ' +
         'matches more than one person gives you a list to pick from.</p>' +
+      '<label class="cust-toggle"><input type="checkbox" id="billArchived"' +
+        (state.showArchived ? ' checked' : '') + '> Show archived bills only</label>' +
+      '<p class="ui-hint">Archived bills are hidden from the normal list. Turn this ' +
+        'on to find one, then use Unarchive to put it back.</p>' +
       '</div>' +
       (state.error
         ? '<div class="ord-err"><p class="ui-card-sub">' + esc(state.error) + '</p></div>'
@@ -941,15 +954,24 @@ window.ANT.bills = (function () {
 
     if (!state.allBills.length) {
       return '<div class="ui-card"><div class="empty">' +
-        '<div class="empty-title">No bills yet</div>' +
-        '<p class="empty-text">Search above to choose a customer and raise their first bill.</p>' +
+        '<div class="empty-title">' +
+          (state.showArchived ? 'No archived bills' : 'No bills yet') + '</div>' +
+        '<p class="empty-text">' +
+          (state.showArchived
+            ? 'Nothing is archived. Turn off the toggle above to see live bills.'
+            : 'Search above to choose a customer and raise their first bill.') +
+        '</p>' +
       '</div></div>';
     }
 
     return '<div class="ui-card">' +
-      '<h2 class="ui-card-title">All bills</h2>' +
+      '<h2 class="ui-card-title">' +
+        (state.showArchived ? 'Archived bills' : 'All bills') + '</h2>' +
       '<p class="ui-card-sub">' + state.allCount + (state.allCount === 1 ? ' bill' : ' bills') +
-        ' across every customer, newest first. Search above to bill or open one customer.</p>' +
+        (state.showArchived
+          ? ' archived across every customer, newest first. Use Unarchive to put one back.'
+          : ' across every customer, newest first. Search above to bill or open one customer.') +
+      '</p>' +
       '<table class="ui-table"><thead><tr>' +
         '<th>Customer</th><th>Bill</th><th>Date</th><th class="num">Bill amount</th>' +
         '<th class="num">Balance</th><th>Paid by</th><th>Paid on</th><th></th>' +
@@ -1155,13 +1177,16 @@ window.ANT.bills = (function () {
 
   function historyCard() {
     if (state.loading) return '';
+    var title = state.showArchived ? 'Archived bills' : 'Bill history';
     if (!state.bills.length) {
-      return '<div class="ui-card"><h2 class="ui-card-title">Bill history</h2>' +
-        '<div class="empty"><p class="empty-text">No bills yet.</p></div></div>';
+      return '<div class="ui-card"><h2 class="ui-card-title">' + title + '</h2>' +
+        '<div class="empty"><p class="empty-text">' +
+          (state.showArchived ? 'No archived bills for this customer.' : 'No bills yet.') +
+        '</p></div></div>';
     }
 
     var owner = isOwner();
-    return '<div class="ui-card"><h2 class="ui-card-title">Bill history</h2>' +
+    return '<div class="ui-card"><h2 class="ui-card-title">' + title + '</h2>' +
       '<table class="ui-table"><thead><tr>' +
       '<th>Bill</th><th>Date</th><th class="num">Bill amount</th><th class="num">Balance</th>' +
       '<th>Paid by</th><th>Paid on</th><th></th>' +
@@ -1172,11 +1197,13 @@ window.ANT.bills = (function () {
 
   function historyRow(b, global) {
     var owner = isOwner();
+    var archived = !!b.archived_at;
     var c = global ? customerForBill(b) : state.customer;
     // WhatsApp is offered only when there is a real mobile to send to; a
     // button that can only apologise is worse than no button. From the global
     // list the number comes from the bill's own customer, not the search box.
-    var canShare = !!(window.ANT.whatsapp && c &&
+    // An archived bill is out of the working set, so it is not sent again.
+    var canShare = !archived && !!(window.ANT.whatsapp && c &&
       window.ANT.whatsapp.canSend(c.mobile));
     // A reminder only makes sense on a bill that still owes something. A
     // settled bill would produce a message asking for money already received.
@@ -1190,33 +1217,46 @@ window.ANT.bills = (function () {
           : '') + '</td>'
       : '';
 
-    return '<tr>' + customerCell +
-      '<td><span class="ord-sub-strong">' + esc(b.code) + '</span></td>' +
+    var actions = global && c && c.id
+      ? '<button class="btn btn-sm btn-quiet" data-bill-open-cust="' + esc(c.id) + '">Open customer</button> '
+      : '';
+
+    if (archived) {
+      // Only Print and Unarchive. Pay, WhatsApp, Edit and Delete would all
+      // change or resend a bill the Owner deliberately took out of circulation.
+      actions += '<button class="btn btn-sm btn-secondary" data-bill-print="' +
+        esc(b.id) + '">Print</button>' +
+        (owner
+          ? ' <button class="btn btn-sm btn-primary" data-bill-unarchive="' +
+            esc(b.id) + '">Unarchive</button>'
+          : '');
+    } else {
+      actions += (payLink(b)
+        ? '<button class="btn btn-sm btn-primary" data-bill-pay="' + esc(b.id) + '">Pay</button> '
+        : '') +
+        (canShare
+          ? '<button class="btn btn-sm btn-secondary" data-bill-share="' + esc(b.id) + '">WhatsApp</button> '
+          : '') +
+        (canRemind
+          ? '<button class="btn btn-sm btn-secondary" data-bill-remind="' + esc(b.id) + '">Remind</button> '
+          : '') +
+        '<button class="btn btn-sm btn-secondary" data-bill-print="' + esc(b.id) + '">Print</button>' +
+        (owner
+          ? ' <button class="btn btn-sm btn-secondary" data-bill-edit="' + esc(b.id) + '">Edit</button>' +
+            ' <button class="btn btn-sm btn-secondary" data-bill-archive="' + esc(b.id) + '">Archive</button>' +
+            ' <button class="btn btn-sm btn-danger" data-bill-del="' + esc(b.id) + '">Delete</button>'
+          : '');
+    }
+
+    return '<tr' + (archived ? ' class="cust-archived"' : '') + '>' + customerCell +
+      '<td><span class="ord-sub-strong">' + esc(b.code) + '</span>' +
+        (archived ? ' <span class="chip chip-muted">Archived</span>' : '') + '</td>' +
       '<td>' + esc(dateLabel(b.bill_date)) + '</td>' +
       '<td class="num"><strong>' + money(b.bill_amount) + '</strong></td>' +
       '<td class="num">' + money(Math.max(0, num(b.balance))) + '</td>' +
       '<td>' + esc(b.method || '-') + '</td>' +
       '<td>' + esc(dateLabel(b.paid_on)) + '</td>' +
-      '<td class="ord-row-actions">' +
-      (global && c && c.id
-        ? '<button class="btn btn-sm btn-quiet" data-bill-open-cust="' + esc(c.id) + '">Open customer</button> '
-        : '') +
-      (payLink(b)
-        ? '<button class="btn btn-sm btn-primary" data-bill-pay="' + esc(b.id) + '">Pay</button> '
-        : '') +
-      (canShare
-        ? '<button class="btn btn-sm btn-secondary" data-bill-share="' + esc(b.id) + '">WhatsApp</button> '
-        : '') +
-      (canRemind
-        ? '<button class="btn btn-sm btn-secondary" data-bill-remind="' + esc(b.id) + '">Remind</button> '
-        : '') +
-      '<button class="btn btn-sm btn-secondary" data-bill-print="' + esc(b.id) + '">Print</button>' +
-      (owner
-        ? ' <button class="btn btn-sm btn-secondary" data-bill-edit="' + esc(b.id) + '">Edit</button>' +
-          ' <button class="btn btn-sm btn-secondary" data-bill-archive="' + esc(b.id) + '">Archive</button>' +
-          ' <button class="btn btn-sm btn-danger" data-bill-del="' + esc(b.id) + '">Delete</button>'
-        : '') +
-      '</td></tr>';
+      '<td class="ord-row-actions">' + actions + '</td></tr>';
   }
 
   function pager() {
@@ -1589,6 +1629,32 @@ window.ANT.bills = (function () {
         // put on a second one.
         if (state.editing && state.editing.id === billId) closeEdit();
         state.page = 0;
+        return reloadCurrent();
+      });
+  }
+
+  /* Puts an archived bill back in the normal list. Owner only, mirroring the
+   * guard on archive(): the database policy lets a member write, so the UI has
+   * to be the gate here. The bill_orders rows were never removed, so its orders
+   * stay linked and come back with it instead of becoming billable twice. */
+  function unarchive(billId) {
+    if (!isOwner()) {
+      toast('Only the Owner can unarchive a bill.', 'error');
+      return;
+    }
+
+    sb().from('bills')
+      .update({ archived_at: null })
+      .eq('id', billId)
+      .then(function (res) {
+        if (res.error || !res.data || !res.data.length) {
+          toast('The bill could not be unarchived: ' + reason(res), 'error');
+          return;
+        }
+
+        toast('Bill unarchived.', 'success');
+        state.page = 0;
+        state.allPage = 0;
         return reloadCurrent();
       });
   }
@@ -3236,6 +3302,17 @@ window.ANT.bills = (function () {
       });
     }
 
+    var archivedBox = byId('billArchived');
+    if (archivedBox) {
+      archivedBox.addEventListener('change', function (e) {
+        state.showArchived = e.target.checked;
+        state.page = 0;
+        state.allPage = 0;
+        if (state.customer) loadBills();
+        else loadAll();
+      });
+    }
+
     each('[data-bill-pick]', function (b) {
       b.addEventListener('click', function () {
         var pick = state.matches.filter(function (m) {
@@ -3323,6 +3400,12 @@ window.ANT.bills = (function () {
       });
     });
 
+    each('[data-bill-unarchive]', function (b) {
+      b.addEventListener('click', function () {
+        unarchive(b.getAttribute('data-bill-unarchive'));
+      });
+    });
+
     each('[data-bill-del]', function (b) {
       b.addEventListener('click', function () {
         deleteBill(b.getAttribute('data-bill-del'));
@@ -3387,6 +3470,7 @@ window.ANT.bills = (function () {
     // term for searches; only a route render clears it, so returning here after
     // billing someone does not leave the page waiting on an old search.
     state.term = '';
+    state.showArchived = false;
     paint();
     loadShop();
 
