@@ -57,6 +57,16 @@ the Edge Function. Do not add them as Gmail settings.
 The Gmail account needs 2-Step Verification, and the password must be a Google
 **App Password**, not the normal Gmail password.
 
+To send the reminder to more than one address, put them in the same
+`REMINDER_TO` value separated by commas:
+
+```
+owner@gmail.com, partner@gmail.com, accounts@gmail.com
+```
+
+The function trims each address, rejects the whole run if one is malformed, and
+sends a single email to all of them.
+
 ## 3. Add the scheduler
 
 Open the **SQL Editor** and run the file:
