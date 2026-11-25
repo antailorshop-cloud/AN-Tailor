@@ -150,6 +150,11 @@ async function restRequest(label, projectUrl, path, supplied, init) {
           headers[name] = options.headers[name];
         });
       }
+      // fetch labels a string body as text/plain unless told otherwise, and
+      // PostgREST rejects that with PGRST102.
+      if (options.body && !headers["Content-Type"]) {
+        headers["Content-Type"] = "application/json";
+      }
       const res = await fetch(projectUrl + path, {
         method: options.method || "GET",
         headers: headers,

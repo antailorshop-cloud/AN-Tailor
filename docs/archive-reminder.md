@@ -181,6 +181,14 @@ value:
 REMINDER_TO is not a valid email address: "..."
 ```
 
+**`Email sent, but the last-sent stamp failed (HTTP 400)` with `PGRST102`**
+
+The email was delivered; only the timestamp write was rejected because the
+request body was labelled `text/plain`. The function now sends
+`Content-Type: application/json` for the upsert. Redeploy the function and run
+the forced test again. Because the stamp was not written, the next scheduled
+run would otherwise send the reminder a second time.
+
 To check which key Vault holds:
 
 ```sql
