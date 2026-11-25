@@ -166,6 +166,21 @@ grant select, insert, update on public.shop_settings to service_role;
 RLS bypass does not replace a table grant, so this step is required once per
 project.
 
+**`No recipients defined`**
+
+`REMINDER_TO` was saved but does not contain a usable email address. Usually
+an invisible non-breaking space or a zero-width character came along with a
+paste. Delete that secret and type the address by hand, for example
+`owner@gmail.com`.
+
+The current function strips those invisible characters and checks the address
+before sending, so after updating the function the error reports the exact
+value:
+
+```
+REMINDER_TO is not a valid email address: "..."
+```
+
 To check which key Vault holds:
 
 ```sql

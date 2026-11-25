@@ -56,6 +56,19 @@ function siteBase() {
     .replace(/\/+$/, "");
 }
 
+// Secret values pasted from a browser or a formatted document can carry
+// non-breaking spaces or zero-width characters. Those are invisible in the
+// dashboard but make an address unusable, so strip them here.
+function cleanEnv(name) {
+  return String(Deno.env.get(name) || "")
+    .replace(/[\u00A0\u200B\u200C\u200D\uFEFF]/g, " ")
+    .trim();
+}
+
+function looksLikeEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
 function secretKeys() {
   const raw = Deno.env.get("SUPABASE_SECRET_KEYS");
   if (!raw) return [];
@@ -254,11 +267,21 @@ Deno.serve(async (req) => {
       });
     }
 
-    const gmailUser = Deno.env.get("GMAIL_USER") || "";
-    const gmailPassword = Deno.env.get("GMAIL_APP_PASSWORD") || "";
-    const reminderTo = Deno.env.get("REMINDER_TO") || "";
-    if (!gmailUser || !gmailPassword || !reminderTo) {
+    const gmailUser = cleanEnv("GMAIL_USER");
+    const gmailPassword = cleanEnv("GMAIL_APP_PASSWORD");
+    const reminderTo = cleanEnv("REMINDER_TO");
+    const recipients = reminderTo.split(",").map(function (value) {
+      return value.trim();
+    }).filter(function (value) { return !!value; });
+
+    if (!gmailUser || !gmailPassword || !recipients.length) {
       throw new Error("Set GMAIL_USER, GMAIL_APP_PASSWORD and REMINDER_TO as Edge Function secrets.");
+    }
+    if (!looksLikeEmail(gmailUser)) {
+      throw new Error("GMAIL_USER is not a valid email address: " + JSON.stringify(gmailUser));
+    }
+    if (recipients.some(function (value) { return !looksLikeEmail(value); })) {
+      throw new Error("REMINDER_TO is not a valid email address: " + JSON.stringify(reminderTo));
     }
 
     const transporter = nodemailer.createTransport({
@@ -279,7 +302,7 @@ Deno.serve(async (req) => {
 
     await transporter.sendMail({
       from: gmailUser,
-      to: reminderTo,
+      to: recipients.join(", "),
       subject: "AN TAILOR - " + label + " PDF archive reminder",
       text: emailText(label, base)
     });
