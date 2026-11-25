@@ -127,3 +127,30 @@ run outside the saved interval returns:
 The email does not clear storage. Clearing still needs the Owner to be signed
 in and to complete the archive tick, `CLEAR`, password check, and final
 confirmation.
+
+## 6. Troubleshooting
+
+**`401 Unauthorized`**
+
+The key in Vault does not match a key the function accepts. Update the Vault
+secret with the current **Secret key** (`sb_secret_...`) from
+**Settings -> API Keys -> Secret keys**, then redeploy the function.
+
+**`500` with `Could not read shop settings (HTTP 403)`**
+
+The request reached the function, but the key it used for the internal
+PostgREST call was disabled or wrong. The function now tries the key that
+authenticated the request first, then the platform-provided secret keys, so
+this error means none of them is valid. Copy the current Secret key into Vault
+again and redeploy the function.
+
+To check which key Vault holds:
+
+```sql
+select name, length(decrypted_secret) as key_length
+from vault.decrypted_secrets
+where name = 'archive_reminder_service_key';
+```
+
+A legacy `service_role` key is a long JWT and a new secret key starts with
+`sb_secret_`. Never paste either key into the repository.

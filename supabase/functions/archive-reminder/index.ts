@@ -68,19 +68,41 @@ function secretKeys() {
   }
 }
 
-function adminKey() {
-  return Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ||
-    Deno.env.get("SUPABASE_SECRET_KEY") ||
-    secretKeys()[0] ||
-    "";
+function defaultSecretKey() {
+  const raw = Deno.env.get("SUPABASE_SECRET_KEYS");
+  if (!raw) return "";
+  try {
+    const parsed = JSON.parse(raw) || {};
+    return typeof parsed.default === "string" ? parsed.default : "";
+  } catch (_) {
+    return "";
+  }
 }
 
 function acceptedKeys() {
   return [
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "",
     Deno.env.get("SUPABASE_SECRET_KEY") || "",
-    Deno.env.get("ARCHIVE_REMINDER_KEY") || ""
+    defaultSecretKey()
   ].concat(secretKeys()).filter(function (value) { return !!value; });
+}
+
+// Supabase projects can expose the legacy service_role JWT, the newer
+// sb_secret_ key, or both. The key that authenticated this request is known to
+// be valid for the project, so try it first and only then fall back to the
+// platform-provided keys.
+function candidateKeys(supplied) {
+  const out = [];
+  function add(value) {
+    const key = String(value || "").trim();
+    if (key && out.indexOf(key) === -1) out.push(key);
+  }
+  if (supplied) add(supplied);
+  add(Deno.env.get("SUPABASE_SECRET_KEY"));
+  add(defaultSecretKey());
+  add(Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"));
+  secretKeys().forEach(add);
+  return out;
 }
 
 // Legacy service_role keys are JWTs. The newer sb_secret_ keys are opaque and
@@ -91,6 +113,38 @@ function restHeaders(key, withJson) {
   if (key.indexOf("eyJ") === 0) headers.Authorization = "Bearer " + key;
   if (withJson) headers["Content-Type"] = "application/json";
   return headers;
+}
+
+// A project can keep a stale or disabled legacy service_role key in the
+// environment while the newer sb_secret_ key is the working one. Try each
+// candidate and stop at the first accepted response.
+async function restRequest(projectUrl, path, supplied, init) {
+  const keys = candidateKeys(supplied);
+  if (!keys.length) throw new Error("No Supabase secret key is available to the function.");
+
+  const options = init || {};
+  let last = null;
+
+  for (const key of keys) {
+    const headers = restHeaders(key, !!options.body);
+    if (options.headers) {
+      Object.keys(options.headers).forEach(function (name) {
+        headers[name] = options.headers[name];
+      });
+    }
+    const res = await fetch(projectUrl + path, {
+      method: options.method || "GET",
+      headers: headers,
+      body: options.body
+    });
+    if (res.ok) return res;
+    last = res;
+    // Only auth failures justify another key. A real 4xx/5xx is reported as is.
+    if (res.status !== 401 && res.status !== 403) return res;
+    await res.text();
+  }
+
+  return last;
 }
 
 function emailText(label, base) {
@@ -159,14 +213,14 @@ Deno.serve(async (req) => {
     const projectUrl = String(Deno.env.get("SUPABASE_URL") || "").replace(/\/+$/, "");
     if (!projectUrl) throw new Error("SUPABASE_URL is not available.");
 
-    const key = adminKey();
-    if (!key) throw new Error("No Supabase secret key is available to the function.");
-
-    const readRes = await fetch(projectUrl + "/rest/v1/shop_settings?select=key,value", {
-      headers: restHeaders(key)
-    });
-    if (!readRes.ok) {
-      throw new Error("Could not read shop settings (HTTP " + readRes.status + ").");
+    const readRes = await restRequest(
+      projectUrl,
+      "/rest/v1/shop_settings?select=key,value",
+      supplied
+    );
+    if (!readRes || !readRes.ok) {
+      throw new Error("Could not read shop settings (HTTP " +
+        (readRes ? readRes.status : "no response") + ").");
     }
 
     const rows = await readRes.json();
@@ -224,18 +278,21 @@ Deno.serve(async (req) => {
 
     // Upsert the stamp. A failed write must be visible: otherwise the next
     // scheduled run would send the same reminder again.
-    const saveRes = await fetch(projectUrl + "/rest/v1/shop_settings?on_conflict=key", {
-      method: "POST",
-      headers: Object.assign(restHeaders(key, true), {
-        Prefer: "resolution=merge-duplicates,return=minimal"
-      }),
-      body: JSON.stringify([{ key: "archive_reminder_last_sent_at", value: sentAt }])
-    });
+    const saveRes = await restRequest(
+      projectUrl,
+      "/rest/v1/shop_settings?on_conflict=key",
+      supplied,
+      {
+        method: "POST",
+        headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+        body: JSON.stringify([{ key: "archive_reminder_last_sent_at", value: sentAt }])
+      }
+    );
 
-    if (!saveRes.ok) {
-      const detail = (await saveRes.text()).slice(0, 300);
+    if (!saveRes || !saveRes.ok) {
+      const detail = saveRes ? (await saveRes.text()).slice(0, 300) : "no response";
       throw new Error("Email sent, but the last-sent stamp failed (HTTP " +
-        saveRes.status + "). " + detail);
+        (saveRes ? saveRes.status : "none") + "). " + detail);
     }
 
     return json({
