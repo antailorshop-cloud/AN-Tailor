@@ -27,6 +27,14 @@ window.ANT.settings = (function () {
   var CATEGORIES = ['Gents', 'Ladies'];
   var GROUPS = ['TAILORING', 'SERVICE', 'RESALE'];
 
+  // Settings tabs are addressable. A reminder can send the Owner straight to
+  // #/settings/clear-pdfs instead of dropping them on the default Dress types
+  // tab and hoping they find the Backup panel. The last path part names a card
+  // inside the tab, so one link can open a tab and point at one action in it.
+  var SETTINGS_TABS = ['dress', 'price', 'shop', 'gst', 'whatsapp', 'staff',
+    'backup', 'imp', 'data'];
+  var OWNER_TABS = ['gst', 'backup', 'imp', 'data'];
+
   /* Clear data -----------------------------------------------------------
    *
    * The owner's one way to start the shop again on a clean slate. The records
@@ -105,7 +113,8 @@ window.ANT.settings = (function () {
     imp: { busy: false, plan: null, tables: null, report: null, error: null },
     loading: false,
     error: null,
-    form: null   // null = closed, {kind:'dress'|'price', row:{}|null}
+    form: null,  // null = closed, {kind:'dress'|'price', row:{}|null}
+    anchor: ''   // card id to scroll to once the deep-linked tab has painted
   };
 
   var searchTimer = null;
@@ -129,6 +138,73 @@ window.ANT.settings = (function () {
 
   function byId(id) {
     return document.getElementById(id);
+  }
+
+  /* Deep links -----------------------------------------------------------
+   *
+   * The app router only reads #/settings, so the tab is read here. A link that
+   * names a tab opens that tab; a link that names the clear-PDF card opens the
+   * Backup tab and scrolls to the card. Unknown or forbidden tabs fall back to
+   * the normal first tab rather than showing an empty page.
+   */
+  function canOpenTab(tab) {
+    if (SETTINGS_TABS.indexOf(tab) < 0) return false;
+    return OWNER_TABS.indexOf(tab) < 0 || isOwner();
+  }
+
+  function routeFromHash() {
+    var route = { tab: 'dress', anchor: '' };
+    try {
+      var raw = String(window.location.hash || '').replace(/^#\/?/, '');
+      var parts = raw.split('/');
+      if (parts[0] !== 'settings') return route;
+      if (parts[1] === 'clear-pdfs') {
+        route.tab = 'backup';
+        route.anchor = 'clearPdfsPanel';
+        return route;
+      }
+      if (canOpenTab(parts[1])) route.tab = parts[1];
+    } catch (e) {}
+    return route;
+  }
+
+  // Tabs write their address back without asking the router to render again:
+  // paint() has already changed the panel, and a second render would throw away
+  // whatever the person was typing on the old tab.
+  function writeTabHash(tab) {
+    try {
+      if (window.history && typeof window.history.replaceState === 'function') {
+        var base = String(window.location.pathname || '') + String(window.location.search || '');
+        window.history.replaceState(null, '', base + '#/settings/' + tab);
+      } else {
+        window.location.hash = '#/settings/' + tab;
+      }
+    } catch (e) {}
+  }
+
+  function applyAnchor() {
+    var id = state.anchor;
+    if (!id) return;
+    var node = byId(id);
+    if (!node) return;
+    state.anchor = '';
+    if (typeof node.scrollIntoView === 'function') {
+      try { node.scrollIntoView({ block: 'start', behavior: 'smooth' }); }
+      catch (e) { node.scrollIntoView(true); }
+    }
+    var focusable = node.querySelector
+      ? node.querySelector('input, button, select, textarea, [tabindex]')
+      : null;
+    if (focusable && typeof focusable.focus === 'function') {
+      try { focusable.focus({ preventScroll: true }); }
+      catch (e) { focusable.focus(); }
+    }
+  }
+
+  // The router focuses the main region after render(), so the scroll is deferred
+  // until the browser has finished the synchronous work that would steal it.
+  function scheduleAnchor() {
+    if (state.anchor && window.setTimeout) window.setTimeout(applyAnchor, 0);
   }
 
   /* Loading ------------------------------------------------------------ */
@@ -2150,9 +2226,12 @@ window.ANT.settings = (function () {
   function wire() {
     Array.prototype.forEach.call(document.querySelectorAll('[data-set-tab]'), function (btn) {
       btn.addEventListener('click', function () {
-        state.tab = btn.getAttribute('data-set-tab');
+        var picked = btn.getAttribute('data-set-tab');
+        state.tab = canOpenTab(picked) ? picked : 'dress';
+        state.anchor = '';
         state.search = '';
         state.form = null;
+        writeTabHash(state.tab);
         paint();
         // Staff is not read with the rest, so it is fetched when it is opened.
         // The list is small and it is the one screen that must not be stale.
@@ -2326,7 +2405,9 @@ window.ANT.settings = (function () {
     },
 
     render: function () {
-      state.tab = 'dress';
+      var route = routeFromHash();
+      state.tab = canOpenTab(route.tab) ? route.tab : 'dress';
+      state.anchor = route.anchor;
       state.search = '';
       state.form = null;
       state.clear = { picked: {}, busy: false };
@@ -2336,6 +2417,7 @@ window.ANT.settings = (function () {
       state.clearingPdfs = false;
       impResetState();
       paint();
+      scheduleAnchor();
       load();
     },
 
