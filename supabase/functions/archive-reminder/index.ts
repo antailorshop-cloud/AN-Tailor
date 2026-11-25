@@ -20,8 +20,13 @@ const INTERVALS = {
   18: "1.5 years"
 };
 
+// Bump this whenever the function changes. Every response echoes it, so a
+// stale deployment is obvious instead of looking like a database problem.
+const VERSION = "2026-11-25.3";
+
 function json(body, status = 200) {
-  return new Response(JSON.stringify(body), {
+  const payload = Object.assign({ version: VERSION }, body || {});
+  return new Response(JSON.stringify(payload), {
     status,
     headers: { "Content-Type": "application/json" }
   });

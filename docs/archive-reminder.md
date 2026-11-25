@@ -189,6 +189,10 @@ request body was labelled `text/plain`. The function now sends
 the forced test again. Because the stamp was not written, the next scheduled
 run would otherwise send the reminder a second time.
 
+Every response now starts with a `version` field. If `PGRST102` appears and the
+response has no `version`, the deployed code is old: replace the whole function
+body again and press **Deploy**.
+
 To check which key Vault holds:
 
 ```sql
