@@ -37,6 +37,7 @@
     { file: 'bills', table: 'bills', order: ['code'],
       cols: ['id', 'code', 'customer_id', 'total', 'discount', 'advance', 'bill_amount',
         'balance', 'bill_date', 'notes', 'method', 'paid_on', 'print_size',
+        'pdf_path', 'pdf_snapshot',
         'created_at', 'updated_at', 'archived_at'] },
 
     { file: 'bill_orders', table: 'bill_orders', order: ['bill_id'],
