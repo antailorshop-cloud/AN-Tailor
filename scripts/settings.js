@@ -99,6 +99,8 @@ window.ANT.settings = (function () {
     staff: { rows: [], access: {}, loading: false, error: null },
     clear: { picked: {}, busy: false },
     exporting: false,
+    exportingPdf: false,
+    pdfProgress: null,
     imp: { busy: false, plan: null, tables: null, report: null, error: null },
     loading: false,
     error: null,
@@ -1535,7 +1537,8 @@ window.ANT.settings = (function () {
 
   // A copy of everything, as CSV files in one zip. Only the Owner sees the tab,
   // and the read is the same one the app makes all day, so RLS decides what ends
-  // up in it.
+  // up in it. The PDF archive is the other half: the CSVs can rebuild a bill's
+  // drawing, but the zip of the actual files is what goes to the Drive archive.
   function backupPanel() {
     if (!isOwner()) {
       return '<div class="ui-card"><div class="empty">' +
@@ -1547,6 +1550,10 @@ window.ANT.settings = (function () {
     var list = 'Customers, measurements, orders and their items, bills and the orders ' +
       'they cover, payments and resale stock - with the setup behind them: prices, ' +
       'dress types, the shop details and the staff list.';
+    var busy = state.exporting || state.exportingPdf;
+    var progress = state.exportingPdf
+      ? '<p class="ui-hint" id="pdfArchiveProgress">' + esc(pdfProgressText()) + '</p>'
+      : '';
 
     return '<div class="ui-card cust-form">' +
       '<h2 class="ui-card-title">Backup</h2>' +
@@ -1554,20 +1561,36 @@ window.ANT.settings = (function () {
         'table, which opens in Excel or Google Sheets. Worth taking before a clear-out, ' +
         'or at the end of each month.</p>' +
       '<p class="ui-hint">' + esc(list) + '</p>' +
+      '<p class="ui-hint">Also download the PDF archive below. Upload both zip files to ' +
+        'Google Drive before clearing stored PDFs.</p>' +
       '<div class="form-actions">' +
         '<button type="button" class="btn btn-primary" id="backupRun"' +
-          (state.exporting ? ' disabled' : '') + '>' +
+          (busy ? ' disabled' : '') + '>' +
           (state.exporting ? 'Preparing...' : 'Download backup (.zip)') +
         '</button>' +
+        '<button type="button" class="btn btn-secondary" id="pdfArchiveRun"' +
+          (busy ? ' disabled' : '') + '>' +
+          (state.exportingPdf ? 'Preparing PDFs...' : 'Download PDF archive (.zip)') +
+        '</button>' +
       '</div>' +
+      progress +
     '</div>';
+  }
+
+  function pdfProgressText() {
+    var p = state.pdfProgress;
+    if (!p) return 'Preparing PDF archive...';
+    if (p.phase === 'listing') return 'Listing stored PDFs: ' + p.listed + ' found...';
+    if (p.phase === 'saving') return 'Saving zip part ' + p.part + '...';
+    return 'Downloading ' + p.done + ' of ' + p.total +
+      ' PDFs (zip part ' + p.part + ')...';
   }
 
   // Reads every table a page at a time, hands the files to the zip writer and
   // saves the result. Anything that fails stops the whole thing: a half backup
   // that looks complete is worse than none.
   function runExport() {
-    if (!isOwner() || state.exporting) return;
+    if (!isOwner() || state.exporting || state.exportingPdf) return;
     if (!window.ANT.export || !window.ANT.zip) {
       toast('Backup is not available.', 'error');
       return;
@@ -1583,6 +1606,50 @@ window.ANT.settings = (function () {
     }).catch(function (e) {
       state.exporting = false;
       toast('Could not make the backup: ' + (e && e.message ? e.message : e), 'error');
+    }).then(function () {
+      paint();
+    });
+  }
+
+  // The PDF half of the backup. A long run repaints every 25 files rather than
+  // on every download, so a phone with years of bills is not rebuilding the
+  // whole Settings panel a thousand times.
+  function runPdfArchive() {
+    if (!isOwner() || state.exporting || state.exportingPdf) return;
+    if (!window.ANT.pdfarchive) {
+      toast('PDF archive is not available.', 'error');
+      return;
+    }
+
+    state.exportingPdf = true;
+    state.pdfProgress = { phase: 'listing', listed: 0, page: 0 };
+    paint();
+
+    var lastPaint = '';
+    window.ANT.pdfarchive.run(function (p) {
+      state.pdfProgress = p;
+      var bucket = p.phase === 'downloading' ? Math.floor((p.done || 0) / 25) : 0;
+      var key = p.phase + ':' + (p.part || 0) + ':' + bucket;
+      if (key !== lastPaint) {
+        lastPaint = key;
+        paint();
+      }
+    }).then(function (res) {
+      state.exportingPdf = false;
+      state.pdfProgress = null;
+      if (!res.files) {
+        toast('No stored PDFs to archive.', 'success');
+      } else {
+        var size = res.bytes >= 1024 * 1024
+          ? (res.bytes / (1024 * 1024)).toFixed(1) + ' MB'
+          : Math.round(res.bytes / 1024) + ' KB';
+        toast('PDF archive ready: ' + res.files + ' PDFs in ' + res.parts +
+          (res.parts === 1 ? ' zip' : ' zips') + ' (' + size + ').', 'success');
+      }
+    }).catch(function (e) {
+      state.exportingPdf = false;
+      state.pdfProgress = null;
+      toast('Could not make the PDF archive: ' + (e && e.message ? e.message : e), 'error');
     }).then(function () {
       paint();
     });
@@ -2129,6 +2196,10 @@ window.ANT.settings = (function () {
     if (backupRun) {
       backupRun.addEventListener('click', runExport);
     }
+    var pdfArchiveRun = byId('pdfArchiveRun');
+    if (pdfArchiveRun) {
+      pdfArchiveRun.addEventListener('click', runPdfArchive);
+    }
 
     var impReview = byId('impReview');
     if (impReview) impReview.addEventListener('click', reviewImport);
@@ -2155,6 +2226,8 @@ window.ANT.settings = (function () {
       state.form = null;
       state.clear = { picked: {}, busy: false };
       state.exporting = false;
+      state.exportingPdf = false;
+      state.pdfProgress = null;
       impResetState();
       paint();
       load();
