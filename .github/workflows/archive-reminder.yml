@@ -7,6 +7,12 @@ on:
   schedule:
     - cron: '30 3 1 * *'
   workflow_dispatch:
+    inputs:
+      force:
+        description: 'Send even if the saved interval has not elapsed'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -27,6 +33,7 @@ jobs:
           SUPABASE_URL: ${{ vars.SUPABASE_URL || 'https://taidyazxtcouyihxfxfe.supabase.co' }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SITE_URL: ${{ vars.SITE_URL || 'https://antailorshop-cloud.github.io/AN-Tailor/' }}
+          FORCE_REMINDER: ${{ inputs.force }}
         run: |
           set -euo pipefail
 
@@ -81,7 +88,10 @@ jobs:
           esac
 
           now_epoch="$(date -u +%s)"
-          if [ -z "$last" ]; then
+          if [ "${FORCE_REMINDER:-false}" = "true" ]; then
+            due=1
+            echo "Manual force-send requested."
+          elif [ -z "$last" ]; then
             due=1
           else
             due_epoch="$(date -u -d "$last + ${months} months" +%s)"

@@ -54,7 +54,8 @@ in and to complete every guard in the app.
 Run the workflow manually from the GitHub repository's **Actions** tab using
 **Run workflow**:
 
-- If the interval has not elapsed, the job reports “not due” and sends nothing.
-- To force a test send, change the interval in the app first; saving restarts the
-  clock, so an immediate manual run after a fresh install or missing last-sent
-  stamp will send.
+- Leave **Send even if the saved interval has not elapsed** unticked for a normal
+  run. If the interval has not elapsed, the job reports “not due” and sends
+  nothing.
+- Tick that box for a test email. A forced run still writes the last-sent stamp,
+  so the next scheduled reminder waits the full saved interval again.
