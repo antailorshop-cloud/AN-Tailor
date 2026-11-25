@@ -101,6 +101,7 @@ window.ANT.settings = (function () {
     exporting: false,
     exportingPdf: false,
     pdfProgress: null,
+    clearingPdfs: false,
     imp: { busy: false, plan: null, tables: null, report: null, error: null },
     loading: false,
     error: null,
@@ -1550,7 +1551,7 @@ window.ANT.settings = (function () {
     var list = 'Customers, measurements, orders and their items, bills and the orders ' +
       'they cover, payments and resale stock - with the setup behind them: prices, ' +
       'dress types, the shop details and the staff list.';
-    var busy = state.exporting || state.exportingPdf;
+    var busy = state.exporting || state.exportingPdf || state.clearingPdfs;
     var progress = state.exportingPdf
       ? '<p class="ui-hint" id="pdfArchiveProgress">' + esc(pdfProgressText()) + '</p>'
       : '';
@@ -1574,7 +1575,8 @@ window.ANT.settings = (function () {
         '</button>' +
       '</div>' +
       progress +
-    '</div>';
+    '</div>' +
+    clearStoredPdfsPanel();
   }
 
   function pdfProgressText() {
@@ -2044,6 +2046,105 @@ window.ANT.settings = (function () {
     });
   }
 
+  /* Clear only the PDF cache ---------------------------------------------
+   *
+   * This is not the Clear data wipe. Nothing in a table is deleted: the bill
+   * rows, their pdf_snapshot and every payment stay exactly where they are.
+   * Only the objects in bill-pdfs go, and each bill is marked as having no
+   * file, so the next print or WhatsApp message rebuilds it from the snapshot.
+   * It is deliberately on the Backup tab, after both download buttons, and is
+   * gated by a tick, the word CLEAR, the password and a final confirm.
+   */
+  function clearStoredPdfsPanel() {
+    if (!isOwner()) return '';
+
+    return '<div class="ui-card cust-form" id="clearPdfsPanel">' +
+      '<h2 class="ui-card-title">Clear stored PDFs</h2>' +
+      '<p class="ui-hint">Only after you have downloaded both zips above and ' +
+        'uploaded them to Google Drive. This empties the bill-pdfs storage bucket ' +
+        'and clears every bill&#39;s stored file path. The bill records, payments ' +
+        'and saved snapshots are kept, so each PDF is rebuilt the next time it is ' +
+        'printed or sent.</p>' +
+      '<label class="cust-toggle"><input type="checkbox" id="clearPdfArchived"' +
+        (state.clearingPdfs ? ' disabled' : '') + '> I have uploaded both backup ' +
+        'zips to Google Drive</label>' +
+      '<div class="form-grid">' +
+        '<div class="ui-field">' +
+          '<label class="ui-label" for="clearPdfPhrase">Type CLEAR to confirm</label>' +
+          '<input class="ui-input" id="clearPdfPhrase" autocomplete="off" spellcheck="false"' +
+            (state.clearingPdfs ? ' disabled' : '') + '>' +
+        '</div>' +
+        '<div class="ui-field">' +
+          '<label class="ui-label" for="clearPdfPassword">Your password</label>' +
+          '<input class="ui-input" id="clearPdfPassword" type="password" ' +
+            'autocomplete="current-password"' + (state.clearingPdfs ? ' disabled' : '') + '>' +
+          '<p class="ui-hint">Asked again because a phone can be left signed in.</p>' +
+        '</div>' +
+      '</div>' +
+      '<div class="form-actions">' +
+        '<button type="button" class="btn btn-danger" id="clearPdfsRun"' +
+          (state.clearingPdfs ? ' disabled' : '') + '>' +
+          (state.clearingPdfs ? 'Clearing PDFs...' : 'Clear stored PDFs only') +
+        '</button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function runClearStoredPdfs() {
+    if (!isOwner() || state.clearingPdfs) return;
+    var bills = window.ANT.bills;
+    if (!bills || typeof bills.clearStoredPdfsForArchive !== 'function') {
+      toast('PDF clearing is not available.', 'error');
+      return;
+    }
+    if (!(byId('clearPdfArchived') || {}).checked) {
+      toast('Confirm that both zips are in Google Drive first.', 'error');
+      return;
+    }
+
+    var phrase = String((byId('clearPdfPhrase') || {}).value || '').trim();
+    if (phrase.toUpperCase() !== 'CLEAR') {
+      toast('Type CLEAR in the box to confirm.', 'error');
+      return;
+    }
+
+    var password = String((byId('clearPdfPassword') || {}).value || '');
+    if (!password) {
+      toast('Enter your password to confirm.', 'error');
+      return;
+    }
+
+    if (!window.confirm('Remove every stored bill PDF and clear their bill paths?\n\n' +
+      'Bill records and saved snapshots stay. This cannot be undone except from ' +
+      'the archive copies you uploaded.')) return;
+
+    state.clearingPdfs = true;
+    paint();
+
+    window.ANT.auth.verifyPassword(password).then(function (auth) {
+      if (!auth || !auth.ok) {
+        state.clearingPdfs = false;
+        paint();
+        toast((auth && auth.error) || 'Could not confirm it is you.', 'error');
+        return;
+      }
+
+      return bills.clearStoredPdfsForArchive().then(function (res) {
+        state.clearingPdfs = false;
+        paint();
+        var done = 'Cleared ' + res.removed + ' stored PDF' +
+          (res.removed === 1 ? '' : 's') + ' and reset ' + res.updated + ' bill path' +
+          (res.updated === 1 ? '' : 's') + '.';
+        if (res.error) toast(done + ' Some files could not be removed: ' + res.error, 'error');
+        else toast(done, 'success');
+      });
+    }).catch(function (e) {
+      state.clearingPdfs = false;
+      paint();
+      toast('Could not clear the stored PDFs: ' + (e && e.message ? e.message : e), 'error');
+    });
+  }
+
   /* Events ------------------------------------------------------------- */
 
   function wire() {
@@ -2200,6 +2301,10 @@ window.ANT.settings = (function () {
     if (pdfArchiveRun) {
       pdfArchiveRun.addEventListener('click', runPdfArchive);
     }
+    var clearPdfsRun = byId('clearPdfsRun');
+    if (clearPdfsRun) {
+      clearPdfsRun.addEventListener('click', runClearStoredPdfs);
+    }
 
     var impReview = byId('impReview');
     if (impReview) impReview.addEventListener('click', reviewImport);
@@ -2228,6 +2333,7 @@ window.ANT.settings = (function () {
       state.exporting = false;
       state.exportingPdf = false;
       state.pdfProgress = null;
+      state.clearingPdfs = false;
       impResetState();
       paint();
       load();

@@ -3160,6 +3160,38 @@ window.ANT.bills = (function () {
       .catch(function (e) { return { removed: removed, error: (e && e.message) ? e.message : String(e) }; });
   }
 
+  /* The archive version of the clear above. The files are only a cache once the
+   * CSV backup and the PDF zip are safe in Drive, so after removing the objects
+   * every bill is marked as having no file. pdf_snapshot is deliberately left
+   * alone: it is what lets the next WhatsApp message or print redraw the bill
+   * byte for byte instead of losing it. Nothing in the database is deleted. */
+  function clearStoredPdfsForArchive() {
+    var removed = 0;
+    return clearStoredPdfs().then(function (pdfs) {
+      removed = pdfs.removed || 0;
+      if (pdfs.error) return { removed: removed, updated: 0, error: pdfs.error };
+
+      return sb().from('bills')
+        .update({ pdf_path: null })
+        .not('id', 'is', null)
+        .select('id')
+        .then(function (res) {
+          if (res.error) throw res.error;
+          return {
+            removed: pdfs.removed,
+            updated: (res.data || []).length,
+            error: ''
+          };
+        });
+    }).catch(function (e) {
+      return {
+        removed: removed,
+        updated: 0,
+        error: (e && e.message) ? e.message : String(e)
+      };
+    });
+  }
+
   /* Sending a bill on WhatsApp ---------------------------------------------- */
 
   /* wa.me with the message already filled in. Handed over by clicking a real
@@ -3588,6 +3620,9 @@ window.ANT.bills = (function () {
     /* Removes every stored bill PDF, for Clear data. The bill rows and the files
      * they point at are two different stores, and only one of them is a table. */
     clearStoredPdfs: clearStoredPdfs,
+    /* Archive clear: empty the PDF cache and null every bill's pdf_path while
+     * keeping pdf_snapshot, so a later order message can redraw the file. */
+    clearStoredPdfsForArchive: clearStoredPdfsForArchive,
     /* The order's bill, as an id, or '' when it is on none. The Orders page
      * reads this to hold a Finish or Delivery back until a bill exists. */
     orderBillId: orderBillId,
