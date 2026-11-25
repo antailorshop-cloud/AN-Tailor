@@ -16,6 +16,7 @@
 -- );
 --
 -- The values stay in Vault and are never written into this file.
+-- The key may be the legacy service_role JWT or a newer sb_secret_ key.
 -- The Edge Function decides whether the interval saved in the app is due.
 
 create extension if not exists pg_cron;
@@ -48,8 +49,7 @@ begin
     url := rtrim(project_url, '/') || '/functions/v1/archive-reminder',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
-      'apikey', service_key,
-      'Authorization', 'Bearer ' || service_key
+      'apikey', service_key
     ),
     body := jsonb_build_object('force', p_force),
     timeout_milliseconds := 30000

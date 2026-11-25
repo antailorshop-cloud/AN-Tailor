@@ -67,10 +67,15 @@ Before running it, replace the placeholders in the two `vault.create_secret`
 statements near the top:
 
 - `<project-ref>` with your Supabase project reference
-- `<service_role_key>` with the Supabase service_role key
+- `<service_role_key>` with either:
+  - the new **Secret key** (`sb_secret_...`) from **Settings -> API Keys**, or
+  - the legacy **service_role** key from **Settings -> API Keys -> Legacy API keys**
 
 Run those two `vault.create_secret` statements once. Then run the rest of the
 migration. Do not commit the real values.
+
+The function accepts both key formats. New `sb_secret_...` keys are sent only on
+the `apikey` header; they must not be sent as `Authorization: Bearer`.
 
 The migration creates:
 

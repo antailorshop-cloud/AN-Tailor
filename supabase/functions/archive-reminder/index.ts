@@ -56,6 +56,43 @@ function siteBase() {
     .replace(/\/+$/, "");
 }
 
+function secretKeys() {
+  const raw = Deno.env.get("SUPABASE_SECRET_KEYS");
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Object.keys(parsed || {}).map(function (name) { return parsed[name]; })
+      .filter(function (value) { return typeof value === "string" && value; });
+  } catch (_) {
+    return [];
+  }
+}
+
+function adminKey() {
+  return Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ||
+    Deno.env.get("SUPABASE_SECRET_KEY") ||
+    secretKeys()[0] ||
+    "";
+}
+
+function acceptedKeys() {
+  return [
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "",
+    Deno.env.get("SUPABASE_SECRET_KEY") || "",
+    Deno.env.get("ARCHIVE_REMINDER_KEY") || ""
+  ].concat(secretKeys()).filter(function (value) { return !!value; });
+}
+
+// Legacy service_role keys are JWTs. The newer sb_secret_ keys are opaque and
+// must travel only on apikey; sending one as Bearer makes the gateway parse it
+// as a JWT and reject the request before the function runs.
+function restHeaders(key, withJson) {
+  const headers = { apikey: key };
+  if (key.indexOf("eyJ") === 0) headers.Authorization = "Bearer " + key;
+  if (withJson) headers["Content-Type"] = "application/json";
+  return headers;
+}
+
 function emailText(label, base) {
   return [
     "Hello,",
@@ -98,14 +135,14 @@ Deno.serve(async (req) => {
     return json({ error: "Use POST." }, 405);
   }
 
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
   const supplied = req.headers.get("x-reminder-key") ||
     req.headers.get("apikey") ||
     String(req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
+  const allowed = acceptedKeys();
 
   // This function can send email and write the last-sent stamp. The public
   // anon key must never be enough to call it.
-  if (!serviceKey || supplied !== serviceKey) {
+  if (!allowed.length || allowed.indexOf(supplied) === -1) {
     return json({ error: "Unauthorized." }, 401);
   }
 
@@ -122,11 +159,11 @@ Deno.serve(async (req) => {
     const projectUrl = String(Deno.env.get("SUPABASE_URL") || "").replace(/\/+$/, "");
     if (!projectUrl) throw new Error("SUPABASE_URL is not available.");
 
+    const key = adminKey();
+    if (!key) throw new Error("No Supabase secret key is available to the function.");
+
     const readRes = await fetch(projectUrl + "/rest/v1/shop_settings?select=key,value", {
-      headers: {
-        apikey: serviceKey,
-        Authorization: "Bearer " + serviceKey
-      }
+      headers: restHeaders(key)
     });
     if (!readRes.ok) {
       throw new Error("Could not read shop settings (HTTP " + readRes.status + ").");
@@ -189,12 +226,9 @@ Deno.serve(async (req) => {
     // scheduled run would send the same reminder again.
     const saveRes = await fetch(projectUrl + "/rest/v1/shop_settings?on_conflict=key", {
       method: "POST",
-      headers: {
-        apikey: serviceKey,
-        Authorization: "Bearer " + serviceKey,
-        "Content-Type": "application/json",
+      headers: Object.assign(restHeaders(key, true), {
         Prefer: "resolution=merge-duplicates,return=minimal"
-      },
+      }),
       body: JSON.stringify([{ key: "archive_reminder_last_sent_at", value: sentAt }])
     });
 
