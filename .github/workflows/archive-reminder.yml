@@ -1,0 +1,92 @@
+name: Quarterly PDF archive reminder
+
+# 03:30 UTC on the first day of Jan/Apr/Jul/Oct = 09:00 IST. The email only
+# opens the app on the right Settings tab. It never clears storage itself.
+on:
+  schedule:
+    - cron: '30 3 1 1,4,7,10 *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: an-tailor-archive-reminder
+  cancel-in-progress: false
+
+jobs:
+  email:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send the archive reminder
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          REMINDER_TO: ${{ secrets.REMINDER_TO }}
+          SITE_URL: ${{ vars.SITE_URL || 'https://antailorshop-cloud.github.io/AN-Tailor/' }}
+        run: |
+          set -euo pipefail
+
+          missing=0
+          if [ -z "${GMAIL_USER:-}" ]; then
+            echo "::error::GMAIL_USER secret is required."
+            missing=1
+          fi
+          if [ -z "${GMAIL_APP_PASSWORD:-}" ]; then
+            echo "::error::GMAIL_APP_PASSWORD secret is required."
+            missing=1
+          fi
+          if [ -z "${REMINDER_TO:-}" ]; then
+            echo "::error::REMINDER_TO secret is required."
+            missing=1
+          fi
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+          base="${SITE_URL:-https://antailorshop-cloud.github.io/AN-Tailor/}"
+          backup_url="${base%/}/#/settings/backup"
+          clear_url="${base%/}/#/settings/clear-pdfs"
+          mail="$RUNNER_TEMP/archive-reminder.eml"
+
+          # CRLF is used throughout so Gmail treats this as a normal text email.
+          line() { printf '%s\r\n' "$1" >> "$mail"; }
+          : > "$mail"
+
+          line "From: ${GMAIL_USER}"
+          line "To: ${REMINDER_TO}"
+          line "Subject: AN TAILOR - quarterly PDF archive reminder"
+          line "MIME-Version: 1.0"
+          line "Content-Type: text/plain; charset=UTF-8"
+          line "Content-Transfer-Encoding: 7bit"
+          line ""
+          line "Hello,"
+          line ""
+          line "It is time to archive the last three months of AN TAILOR bill PDFs."
+          line ""
+          line "1. Open Backup and download both zips (CSV backup and PDF archive):"
+          line "   ${backup_url}"
+          line ""
+          line "2. Upload both zips to Google Drive."
+          line ""
+          line "3. Only after both zips are safe in Drive, open Clear stored PDFs:"
+          line "   ${clear_url}"
+          line ""
+          line "The clear panel needs the archive tick, the word CLEAR, your password"
+          line "and a final confirmation. This email only opens the app. It does not"
+          line "delete anything by itself."
+          line ""
+          line "Bill records, payments and saved snapshots are kept when PDFs are"
+          line "cleared, so a later bill message can rebuild the file."
+          line ""
+          line "AN TAILOR"
+
+          curl --silent --show-error --fail \
+            --ssl-reqd \
+            --url "smtp://smtp.gmail.com:587" \
+            --user "${GMAIL_USER}:${GMAIL_APP_PASSWORD}" \
+            --mail-from "${GMAIL_USER}" \
+            --mail-rcpt "${REMINDER_TO}" \
+            --upload-file "$mail"
+
+          echo "Quarterly archive reminder sent to ${REMINDER_TO}."
