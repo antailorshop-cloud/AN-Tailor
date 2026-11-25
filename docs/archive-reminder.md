@@ -1,11 +1,18 @@
-# Quarterly PDF archive reminder
+# PDF archive reminder
 
-`/.github/workflows/archive-reminder.yml` emails the Owner every three months to
-download the CSV and PDF backups, upload them to Google Drive, and only then clear
-the stored PDFs.
+`.github/workflows/archive-reminder.yml` runs on the first of every month at
+03:30 UTC / 09:00 IST. It reads the interval saved in the app and only sends an
+email when that interval has elapsed since the last reminder.
 
-Schedule: `30 3 1 1,4,7,10 *` UTC, which is 09:00 IST on 1 January, April, July
-and October.
+The interval is set on **Settings → Backup → Archive reminder**:
+
+- 3 months
+- 6 months
+- 1 year
+- 1.5 years
+
+Saving a choice restarts the clock from that day. A manual workflow run that
+actually sends an email also restarts the clock.
 
 ## Gmail setup
 
@@ -20,10 +27,17 @@ and October.
    | `GMAIL_USER` | Gmail address used to send the reminder |
    | `GMAIL_APP_PASSWORD` | 16-character Google App password |
    | `REMINDER_TO` | Email address that receives the reminder, normally the Owner |
+   | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service_role key, used only by the scheduled job |
 
 4. Optional: add a Repository variable `SITE_URL` if the app is served somewhere
    other than `https://antailorshop-cloud.github.io/AN-Tailor/`. Do not include a
-   trailing `#`; the workflow adds the deep links.
+   trailing `#`; the workflow adds the deep links. The default Supabase project
+   URL is already in the workflow and can be overridden with a `SUPABASE_URL`
+   Repository variable.
+
+The service_role key bypasses Row Level Security, so it must never appear in a
+frontend file, a commit, or a browser-visible setting. It stays in GitHub
+Actions secrets.
 
 ## What the email contains
 
@@ -38,4 +52,9 @@ in and to complete every guard in the app.
 ## Testing
 
 Run the workflow manually from the GitHub repository's **Actions** tab using
-**Run workflow**. The quarterly schedule will still run on its own after that.
+**Run workflow**:
+
+- If the interval has not elapsed, the job reports “not due” and sends nothing.
+- To force a test send, change the interval in the app first; saving restarts the
+  clock, so an immediate manual run after a fresh install or missing last-sent
+  stamp will send.

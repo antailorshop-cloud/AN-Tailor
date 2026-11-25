@@ -90,7 +90,18 @@ window.ANT.settings = (function () {
     'wa_ready_message', 'wa_delivered_message', 'bill_print_size', 'wa_bill_size',
     'receipt_print_size', 'gst_enabled', 'gstin', 'gst_state',
     'gst_tailoring_rate', 'gst_resale_low_rate', 'gst_resale_high_rate',
-    'gst_garment_hsn', 'gst_service_sac'];
+    'gst_garment_hsn', 'gst_service_sac', 'archive_reminder_months',
+    'archive_reminder_last_sent_at'];
+
+  // The archive reminder is deliberately a small fixed set. A free-form number
+  // invites "4" or "90" and then the scheduled job has to guess what was meant;
+  // these four cover the shop's quarter, half-year, year and eighteen months.
+  var ARCHIVE_INTERVALS = [
+    { months: 3, label: '3 months' },
+    { months: 6, label: '6 months' },
+    { months: 12, label: '1 year' },
+    { months: 18, label: '1.5 years' }
+  ];
 
   var state = {
     tab: 'dress',
@@ -103,13 +114,15 @@ window.ANT.settings = (function () {
       wa_ready_message: '', wa_delivered_message: '', bill_print_size: '',
       wa_bill_size: '', receipt_print_size: '', gst_enabled: '0', gstin: '',
       gst_state: 'TN', gst_tailoring_rate: '', gst_resale_low_rate: '',
-      gst_resale_high_rate: '', gst_garment_hsn: '', gst_service_sac: '' },
+      gst_resale_high_rate: '', gst_garment_hsn: '', gst_service_sac: '',
+      archive_reminder_months: '3', archive_reminder_last_sent_at: '' },
     staff: { rows: [], access: {}, loading: false, error: null },
     clear: { picked: {}, busy: false },
     exporting: false,
     exportingPdf: false,
     pdfProgress: null,
     clearingPdfs: false,
+    savingArchiveInterval: false,
     imp: { busy: false, plan: null, tables: null, report: null, error: null },
     loading: false,
     error: null,
@@ -249,7 +262,8 @@ window.ANT.settings = (function () {
       wa_ready_message: '', wa_delivered_message: '', bill_print_size: '',
       wa_bill_size: '', receipt_print_size: '', gst_enabled: '0', gstin: '',
       gst_state: 'TN', gst_tailoring_rate: '', gst_resale_low_rate: '',
-      gst_resale_high_rate: '', gst_garment_hsn: '', gst_service_sac: '' };
+      gst_resale_high_rate: '', gst_garment_hsn: '', gst_service_sac: '',
+      archive_reminder_months: '3', archive_reminder_last_sent_at: '' };
     rows.forEach(function (row) {
       if (SHOP_KEYS.indexOf(row.key) !== -1) {
         shop[row.key] = String(row.value == null ? '' : row.value);
@@ -1612,6 +1626,97 @@ window.ANT.settings = (function () {
 
   /* Backup ------------------------------------------------------------- */
 
+  function archiveMonths() {
+    var n = parseInt(state.shop.archive_reminder_months, 10);
+    return ARCHIVE_INTERVALS.some(function (v) { return v.months === n; }) ? n : 3;
+  }
+
+  function archiveIntervalLabel(months) {
+    var hit = ARCHIVE_INTERVALS.filter(function (v) { return v.months === months; })[0];
+    return hit ? hit.label : '3 months';
+  }
+
+  function archiveLastText() {
+    var value = state.shop.archive_reminder_last_sent_at;
+    if (!value) return 'No reminder has been sent yet.';
+    var d = new Date(value);
+    if (isNaN(d.getTime())) return 'Last reminder date is not available.';
+    return 'Last reminder sent: ' + d.toLocaleDateString('en-IN', {
+      day: '2-digit', month: 'short', year: 'numeric'
+    });
+  }
+
+  // The schedule lives in the app, not in the workflow file, so the shop can
+  // change how often the reminder arrives without waiting for a code deploy.
+  // Saving a new interval restarts the clock from today, which is why the last
+  // sent stamp is written beside the choice in one go.
+  function archiveReminderPanel() {
+    if (!isOwner()) return '';
+
+    var picked = archiveMonths();
+    var disabled = state.savingArchiveInterval ? ' disabled' : '';
+    return '<div class="ui-card cust-form" id="archiveReminderPanel">' +
+      '<h2 class="ui-card-title">Archive reminder</h2>' +
+      '<p class="ui-hint">A scheduled email reminds the Owner to download both ' +
+        'zips and upload them to Google Drive. Saving a new interval starts the ' +
+        'clock again from today.</p>' +
+      '<div class="form-grid">' +
+        '<div class="ui-field">' +
+          '<label class="ui-label" for="archiveReminderMonths">Remind every</label>' +
+          '<select class="ui-input" id="archiveReminderMonths"' + disabled + '>' +
+            ARCHIVE_INTERVALS.map(function (v) {
+              return '<option value="' + v.months + '"' +
+                (v.months === picked ? ' selected' : '') + '>' +
+                esc(v.label) + '</option>';
+            }).join('') +
+          '</select>' +
+          '<p class="ui-hint">' + esc(archiveLastText()) + '</p>' +
+        '</div>' +
+      '</div>' +
+      '<div class="form-actions">' +
+        '<button type="button" class="btn btn-secondary" id="archiveIntervalSave"' +
+          disabled + '>' +
+          (state.savingArchiveInterval ? 'Saving...' : 'Save reminder interval') +
+        '</button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function saveArchiveInterval() {
+    if (!isOwner() || state.savingArchiveInterval) return;
+    var field = byId('archiveReminderMonths');
+    if (!field) return;
+
+    var months = parseInt(field.value, 10);
+    if (!ARCHIVE_INTERVALS.some(function (v) { return v.months === months; })) {
+      toast('Choose 3 months, 6 months, 1 year or 1.5 years.', 'error');
+      return;
+    }
+
+    state.savingArchiveInterval = true;
+    paint();
+
+    Promise.all([
+      putSetting('archive_reminder_months', String(months)),
+      putSetting('archive_reminder_last_sent_at', new Date().toISOString())
+    ]).then(function (results) {
+      state.savingArchiveInterval = false;
+      var bad = results.filter(function (r) { return r && r.error; })[0];
+      if (bad) {
+        paint();
+        toast(bad.error.message, 'error');
+        return;
+      }
+      toast('Archive reminder set to ' + archiveIntervalLabel(months) + '.', 'success');
+      load();
+    }).catch(function (e) {
+      state.savingArchiveInterval = false;
+      paint();
+      toast('Could not save the reminder interval: ' +
+        (e && e.message ? e.message : e), 'error');
+    });
+  }
+
   // A copy of everything, as CSV files in one zip. Only the Owner sees the tab,
   // and the read is the same one the app makes all day, so RLS decides what ends
   // up in it. The PDF archive is the other half: the CSVs can rebuild a bill's
@@ -1627,7 +1732,8 @@ window.ANT.settings = (function () {
     var list = 'Customers, measurements, orders and their items, bills and the orders ' +
       'they cover, payments and resale stock - with the setup behind them: prices, ' +
       'dress types, the shop details and the staff list.';
-    var busy = state.exporting || state.exportingPdf || state.clearingPdfs;
+    var busy = state.exporting || state.exportingPdf || state.clearingPdfs ||
+      state.savingArchiveInterval;
     var progress = state.exportingPdf
       ? '<p class="ui-hint" id="pdfArchiveProgress">' + esc(pdfProgressText()) + '</p>'
       : '';
@@ -1652,6 +1758,7 @@ window.ANT.settings = (function () {
       '</div>' +
       progress +
     '</div>' +
+    archiveReminderPanel() +
     clearStoredPdfsPanel();
   }
 
@@ -2384,6 +2491,10 @@ window.ANT.settings = (function () {
     if (clearPdfsRun) {
       clearPdfsRun.addEventListener('click', runClearStoredPdfs);
     }
+    var archiveIntervalSave = byId('archiveIntervalSave');
+    if (archiveIntervalSave) {
+      archiveIntervalSave.addEventListener('click', saveArchiveInterval);
+    }
 
     var impReview = byId('impReview');
     if (impReview) impReview.addEventListener('click', reviewImport);
@@ -2415,6 +2526,7 @@ window.ANT.settings = (function () {
       state.exportingPdf = false;
       state.pdfProgress = null;
       state.clearingPdfs = false;
+      state.savingArchiveInterval = false;
       impResetState();
       paint();
       scheduleAnchor();

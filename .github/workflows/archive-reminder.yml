@@ -1,10 +1,11 @@
-name: Quarterly PDF archive reminder
+name: PDF archive reminder
 
-# 03:30 UTC on the first day of Jan/Apr/Jul/Oct = 09:00 IST. The email only
-# opens the app on the right Settings tab. It never clears storage itself.
+# Runs on the first of every month at 03:30 UTC = 09:00 IST. Whether an email
+# is actually sent is decided by archive_reminder_months and
+# archive_reminder_last_sent_at in shop_settings, both editable in the app.
 on:
   schedule:
-    - cron: '30 3 1 1,4,7,10 *'
+    - cron: '30 3 1 * *'
   workflow_dispatch:
 
 permissions:
@@ -18,11 +19,13 @@ jobs:
   email:
     runs-on: ubuntu-latest
     steps:
-      - name: Send the archive reminder
+      - name: Send the archive reminder when due
         env:
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           REMINDER_TO: ${{ secrets.REMINDER_TO }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL || 'https://taidyazxtcouyihxfxfe.supabase.co' }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SITE_URL: ${{ vars.SITE_URL || 'https://antailorshop-cloud.github.io/AN-Tailor/' }}
         run: |
           set -euo pipefail
@@ -40,8 +43,54 @@ jobs:
             echo "::error::REMINDER_TO secret is required."
             missing=1
           fi
+          if [ -z "${SUPABASE_SERVICE_ROLE_KEY:-}" ]; then
+            echo "::error::SUPABASE_SERVICE_ROLE_KEY secret is required."
+            missing=1
+          fi
+          if ! command -v jq >/dev/null 2>&1; then
+            echo "::error::jq is required to read the saved interval."
+            missing=1
+          fi
           if [ "$missing" -ne 0 ]; then
             exit 1
+          fi
+
+          api="${SUPABASE_URL%/}/rest/v1/shop_settings"
+          settings_json="$(curl --fail --silent --show-error \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            "${api}?select=key,value")"
+
+          months="$(printf '%s' "$settings_json" \
+            | jq -r '.[] | select(.key == "archive_reminder_months") | .value // empty' \
+            | tail -n 1)"
+          last="$(printf '%s' "$settings_json" \
+            | jq -r '.[] | select(.key == "archive_reminder_last_sent_at") | .value // empty' \
+            | tail -n 1)"
+
+          case "$months" in
+            3|6|12|18) ;;
+            *) months=3 ;;
+          esac
+
+          case "$months" in
+            3) interval_label="3 months" ;;
+            6) interval_label="6 months" ;;
+            12) interval_label="1 year" ;;
+            18) interval_label="1.5 years" ;;
+          esac
+
+          now_epoch="$(date -u +%s)"
+          if [ -z "$last" ]; then
+            due=1
+          else
+            due_epoch="$(date -u -d "$last + ${months} months" +%s)"
+            if [ "$now_epoch" -ge "$due_epoch" ]; then due=1; else due=0; fi
+          fi
+
+          if [ "$due" -eq 0 ]; then
+            echo "Archive reminder is not due yet. Interval: ${interval_label}."
+            exit 0
           fi
 
           base="${SITE_URL:-https://antailorshop-cloud.github.io/AN-Tailor/}"
@@ -55,14 +104,15 @@ jobs:
 
           line "From: ${GMAIL_USER}"
           line "To: ${REMINDER_TO}"
-          line "Subject: AN TAILOR - quarterly PDF archive reminder"
+          line "Subject: AN TAILOR - ${interval_label} PDF archive reminder"
           line "MIME-Version: 1.0"
           line "Content-Type: text/plain; charset=UTF-8"
           line "Content-Transfer-Encoding: 7bit"
           line ""
           line "Hello,"
           line ""
-          line "It is time to archive the last three months of AN TAILOR bill PDFs."
+          line "Your saved archive interval is ${interval_label}. It is time to"
+          line "download the AN TAILOR backups and archive them in Google Drive."
           line ""
           line "1. Open Backup and download both zips (CSV backup and PDF archive):"
           line "   ${backup_url}"
@@ -89,4 +139,34 @@ jobs:
             --mail-rcpt "${REMINDER_TO}" \
             --upload-file "$mail"
 
-          echo "Quarterly archive reminder sent to ${REMINDER_TO}."
+          # Restart the interval after a successful send. The app writes the same
+          # key when the Owner saves a new choice, so changing the setting also
+          # starts the clock from that day.
+          now_iso="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          patch_body="$(printf '{"value":"%s"}' "$now_iso")"
+          code="$(curl --silent --show-error -o /dev/null -w '%{http_code}' \
+            -X PATCH \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: return=minimal" \
+            --data "$patch_body" \
+            "${api}?key=eq.archive_reminder_last_sent_at")"
+
+          if [ "$code" = "404" ]; then
+            insert_body="$(printf '{"key":"archive_reminder_last_sent_at","value":"%s"}' "$now_iso")"
+            code="$(curl --silent --show-error -o /dev/null -w '%{http_code}' \
+              -X POST \
+              -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+              -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+              -H "Content-Type: application/json" \
+              -H "Prefer: return=minimal" \
+              --data "$insert_body" \
+              "$api")"
+          fi
+
+          if [ "$code" -ge 400 ] 2>/dev/null; then
+            echo "::warning::Reminder sent, but the last-sent stamp could not be saved (HTTP ${code})."
+          else
+            echo "Archive reminder sent to ${REMINDER_TO}; next due in ${interval_label}."
+          fi
