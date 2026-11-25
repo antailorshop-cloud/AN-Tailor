@@ -139,10 +139,17 @@ secret with the current **Secret key** (`sb_secret_...`) from
 **`500` with `Could not read shop settings (HTTP 403)`**
 
 The request reached the function, but the key it used for the internal
-PostgREST call was disabled or wrong. The function now tries the key that
-authenticated the request first, then the platform-provided secret keys, so
-this error means none of them is valid. Copy the current Secret key into Vault
-again and redeploy the function.
+PostgREST call was disabled or wrong. The function tries the key that
+authenticated the request first, then the platform-provided secret keys, and
+for `sb_secret_...` keys it retries with the `Bearer` header form. The error
+now includes the PostgREST message, for example:
+
+```
+Could not read shop settings (HTTP 403). {"message":"permission denied for table shop_settings"}
+```
+
+If that still happens, copy the current Secret key into Vault again and
+redeploy the function.
 
 To check which key Vault holds:
 

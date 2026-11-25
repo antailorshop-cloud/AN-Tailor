@@ -105,46 +105,53 @@ function candidateKeys(supplied) {
   return out;
 }
 
-// Legacy service_role keys are JWTs. The newer sb_secret_ keys are opaque and
-// must travel only on apikey; sending one as Bearer makes the gateway parse it
-// as a JWT and reject the request before the function runs.
-function restHeaders(key, withJson) {
-  const headers = { apikey: key };
-  if (key.indexOf("eyJ") === 0) headers.Authorization = "Bearer " + key;
-  if (withJson) headers["Content-Type"] = "application/json";
-  return headers;
+// Legacy service_role keys are JWTs. The newer sb_secret_ keys are opaque.
+// The documented form for them is the apikey header alone; some projects also
+// accept the supabase-js form with a Bearer header, so try both.
+function headerModes(key) {
+  if (key.indexOf("eyJ") === 0) {
+    return [{ apikey: key, Authorization: "Bearer " + key }];
+  }
+  return [
+    { apikey: key },
+    { apikey: key, Authorization: "Bearer " + key }
+  ];
 }
 
 // A project can keep a stale or disabled legacy service_role key in the
 // environment while the newer sb_secret_ key is the working one. Try each
 // candidate and stop at the first accepted response.
-async function restRequest(projectUrl, path, supplied, init) {
+async function restRequest(label, projectUrl, path, supplied, init) {
   const keys = candidateKeys(supplied);
   if (!keys.length) throw new Error("No Supabase secret key is available to the function.");
 
   const options = init || {};
-  let last = null;
+  let status = 0;
+  let detail = "";
 
   for (const key of keys) {
-    const headers = restHeaders(key, !!options.body);
-    if (options.headers) {
-      Object.keys(options.headers).forEach(function (name) {
-        headers[name] = options.headers[name];
+    for (const mode of headerModes(key)) {
+      const headers = Object.assign({}, mode);
+      if (options.headers) {
+        Object.keys(options.headers).forEach(function (name) {
+          headers[name] = options.headers[name];
+        });
+      }
+      const res = await fetch(projectUrl + path, {
+        method: options.method || "GET",
+        headers: headers,
+        body: options.body
       });
+      if (res.ok) return res;
+      // Only auth failures justify another key or header form. A real 4xx/5xx
+      // is reported to the caller as is.
+      if (res.status !== 401 && res.status !== 403) return res;
+      status = res.status;
+      detail = ((await res.text()) || "").replace(/\s+/g, " ").slice(0, 300);
     }
-    const res = await fetch(projectUrl + path, {
-      method: options.method || "GET",
-      headers: headers,
-      body: options.body
-    });
-    if (res.ok) return res;
-    last = res;
-    // Only auth failures justify another key. A real 4xx/5xx is reported as is.
-    if (res.status !== 401 && res.status !== 403) return res;
-    await res.text();
   }
 
-  return last;
+  throw new Error(label + " (HTTP " + status + "). " + detail);
 }
 
 function emailText(label, base) {
@@ -214,13 +221,14 @@ Deno.serve(async (req) => {
     if (!projectUrl) throw new Error("SUPABASE_URL is not available.");
 
     const readRes = await restRequest(
+      "Could not read shop settings",
       projectUrl,
       "/rest/v1/shop_settings?select=key,value",
       supplied
     );
-    if (!readRes || !readRes.ok) {
-      throw new Error("Could not read shop settings (HTTP " +
-        (readRes ? readRes.status : "no response") + ").");
+    if (!readRes.ok) {
+      throw new Error("Could not read shop settings (HTTP " + readRes.status + "). " +
+        (await readRes.text()).slice(0, 300));
     }
 
     const rows = await readRes.json();
@@ -279,6 +287,7 @@ Deno.serve(async (req) => {
     // Upsert the stamp. A failed write must be visible: otherwise the next
     // scheduled run would send the same reminder again.
     const saveRes = await restRequest(
+      "Could not save the last-sent stamp",
       projectUrl,
       "/rest/v1/shop_settings?on_conflict=key",
       supplied,
@@ -289,10 +298,10 @@ Deno.serve(async (req) => {
       }
     );
 
-    if (!saveRes || !saveRes.ok) {
-      const detail = saveRes ? (await saveRes.text()).slice(0, 300) : "no response";
+    if (!saveRes.ok) {
+      const detail = (await saveRes.text()).slice(0, 300);
       throw new Error("Email sent, but the last-sent stamp failed (HTTP " +
-        (saveRes ? saveRes.status : "none") + "). " + detail);
+        saveRes.status + "). " + detail);
     }
 
     return json({
