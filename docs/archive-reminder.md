@@ -1,61 +1,124 @@
 # PDF archive reminder
 
-`.github/workflows/archive-reminder.yml` runs on the first of every month at
-03:30 UTC / 09:00 IST. It reads the interval saved in the app and only sends an
-email when that interval has elapsed since the last reminder.
+The reminder is sent by a **Supabase Edge Function** and scheduled by
+**Supabase Cron**. No Gmail password is stored in GitHub or in the frontend.
 
-The interval is set on **Settings → Backup → Archive reminder**:
+## How it behaves
 
-- 3 months
-- 6 months
-- 1 year
-- 1.5 years
+- The Owner saves the interval in **Settings -> Backup -> Archive reminder**:
+  - 3 months
+  - 6 months
+  - 1 year
+  - 1.5 years
+- Supabase Cron runs on the first of every month at **03:30 UTC / 09:00 IST**.
+- The function reads `archive_reminder_months` and
+  `archive_reminder_last_sent_at` from `shop_settings`.
+- It sends only when the saved interval has elapsed.
+- Saving a new interval in the app restarts the clock from that day.
+- The email contains links to the app only. It never clears storage.
+- After a successful send, `archive_reminder_last_sent_at` is updated.
 
-Saving a choice restarts the clock from that day. A manual workflow run that
-actually sends an email also restarts the clock.
+## 1. Deploy the Edge Function
 
-## Gmail setup
+The source is:
 
-1. Turn on 2-factor authentication for the Gmail account that will send the
-   reminder.
-2. Create a Google **App password** for that account. Use it only in GitHub
-   Actions; never put it in `scripts/config.js` or any frontend file.
-3. In the GitHub repository, add these Secrets:
+`supabase/functions/archive-reminder/index.ts`
 
-   | Secret | Value |
-   | --- | --- |
-   | `GMAIL_USER` | Gmail address used to send the reminder |
-   | `GMAIL_APP_PASSWORD` | 16-character Google App password |
-   | `REMINDER_TO` | Email address that receives the reminder, normally the Owner |
-   | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service_role key, used only by the scheduled job |
+With the Supabase CLI:
 
-4. Optional: add a Repository variable `SITE_URL` if the app is served somewhere
-   other than `https://antailorshop-cloud.github.io/AN-Tailor/`. Do not include a
-   trailing `#`; the workflow adds the deep links. The default Supabase project
-   URL is already in the workflow and can be overridden with a `SUPABASE_URL`
-   Repository variable.
+```bash
+supabase functions deploy archive-reminder --no-verify-jwt
+```
 
-The service_role key bypasses Row Level Security, so it must never appear in a
-frontend file, a commit, or a browser-visible setting. It stays in GitHub
-Actions secrets.
+Or in the Supabase Dashboard:
 
-## What the email contains
+1. Open **Edge Functions**.
+2. Create a function named `archive-reminder`.
+3. Paste the contents of `supabase/functions/archive-reminder/index.ts`.
+4. Disable **Verify JWT** for this function.
 
-- A link to `https://antailorshop-cloud.github.io/AN-Tailor/#/settings/backup`
-  for downloading both zips.
-- A link to `https://antailorshop-cloud.github.io/AN-Tailor/#/settings/clear-pdfs`
-  for opening the guarded clear panel.
+JWT verification is disabled because the function checks for the
+`service_role` key itself. The public anon key cannot call it.
 
-The email does **not** clear storage. Clearing still needs the Owner to be signed
-in and to complete every guard in the app.
+## 2. Add the email secrets
 
-## Testing
+In the Supabase Dashboard, open **Edge Functions -> Secrets** and add:
 
-Run the workflow manually from the GitHub repository's **Actions** tab using
-**Run workflow**:
+| Secret | Value |
+| --- | --- |
+| `GMAIL_USER` | The Gmail address that sends the reminder |
+| `GMAIL_APP_PASSWORD` | The 16-character Google App Password |
+| `REMINDER_TO` | The email address that receives the reminder |
+| `SITE_URL` | Optional. Defaults to `https://antailorshop-cloud.github.io/AN-Tailor/` |
 
-- Leave **Send even if the saved interval has not elapsed** unticked for a normal
-  run. If the interval has not elapsed, the job reports “not due” and sends
-  nothing.
-- Tick that box for a test email. A forced run still writes the last-sent stamp,
-  so the next scheduled reminder waits the full saved interval again.
+`SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are supplied automatically to
+the Edge Function. Do not add them as Gmail settings.
+
+The Gmail account needs 2-Step Verification, and the password must be a Google
+**App Password**, not the normal Gmail password.
+
+## 3. Add the scheduler
+
+Open the **SQL Editor** and run the file:
+
+`supabase/migrations/2026-11-25-archive-reminder-cron.sql`
+
+Before running it, replace the placeholders in the two `vault.create_secret`
+statements near the top:
+
+- `<project-ref>` with your Supabase project reference
+- `<service_role_key>` with the Supabase service_role key
+
+Run those two `vault.create_secret` statements once. Then run the rest of the
+migration. Do not commit the real values.
+
+The migration creates:
+
+- a helper function `public.invoke_archive_reminder`
+- a monthly Cron job named `an-tailor-archive-reminder`
+
+## 4. Test the reminder
+
+In the Supabase SQL Editor:
+
+```sql
+select public.invoke_archive_reminder(true);
+```
+
+The `true` forces a send even if the saved interval has not elapsed. Check:
+
+- **Edge Functions -> Logs** for the function result
+- **Integrations -> Cron -> History** for the request
+- the `REMINDER_TO` inbox and Spam folder
+
+A successful function response looks like:
+
+```json
+{
+  "sent": true,
+  "months": 3,
+  "interval": "3 months",
+  "to": "owner@example.com",
+  "forced": true
+}
+```
+
+After it succeeds, `archive_reminder_last_sent_at` in `shop_settings` is updated
+to the current time.
+
+## 5. Normal schedule
+
+The Cron job runs monthly and the function decides whether to send. A normal
+run outside the saved interval returns:
+
+```json
+{
+  "sent": false,
+  "reason": "not_due",
+  "interval": "3 months"
+}
+```
+
+The email does not clear storage. Clearing still needs the Owner to be signed
+in and to complete the archive tick, `CLEAR`, password check, and final
+confirmation.
