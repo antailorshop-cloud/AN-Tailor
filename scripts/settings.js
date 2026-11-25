@@ -91,7 +91,7 @@ window.ANT.settings = (function () {
     'receipt_print_size', 'gst_enabled', 'gstin', 'gst_state',
     'gst_tailoring_rate', 'gst_resale_low_rate', 'gst_resale_high_rate',
     'gst_garment_hsn', 'gst_service_sac', 'archive_reminder_months',
-    'archive_reminder_last_sent_at'];
+    'archive_reminder_last_sent_at', 'archive_reminder_due_at'];
 
   // The archive reminder is deliberately a small fixed set. A free-form number
   // invites "4" or "90" and then the scheduled job has to guess what was meant;
@@ -115,7 +115,8 @@ window.ANT.settings = (function () {
       wa_bill_size: '', receipt_print_size: '', gst_enabled: '0', gstin: '',
       gst_state: 'TN', gst_tailoring_rate: '', gst_resale_low_rate: '',
       gst_resale_high_rate: '', gst_garment_hsn: '', gst_service_sac: '',
-      archive_reminder_months: '3', archive_reminder_last_sent_at: '' },
+      archive_reminder_months: '3', archive_reminder_last_sent_at: '',
+      archive_reminder_due_at: '' },
     staff: { rows: [], access: {}, loading: false, error: null },
     clear: { picked: {}, busy: false },
     exporting: false,
@@ -263,7 +264,8 @@ window.ANT.settings = (function () {
       wa_bill_size: '', receipt_print_size: '', gst_enabled: '0', gstin: '',
       gst_state: 'TN', gst_tailoring_rate: '', gst_resale_low_rate: '',
       gst_resale_high_rate: '', gst_garment_hsn: '', gst_service_sac: '',
-      archive_reminder_months: '3', archive_reminder_last_sent_at: '' };
+      archive_reminder_months: '3', archive_reminder_last_sent_at: '',
+      archive_reminder_due_at: '' };
     rows.forEach(function (row) {
       if (SHOP_KEYS.indexOf(row.key) !== -1) {
         shop[row.key] = String(row.value == null ? '' : row.value);
@@ -1637,6 +1639,15 @@ window.ANT.settings = (function () {
   }
 
   function archiveLastText() {
+    var start = state.shop.archive_reminder_due_at;
+    if (start) {
+      var startDate = new Date(start);
+      if (!isNaN(startDate.getTime())) {
+        return 'Next reminder: ' + startDate.toLocaleDateString('en-IN', {
+          day: '2-digit', month: 'short', year: 'numeric'
+        }) + '.';
+      }
+    }
     var value = state.shop.archive_reminder_last_sent_at;
     if (!value) return 'No reminder has been sent yet.';
     var d = new Date(value);
@@ -1696,9 +1707,12 @@ window.ANT.settings = (function () {
     state.savingArchiveInterval = true;
     paint();
 
+    // A saved choice restarts the clock from today, so any one-off start date
+    // is removed at the same time.
     Promise.all([
       putSetting('archive_reminder_months', String(months)),
-      putSetting('archive_reminder_last_sent_at', new Date().toISOString())
+      putSetting('archive_reminder_last_sent_at', new Date().toISOString()),
+      putSetting('archive_reminder_due_at', '')
     ]).then(function (results) {
       state.savingArchiveInterval = false;
       var bad = results.filter(function (r) { return r && r.error; })[0];

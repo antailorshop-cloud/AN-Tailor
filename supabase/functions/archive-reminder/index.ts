@@ -22,7 +22,7 @@ const INTERVALS = {
 
 // Bump this whenever the function changes. Every response echoes it, so a
 // stale deployment is obvious instead of looking like a database problem.
-const VERSION = "2026-11-25.3";
+const VERSION = "2026-11-25.4";
 
 function json(body, status = 200) {
   const payload = Object.assign({ version: VERSION }, body || {});
@@ -259,12 +259,21 @@ Deno.serve(async (req) => {
     const label = INTERVALS[months];
     const last = setting(rows, "archive_reminder_last_sent_at");
     const lastDate = last ? new Date(last) : null;
+    // An explicit first/next date wins over the interval. It lets the shop say
+    // "start on 1 January" without pretending an email was already sent.
+    const start = setting(rows, "archive_reminder_due_at");
+    const startDate = start ? new Date(start) : null;
 
     let dueAt = null;
     let due = true;
-    if (!force && lastDate && !Number.isNaN(lastDate.getTime())) {
-      dueAt = addMonths(lastDate, months);
-      due = Date.now() >= dueAt.getTime();
+    if (!force) {
+      if (startDate && !Number.isNaN(startDate.getTime())) {
+        dueAt = startDate;
+        due = Date.now() >= dueAt.getTime();
+      } else if (lastDate && !Number.isNaN(lastDate.getTime())) {
+        dueAt = addMonths(lastDate, months);
+        due = Date.now() >= dueAt.getTime();
+      }
     }
 
     if (!due) {
@@ -317,8 +326,8 @@ Deno.serve(async (req) => {
       text: emailText(label, base)
     });
 
-    // Upsert the stamp. A failed write must be visible: otherwise the next
-    // scheduled run would send the same reminder again.
+    // Upsert the stamp and clear any one-off start date. A failed write must be
+    // visible: otherwise the next scheduled run would send the reminder again.
     const saveRes = await restRequest(
       "Could not save the last-sent stamp",
       projectUrl,
@@ -327,7 +336,10 @@ Deno.serve(async (req) => {
       {
         method: "POST",
         headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-        body: JSON.stringify([{ key: "archive_reminder_last_sent_at", value: sentAt }])
+        body: JSON.stringify([
+          { key: "archive_reminder_last_sent_at", value: sentAt },
+          { key: "archive_reminder_due_at", value: "" }
+        ])
       }
     );
 

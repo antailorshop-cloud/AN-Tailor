@@ -14,7 +14,11 @@ The reminder is sent by a **Supabase Edge Function** and scheduled by
 - The function reads `archive_reminder_months` and
   `archive_reminder_last_sent_at` from `shop_settings`.
 - It sends only when the saved interval has elapsed.
-- Saving a new interval in the app restarts the clock from that day.
+- Saving a new interval in the app restarts the clock from that day and removes
+  any one-off start date.
+- An explicit `archive_reminder_due_at` can be set for a first reminder on a
+  specific date, such as 1 January. After that send it is cleared, and the
+  saved interval takes over.
 - The email contains links to the app only. It never clears storage.
 - After a successful send, `archive_reminder_last_sent_at` is updated.
 
@@ -67,7 +71,28 @@ owner@gmail.com, partner@gmail.com, accounts@gmail.com
 The function trims each address, rejects the whole run if one is malformed, and
 sends a single email to all of them.
 
-## 3. Add the scheduler
+## 3. Start on a fixed date
+
+To make the first reminder arrive on **1 January 2027** and then repeat every
+year, run this once in the SQL Editor:
+
+```sql
+insert into public.shop_settings (key, value) values
+  ('archive_reminder_months', '12'),
+  ('archive_reminder_last_sent_at', ''),
+  ('archive_reminder_due_at', '2027-01-01T00:00:00+00')
+on conflict (key) do update set value = excluded.value;
+```
+
+The monthly Cron job runs on the 1st at 03:30 UTC / 09:00 IST. It will not send
+before 1 January 2027. After that send, the function writes the real
+`archive_reminder_last_sent_at`, clears `archive_reminder_due_at`, and the next
+reminder is due in 1 year.
+
+Do not press **Save reminder interval** in the app after this, because that
+deliberately resets the clock to today.
+
+## 4. Add the scheduler
 
 Open the **SQL Editor** and run the file:
 
@@ -92,7 +117,7 @@ The migration creates:
 - a helper function `public.invoke_archive_reminder`
 - a monthly Cron job named `an-tailor-archive-reminder`
 
-## 4. Test the reminder
+## 5. Test the reminder
 
 In the Supabase SQL Editor:
 
@@ -121,7 +146,7 @@ A successful function response looks like:
 After it succeeds, `archive_reminder_last_sent_at` in `shop_settings` is updated
 to the current time.
 
-## 5. Normal schedule
+## 6. Normal schedule
 
 The Cron job runs monthly and the function decides whether to send. A normal
 run outside the saved interval returns:
@@ -138,7 +163,7 @@ The email does not clear storage. Clearing still needs the Owner to be signed
 in and to complete the archive tick, `CLEAR`, password check, and final
 confirmation.
 
-## 6. Troubleshooting
+## 7. Troubleshooting
 
 **`401 Unauthorized`**
 
